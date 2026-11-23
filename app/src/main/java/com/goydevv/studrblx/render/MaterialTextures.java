@@ -1,10 +1,10 @@
 package com.goydevv.studrblx.render;
 
 import android.content.Context;
+import android.content.res.AssetManager;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import java.io.InputStream;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -18,19 +18,21 @@ import kotlin.collections.MapsKt;
 import kotlin.collections.SetsKt;
 import kotlin.io.CloseableKt;
 import kotlin.jvm.internal.Intrinsics;
-import kotlin.text.StringsKt;
 
-/* JADX INFO: compiled from: MaterialTextures.kt */
-/* JADX INFO: loaded from: classes8.dex */
 public final class MaterialTextures {
-    private static Context app;
+    private static volatile Context app;
+    private static volatile boolean assetsIndexed;
     private static volatile int epoch;
-    private static Bitmap surfaces;
-    private static boolean surfacesTried;
+    private static volatile Bitmap surfaces;
+    private static volatile boolean surfacesTried;
     public static final MaterialTextures INSTANCE = new MaterialTextures();
     private static final Map<Integer, String> names = MapsKt.mapOf(TuplesKt.to(256, "plastic"), TuplesKt.to(512, "wood"), TuplesKt.to(528, "woodplanks"), TuplesKt.to(784, "marble"), TuplesKt.to(788, "basalt"), TuplesKt.to(800, "slate"), TuplesKt.to(804, "crackedlava"), TuplesKt.to(816, "concrete"), TuplesKt.to(820, "limestone"), TuplesKt.to(832, "granite"), TuplesKt.to(836, "pavement"), TuplesKt.to(848, "brick"), TuplesKt.to(864, "pebble"), TuplesKt.to(880, "cobblestone"), TuplesKt.to(896, "rock"), TuplesKt.to(912, "sandstone"), TuplesKt.to(1040, "corrodedmetal"), TuplesKt.to(1056, "diamondplate"), TuplesKt.to(1072, "foil"), TuplesKt.to(1088, "metal"), TuplesKt.to(1280, "grass"), TuplesKt.to(1284, "leafygrass"), TuplesKt.to(1296, "sand"), TuplesKt.to(1312, "fabric"), TuplesKt.to(1328, "snow"), TuplesKt.to(1344, "mud"), TuplesKt.to(1360, "ground"), TuplesKt.to(1376, "asphalt"), TuplesKt.to(1392, "salt"), TuplesKt.to(1536, "ice"), TuplesKt.to(1552, "glacier"), TuplesKt.to(1568, "glass"), TuplesKt.to(2306, "ceramictiles"), TuplesKt.to(2307, "clayrooftiles"), TuplesKt.to(2308, "roofshingles"), TuplesKt.to(2311, "rubber"));
     private static final Set<String> doubleTile = SetsKt.setOf(new String[]{"brick", "cobblestone", "grass", "marble", "woodplanks"});
-    private static final HashMap<String, Boolean> available = new HashMap<>();
+    private static final ConcurrentHashMap<String, Boolean> available = new ConcurrentHashMap<>();
+    private static final ConcurrentHashMap<Integer, Pair<String, String>> pickCache = new ConcurrentHashMap<>();
+    private static final ConcurrentHashMap<Integer, String> keyCache = new ConcurrentHashMap<>();
+    private static final Pair<String, String> NO_PICK = TuplesKt.to("", "");
+    private static final String NO_KEY = "";
     private static final ConcurrentHashMap<String, MatTex> ready = new ConcurrentHashMap<>();
     private static final ConcurrentHashMap.KeySetView<String, Boolean> pending = ConcurrentHashMap.newKeySet();
     private static final ConcurrentHashMap.KeySetView<String, Boolean> failed = ConcurrentHashMap.newKeySet();
@@ -39,7 +41,6 @@ public final class MaterialTextures {
     private MaterialTextures() {
     }
 
-    /* JADX INFO: compiled from: MaterialTextures.kt */
     public static final class MatTex {
         private final Bitmap color;
         private final Bitmap normal;
@@ -73,6 +74,45 @@ public final class MaterialTextures {
         if (app == null) {
             app = ctx.getApplicationContext();
         }
+        if (!assetsIndexed && app != null) {
+            indexAssets(app.getAssets());
+        }
+    }
+
+    private final void indexAssets(AssetManager assets) {
+        if (assets == null) {
+            return;
+        }
+        String[] dirs = new String[]{"materials/modern", "materials/pre2022"};
+        for (String dir : dirs) {
+            try {
+                String[] list = assets.list(dir);
+                if (list != null) {
+                    for (String f : list) {
+                        available.put(dir + "/" + f, Boolean.TRUE);
+                    }
+                }
+            } catch (Exception e) {
+            }
+        }
+        assetsIndexed = true;
+        for (Integer matId : names.keySet()) {
+            int m = matId.intValue();
+            precomputePick(m, false);
+            precomputePick(m, true);
+        }
+    }
+
+    private final void precomputePick(int material, boolean modern) {
+        int cacheKey = (material << 1) | (modern ? 1 : 0);
+        Pair<String, String> picked = pickUncached(material, modern);
+        if (picked == null) {
+            pickCache.put(Integer.valueOf(cacheKey), NO_PICK);
+            keyCache.put(Integer.valueOf(cacheKey), NO_KEY);
+        } else {
+            pickCache.put(Integer.valueOf(cacheKey), picked);
+            keyCache.put(Integer.valueOf(cacheKey), picked.component1() + "/" + picked.component2());
+        }
     }
 
     public final boolean hasTexture(int material) {
@@ -80,33 +120,33 @@ public final class MaterialTextures {
     }
 
     private final boolean exists(String path) {
-        Boolean boolValueOf;
-        synchronized (available) {
-            Map map = available;
-            Boolean bool = (Boolean) map.get(path);
-            if (bool == null) {
-                Context context = app;
-                boolean z = false;
-                if (context == null) {
-                    return false;
-                }
-                try {
-                    String[] list = context.getAssets().list(com.goydevv.studrblx.util.KtCompat.substringBeforeLast(path, '/'));
-                    if (list != null && ArraysKt.contains(list, com.goydevv.studrblx.util.KtCompat.substringAfterLast(path, '/'))) {
-                        z = true;
-                    }
-                } catch (Exception e) {
-                }
-                boolValueOf = Boolean.valueOf(z);
-                map.put(path, boolValueOf);
-            } else {
-                boolValueOf = bool;
-            }
-            return boolValueOf.booleanValue();
+        Boolean cached = available.get(path);
+        if (cached != null) {
+            return cached.booleanValue();
         }
+        if (assetsIndexed && (path.startsWith("materials/modern/") || path.startsWith("materials/pre2022/"))) {
+            available.putIfAbsent(path, Boolean.FALSE);
+            return false;
+        }
+        Context context = app;
+        if (context == null) {
+            return false;
+        }
+        boolean found = false;
+        try {
+            String dir = com.goydevv.studrblx.util.KtCompat.substringBeforeLast(path, '/');
+            String file = com.goydevv.studrblx.util.KtCompat.substringAfterLast(path, '/');
+            String[] list = context.getAssets().list(dir);
+            if (list != null && ArraysKt.contains(list, file)) {
+                found = true;
+            }
+        } catch (Exception e) {
+        }
+        available.putIfAbsent(path, Boolean.valueOf(found));
+        return found;
     }
 
-    private final Pair<String, String> pick(int material, boolean modern) {
+    private final Pair<String, String> pickUncached(int material, boolean modern) {
         String n = names.get(Integer.valueOf(material));
         if (n == null) {
             return null;
@@ -126,6 +166,19 @@ public final class MaterialTextures {
             return TuplesKt.to(second, n);
         }
         return null;
+    }
+
+    private final Pair<String, String> pick(int material, boolean modern) {
+        Integer cacheKey = Integer.valueOf((material << 1) | (modern ? 1 : 0));
+        Pair<String, String> cached = pickCache.get(cacheKey);
+        if (cached != null) {
+            return cached == NO_PICK ? null : cached;
+        }
+        Pair<String, String> picked = pickUncached(material, modern);
+        if (app != null) {
+            pickCache.putIfAbsent(cacheKey, picked != null ? picked : NO_PICK);
+        }
+        return picked;
     }
 
     public final Bitmap surfaces() {
@@ -163,25 +216,45 @@ public final class MaterialTextures {
     }
 
     public final MatTex get(int material, boolean modern) {
-        final Context ctx;
+        Integer cacheKey = Integer.valueOf((material << 1) | (modern ? 1 : 0));
+        String key = keyCache.get(cacheKey);
+        if (key != null) {
+            if (key == NO_KEY) {
+                return null;
+            }
+            MatTex matTex = ready.get(key);
+            if (matTex != null) {
+                return matTex;
+            }
+            if (failed.contains(key)) {
+                return null;
+            }
+        }
         Pair<String, String> pairPick = pick(material, modern);
         if (pairPick == null) {
+            if (app != null) {
+                keyCache.putIfAbsent(cacheKey, NO_KEY);
+            }
             return null;
         }
         final String set = pairPick.component1();
         final String n = pairPick.component2();
-        final String key = set + "/" + n;
-        MatTex matTex = ready.get(key);
+        final String resolvedKey = key != null ? key : (set + "/" + n);
+        if (key == null && app != null) {
+            keyCache.putIfAbsent(cacheKey, resolvedKey);
+        }
+        MatTex matTex = ready.get(resolvedKey);
         if (matTex != null) {
             return matTex;
         }
-        if (failed.contains(key) || !pending.add(key) || (ctx = app) == null) {
+        final Context ctx = app;
+        if (failed.contains(resolvedKey) || !pending.add(resolvedKey) || ctx == null) {
             return null;
         }
-        pool.execute(new Runnable() { // from class: com.goydevv.studrblx.render.MaterialTextures$$ExternalSyntheticLambda0
-            @Override // java.lang.Runnable
+        pool.execute(new Runnable() {
+            @Override
             public final void run() {
-                MaterialTextures.get$lambda$8(n, ctx, key, set);
+                MaterialTextures.get$lambda$8(n, ctx, resolvedKey, set);
             }
         });
         return null;
@@ -191,65 +264,57 @@ public final class MaterialTextures {
         Bitmap color;
         float spt;
         try {
-            try {
-                BitmapFactory.Options opts = new BitmapFactory.Options();
-                opts.inPreferredConfig = Bitmap.Config.ARGB_8888;
-                Bitmap normal = null;
-                if (Intrinsics.areEqual($n, "plastic")) {
-                    color = null;
-                } else {
-                    InputStream inputStreamOpen = $ctx.getAssets().open("materials/" + $key + "_c.jpg");
-                    try {
-                        color = BitmapFactory.decodeStream(inputStreamOpen, null, opts);
-                        CloseableKt.closeFinally(inputStreamOpen, null);
-                        if (color == null) {
-                            throw new IllegalStateException("bad image");
-                        }
-                    } catch (Throwable th) {
-                        try {
-                            throw th;
-                        } catch (Throwable th2) {
-                            CloseableKt.closeFinally(inputStreamOpen, th);
-                            throw th2;
-                        }
-                    }
-                }
+            BitmapFactory.Options opts = new BitmapFactory.Options();
+            opts.inPreferredConfig = Bitmap.Config.ARGB_8888;
+            Bitmap normal = null;
+            if (Intrinsics.areEqual($n, "plastic")) {
+                color = null;
+            } else {
+                InputStream inputStreamOpen = $ctx.getAssets().open("materials/" + $key + "_c.jpg");
                 try {
-                    InputStream inputStreamOpen2 = $ctx.getAssets().open("materials/" + $key + "_n.jpg");
-                    try {
-                        normal = BitmapFactory.decodeStream(inputStreamOpen2, null, opts);
-                        CloseableKt.closeFinally(inputStreamOpen2, null);
-                    } catch (Throwable th3) {
-                        try {
-                            throw th3;
-                        } catch (Throwable th4) {
-                            CloseableKt.closeFinally(inputStreamOpen2, th3);
-                            throw th4;
-                        }
+                    color = BitmapFactory.decodeStream(inputStreamOpen, null, opts);
+                    CloseableKt.closeFinally(inputStreamOpen, null);
+                    if (color == null) {
+                        throw new IllegalStateException("bad image");
                     }
-                } catch (Exception e) {
+                } catch (Throwable th) {
+                    try {
+                        throw th;
+                    } catch (Throwable th2) {
+                        CloseableKt.closeFinally(inputStreamOpen, th);
+                        throw th2;
+                    }
                 }
-                if (color == null && normal == null) {
-                    throw new IllegalStateException("no maps");
-                }
-                if (Intrinsics.areEqual($n, "plastic")) {
-                    spt = 4.0f;
-                } else {
-                    spt = (Intrinsics.areEqual($set, "pre2022") && doubleTile.contains($n)) ? 16.0f : 8.0f;
-                }
-                ready.put($key, new MatTex(color, normal, spt));
-                pending.remove($key);
-                epoch++;
-            } catch (Exception e2) {
-                failed.add($key);
             }
-        } catch (Throwable th5) {
+            try {
+                InputStream inputStreamOpen2 = $ctx.getAssets().open("materials/" + $key + "_n.jpg");
+                try {
+                    normal = BitmapFactory.decodeStream(inputStreamOpen2, null, opts);
+                    CloseableKt.closeFinally(inputStreamOpen2, null);
+                } catch (Throwable th3) {
+                    try {
+                        throw th3;
+                    } catch (Throwable th4) {
+                        CloseableKt.closeFinally(inputStreamOpen2, th3);
+                        throw th4;
+                    }
+                }
+            } catch (Exception e) {
+            }
+            if (color == null && normal == null) {
+                throw new IllegalStateException("no maps");
+            }
+            if (Intrinsics.areEqual($n, "plastic")) {
+                spt = 4.0f;
+            } else {
+                spt = (Intrinsics.areEqual($set, "pre2022") && doubleTile.contains($n)) ? 16.0f : 8.0f;
+            }
+            ready.put($key, new MatTex(color, normal, spt));
+        } catch (Exception e2) {
+            failed.add($key);
+        } finally {
             pending.remove($key);
-            MaterialTextures materialTextures3 = INSTANCE;
-            int i2 = epoch;
-            MaterialTextures materialTextures4 = INSTANCE;
-            epoch = i2 + 1;
-            throw th5;
+            epoch++;
         }
     }
 }

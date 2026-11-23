@@ -357,13 +357,122 @@ public final class RbxXmlReader {
                 case 4:
                 case 5:
                     if (!stack.isEmpty()) {
-                        ((XNode) CollectionsKt.last((List) stack)).getText().append(p.getText());
+                        String txt = p.getText();
+                        if (txt != null) {
+                            ((XNode) CollectionsKt.last((List) stack)).getText().append(txt);
+                        }
+                    }
+                    break;
+                case 6:
+                    if (!stack.isEmpty()) {
+                        String entName = p.getName();
+                        String ent = (entName != null && entName.startsWith("#"))
+                                ? decodeEntityRef(entName)
+                                : p.getText();
+                        if (ent == null || ent.isEmpty()) {
+                            ent = decodeEntityRef(entName);
+                        }
+                        if (ent != null) {
+                            ((XNode) CollectionsKt.last((List) stack)).getText().append(ent);
+                        }
+                    }
+                    break;
+                case 7:
+                    if (!stack.isEmpty()) {
+                        String ws = p.getText();
+                        if (ws != null) {
+                            ((XNode) CollectionsKt.last((List) stack)).getText().append(ws);
+                        }
                     }
                     break;
             }
             ev = p.nextToken();
         }
         return root;
+    }
+
+    private final String decodeEntityRef(String name) {
+        if (name == null || name.isEmpty()) {
+            return "";
+        }
+        switch (name) {
+            case "lt":
+                return "<";
+            case "gt":
+                return ">";
+            case "amp":
+                return "&";
+            case "quot":
+                return "\"";
+            case "apos":
+                return "'";
+            default:
+                if (name.startsWith("#x") || name.startsWith("#X")) {
+                    try {
+                        int cp = Integer.parseInt(name.substring(2), 16);
+                        if (Character.isValidCodePoint(cp)) {
+                            return new String(Character.toChars(cp));
+                        }
+                    } catch (Exception ignored) {
+                    }
+                } else if (name.startsWith("#")) {
+                    try {
+                        int cp = Integer.parseInt(name.substring(1), 10);
+                        if (Character.isValidCodePoint(cp)) {
+                            return new String(Character.toChars(cp));
+                        }
+                    } catch (Exception ignored) {
+                    }
+                }
+                return "&" + name + ";";
+        }
+    }
+
+    private final int parseIntFlexible(String s) {
+        if (s == null || s.isEmpty()) {
+            return 0;
+        }
+        try {
+            return Integer.parseInt(s);
+        } catch (Exception e) {
+            try {
+                return Math.round(Float.parseFloat(s));
+            } catch (Exception ignored) {
+                return 0;
+            }
+        }
+    }
+
+    private final int parseFontWeight(String wStr) {
+        if (wStr == null || wStr.isEmpty()) {
+            return 400;
+        }
+        try {
+            return Integer.parseInt(wStr);
+        } catch (Exception ignored) {
+        }
+        switch (wStr.toLowerCase(Locale.ROOT)) {
+            case "thin":
+                return 100;
+            case "extralight":
+                return 200;
+            case "light":
+                return 300;
+            case "regular":
+                return 400;
+            case "medium":
+                return 500;
+            case "semibold":
+                return 600;
+            case "bold":
+                return 700;
+            case "extrabold":
+                return 800;
+            case "heavy":
+                return 900;
+            default:
+                return 400;
+        }
     }
 
     private final CFrame cframe(XNode n) {
@@ -384,6 +493,9 @@ public final class RbxXmlReader {
         if (urlNode != null) {
             return TuplesKt.to(1, urlNode.getText().toString().trim());
         }
+        if (n.child("none") != null) {
+            return TuplesKt.to(34, new ContentValue(0, "", null));
+        }
         if (n.child("null") != null) {
             return TuplesKt.to(1, "");
         }
@@ -403,7 +515,7 @@ public final class RbxXmlReader {
         if (urlNode != null) {
             return urlNode.getText().toString().trim();
         }
-        if (n.child("null") != null) {
+        if (n.child("null") != null || n.child("none") != null) {
             return "";
         }
         return n.getText().toString().trim();
@@ -448,13 +560,10 @@ public final class RbxXmlReader {
                 int off = 0;
                 for (XNode c : n.getChildren()) {
                     String ct = c.getText() != null ? c.getText().toString().trim() : "";
-                    if ("S".equals(c.getName())) {
+                    if ("S".equalsIgnoreCase(c.getName())) {
                         sc = parseSpecial(ct);
-                    } else if ("O".equals(c.getName())) {
-                        try {
-                            off = Integer.parseInt(ct);
-                        } catch (Exception ignored) {
-                        }
+                    } else if ("O".equalsIgnoreCase(c.getName())) {
+                        off = parseIntFlexible(ct);
                     }
                 }
                 return TuplesKt.to(6, new UDim(sc, off));
@@ -466,20 +575,14 @@ public final class RbxXmlReader {
                 int yo = 0;
                 for (XNode c : n.getChildren()) {
                     String ct = c.getText() != null ? c.getText().toString().trim() : "";
-                    if ("XS".equals(c.getName())) {
+                    if ("XS".equalsIgnoreCase(c.getName())) {
                         xs = parseSpecial(ct);
-                    } else if ("YS".equals(c.getName())) {
+                    } else if ("YS".equalsIgnoreCase(c.getName())) {
                         ys = parseSpecial(ct);
-                    } else if ("XO".equals(c.getName())) {
-                        try {
-                            xo = Integer.parseInt(ct);
-                        } catch (Exception ignored) {
-                        }
-                    } else if ("YO".equals(c.getName())) {
-                        try {
-                            yo = Integer.parseInt(ct);
-                        } catch (Exception ignored) {
-                        }
+                    } else if ("XO".equalsIgnoreCase(c.getName())) {
+                        xo = parseIntFlexible(ct);
+                    } else if ("YO".equalsIgnoreCase(c.getName())) {
+                        yo = parseIntFlexible(ct);
                     }
                 }
                 return TuplesKt.to(7, new UDim2(xs, xo, ys, yo));
@@ -526,16 +629,26 @@ public final class RbxXmlReader {
                 return TuplesKt.to(11, new BrickColorV(bc));
             }
             case "Color3": {
+                if (n.getChildren().isEmpty() && !txt.isEmpty()) {
+                    try {
+                        long packed = Long.parseLong(txt);
+                        float r = ((packed >> 16) & 255) / 255.0f;
+                        float g = ((packed >> 8) & 255) / 255.0f;
+                        float b = (packed & 255) / 255.0f;
+                        return TuplesKt.to(12, new Color3(r, g, b));
+                    } catch (Exception ignored) {
+                    }
+                }
                 float r = 0.0f;
                 float g = 0.0f;
                 float b = 0.0f;
                 for (XNode c : n.getChildren()) {
                     String ct = c.getText() != null ? c.getText().toString().trim() : "";
-                    if ("R".equals(c.getName())) {
+                    if ("R".equalsIgnoreCase(c.getName())) {
                         r = parseSpecial(ct);
-                    } else if ("G".equals(c.getName())) {
+                    } else if ("G".equalsIgnoreCase(c.getName())) {
                         g = parseSpecial(ct);
-                    } else if ("B".equals(c.getName())) {
+                    } else if ("B".equalsIgnoreCase(c.getName())) {
                         b = parseSpecial(ct);
                     }
                 }
@@ -557,9 +670,9 @@ public final class RbxXmlReader {
                 float y = 0.0f;
                 for (XNode c : n.getChildren()) {
                     String ct = c.getText() != null ? c.getText().toString().trim() : "";
-                    if ("X".equals(c.getName())) {
+                    if ("X".equalsIgnoreCase(c.getName())) {
                         x = parseSpecial(ct);
-                    } else if ("Y".equals(c.getName())) {
+                    } else if ("Y".equalsIgnoreCase(c.getName())) {
                         y = parseSpecial(ct);
                     }
                 }
@@ -571,11 +684,11 @@ public final class RbxXmlReader {
                 float z = 0.0f;
                 for (XNode c : n.getChildren()) {
                     String ct = c.getText() != null ? c.getText().toString().trim() : "";
-                    if ("X".equals(c.getName())) {
+                    if ("X".equalsIgnoreCase(c.getName())) {
                         x = parseSpecial(ct);
-                    } else if ("Y".equals(c.getName())) {
+                    } else if ("Y".equalsIgnoreCase(c.getName())) {
                         y = parseSpecial(ct);
-                    } else if ("Z".equals(c.getName())) {
+                    } else if ("Z".equalsIgnoreCase(c.getName())) {
                         z = parseSpecial(ct);
                     }
                 }
@@ -686,14 +799,7 @@ public final class RbxXmlReader {
                 return TuplesKt.to(31, new UniqueId(decodeHex16(txt)));
             case "Font": {
                 String family = contentText(n.child("Family"));
-                int weight = 400;
-                String wStr = n.t("Weight");
-                if (!wStr.isEmpty()) {
-                    try {
-                        weight = Integer.parseInt(wStr);
-                    } catch (Exception ignored) {
-                    }
-                }
+                int weight = parseFontWeight(n.t("Weight"));
                 int style = 0;
                 String sStr = n.t("Style");
                 if ("Italic".equalsIgnoreCase(sStr)) {

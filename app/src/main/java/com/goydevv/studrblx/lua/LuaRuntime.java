@@ -126,13 +126,54 @@ public final class LuaRuntime {
     }
 
     public final void setFocusedTextBox(Instance inst) {
+        Instance prev = this.focusedTextBox;
+        if (prev == inst) {
+            return;
+        }
         this.focusedTextBox = inst;
+        Instance uis = this.dm != null ? this.dm.findService("UserInputService") : null;
+        if (uis != null) {
+            if (prev != null && hasConn(uis, "TextBoxFocusReleased")) {
+                fire(uis, "TextBoxFocusReleased", wrap(prev));
+            }
+            if (inst != null && hasConn(uis, "TextBoxFocused")) {
+                fire(uis, "TextBoxFocused", wrap(inst));
+            }
+        }
     }
     private final WeakHashMap<Instance, LuaValue> wrappers;
 
     /* JADX INFO: renamed from: Companion, reason: from kotlin metadata */
     public static final Companion INSTANCE = new Companion(null);
     private static final LuaRuntime$Companion$protoCache$1 protoCache = new LuaRuntime$Companion$protoCache$1();
+    private static final LinkedHashMap<String, Pair<String, String>> transpileCache = new LinkedHashMap<String, Pair<String, String>>(256, 0.75f, true) {
+        @Override
+        protected boolean removeEldestEntry(Map.Entry<String, Pair<String, String>> eldest) {
+            return size() > 2048;
+        }
+    };
+
+    public static String transpileCached(String source, boolean hoistTopLocals) {
+        Intrinsics.checkNotNullParameter(source, "source");
+        String cacheKey = (hoistTopLocals ? "1:" : "0:") + source.length() + ":" + source.hashCode();
+        synchronized (transpileCache) {
+            Pair<String, String> hit = transpileCache.get(cacheKey);
+            if (hit != null && source.equals(hit.getFirst())) {
+                return hit.getSecond();
+            }
+        }
+        String out = transpileSafe(source, hoistTopLocals);
+        if (LuauTranspiler.INSTANCE.getLastFailure() == null) {
+            synchronized (transpileCache) {
+                transpileCache.put(cacheKey, TuplesKt.to(source, out));
+            }
+        }
+        return out;
+    }
+    private static String transpileSafe(String src, boolean hoistTopLocals) {
+        try { return LuauTranspiler.INSTANCE.transpile(src, hoistTopLocals); } catch (Exception e) { return src; }
+    }
+
 
     public LuaRuntime(Studio studio, DataModel dm, boolean isPlay) {
         Intrinsics.checkNotNullParameter(studio, "studio");
@@ -1413,7 +1454,7 @@ public final class LuaRuntime {
         boolean limit = false;
         try {
             Globals globals = this.globals;
-            byte[] bytes = LuauTranspiler.transpile$default(LuauTranspiler.INSTANCE, source, false, 2, null).getBytes(Charsets.UTF_8);
+            byte[] bytes = transpileCached(source, false).getBytes(Charsets.UTF_8);
             Intrinsics.checkNotNullExpressionValue(bytes, "getBytes(...)");
             Prototype prototypeCompilePrototype = globals.compilePrototype(new ByteArrayInputStream(bytes), "=" + chunkName);
             Intrinsics.checkNotNull(prototypeCompilePrototype);
@@ -1448,7 +1489,7 @@ public final class LuaRuntime {
                 throw e;
             }
             Globals globals2 = this.globals;
-            byte[] bytes2 = LuauTranspiler.INSTANCE.transpile(source, true).getBytes(Charsets.UTF_8);
+            byte[] bytes2 = transpileCached(source, true).getBytes(Charsets.UTF_8);
             Intrinsics.checkNotNullExpressionValue(bytes2, "getBytes(...)");
             Prototype prototypeCompilePrototype2 = globals2.compilePrototype(new ByteArrayInputStream(bytes2), "=" + chunkName);
             Intrinsics.checkNotNull(prototypeCompilePrototype2);

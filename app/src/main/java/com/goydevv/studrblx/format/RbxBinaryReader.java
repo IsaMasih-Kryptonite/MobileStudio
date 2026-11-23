@@ -51,6 +51,9 @@ public final class RbxBinaryReader {
             "MeshData2", "SmoothGrid", "MaterialColors", "ModelMeshData",
             "ChildData", "PhysicsGrid"
     });
+    private static final Set<String> TEXT_PROPS = SetsKt.setOf(new String[]{
+            "Source", "Name", "Text", "PlaceholderText", "Value", "LinkedSource"
+    });
     private final HashMap<Integer, ClassInfo> classes;
     private final byte[] data;
     private final HashMap<Integer, Instance> instances;
@@ -396,10 +399,17 @@ public final class RbxBinaryReader {
         switch (type) {
             case 1:
                 boolean forceBinary = BINARY_PROPS.contains(name);
+                boolean forceText = TEXT_PROPS.contains(name);
                 ArrayList arrayList = new ArrayList(n);
                 for (int i = 0; i < n; i++) {
                     byte[] raw = r.stringBytes();
-                    arrayList.add(forceBinary ? new BinaryString(raw) : RbxBinaryKt.bytesToStringValue(raw));
+                    if (forceBinary) {
+                        arrayList.add(new BinaryString(raw));
+                    } else if (forceText) {
+                        arrayList.add(new String(raw, Charsets.UTF_8));
+                    } else {
+                        arrayList.add(RbxBinaryKt.bytesToStringValue(raw));
+                    }
                 }
                 return arrayList;
             case 2:

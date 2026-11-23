@@ -94,6 +94,7 @@ public final class ViewportView extends FrameLayout {
         this.gl.setPreserveEGLContextOnPause(true);
         this.gl.setRenderer(this.renderer);
         this.gl.setRenderMode(1);
+        this.gui.setVisibility(View.VISIBLE);
         addView(this.gl, new FrameLayout.LayoutParams(-1, -1));
         addView(this.gui, new FrameLayout.LayoutParams(-1, -1));
         addView(this.controls, new FrameLayout.LayoutParams(-1, -1));
@@ -135,14 +136,23 @@ public final class ViewportView extends FrameLayout {
     static final Unit _init_$lambda$1(final ViewportView this$0) {
         ArrayList<Instance> children;
         long now = System.currentTimeMillis();
-        if (now - this$0.lastOverlay > (this$0.studio.isPlaying() ? 50L : 80L)) {
+        boolean playing = this$0.studio.isPlaying();
+        boolean dirty = this$0.gui.isDirty();
+        long interval = (playing || dirty) ? 16L : 66L;
+        if (now - this$0.lastOverlay >= interval) {
             this$0.lastOverlay = now;
             Instance instanceFindService = this$0.studio.getModel().findService("CoreGui");
             boolean core = false;
             if (instanceFindService != null && (children = instanceFindService.getChildren()) != null && (!children.isEmpty())) {
                 core = true;
             }
-            if (this$0.gui.getHasContent() || this$0.studio.isPlaying() || !this$0.studio.getPluginWidgets().isEmpty() || this$0.gui.getSelectedGui() != null || core) {
+            Instance starterGui = this$0.studio.getModel().findService("StarterGui");
+            boolean hasStarterGui = !playing
+                    && starterGui != null
+                    && !Boolean.FALSE.equals(starterGui.get("ShowDevelopmentGui"))
+                    && starterGui.getChildren() != null
+                    && !starterGui.getChildren().isEmpty();
+            if (dirty || this$0.gui.getHasContent() || playing || hasStarterGui || !this$0.studio.getPluginWidgets().isEmpty() || this$0.gui.getSelectedGui() != null || core) {
                 this$0.gui.postInvalidate();
             }
             if (this$0.studio.isPlaying() || this$0.controls.getBusy() || now - this$0.lastControls > 500) {
@@ -176,6 +186,8 @@ public final class ViewportView extends FrameLayout {
 
     public final void onResume() {
         this.gl.onResume();
+        this.gui.setVisibility(View.VISIBLE);
+        this.gui.markDirty();
     }
 
     public final void onPause() {

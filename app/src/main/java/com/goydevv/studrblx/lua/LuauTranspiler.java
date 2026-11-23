@@ -648,6 +648,7 @@ public final class LuauTranspiler {
     /* JADX INFO: Access modifiers changed from: private */
     /* JADX INFO: compiled from: LuauTranspiler.kt */
     static final class Parser {
+        private int castDepth;
         private int depth;
         private final boolean hoist;
         private int labelCounter;
@@ -1040,7 +1041,7 @@ public final class LuauTranspiler {
 
         public final void localName() throws IOException, ParseError {
             expectName();
-            if (peek$default(this, 0, 1, null).isOp("<")) {
+            if (peek$default(this, 0, 1, null).isOp("<") && looksLikeGenericArgs()) {
                 int s = this.p;
                 skipAngle();
                 drop(s, this.p);
@@ -1100,6 +1101,7 @@ public final class LuauTranspiler {
             int parenDepth = 0;
             int braceDepth = 0;
             int bracketDepth = 0;
+            boolean prevWasAtom = false;
             int i = this.p + 1;
             while (i < n) {
                 Tok tk = this.t.get(i);
@@ -1114,14 +1116,39 @@ public final class LuauTranspiler {
                     if (kind == K.KEYWORD && !tk.isKw("nil") && !tk.isKw("true") && !tk.isKw("false")) {
                         return false;
                     }
-                    if (kind == K.OP) {
+                    boolean isAtom = (kind == K.NAME || kind == K.STRING || tk.isKw("nil") || tk.isKw("true") || tk.isKw("false"));
+                    if (isAtom) {
+                        if (prevWasAtom) {
+                            return false;
+                        }
+                        prevWasAtom = true;
+                    } else if (kind == K.OP) {
                         String op = tk.getText();
+                        prevWasAtom = false;
                         if ("<".equals(op)) {
                             angleDepth++;
                         } else if (">".equals(op) || ">=".equals(op)) {
+                            if (">=".equals(op) && this.castDepth > 0) {
+                                return false;
+                            }
                             angleDepth--;
                             if (angleDepth == 0) {
-                                return i > this.p + 1;
+                                if (i <= this.p + 1) {
+                                    return false;
+                                }
+                                if (this.castDepth > 0 && ">".equals(op) && i + 1 < n) {
+                                    Tok nxt = this.t.get(i + 1);
+                                    if (nxt.getTrivia().indexOf('\n') < 0) {
+                                        K nk = nxt.getK();
+                                        if (nk == K.NAME || nk == K.NUMBER || nk == K.STRING
+                                                || nxt.isKw("true") || nxt.isKw("false") || nxt.isKw("nil")
+                                                || nxt.isKw("not") || nxt.isOp("(") || nxt.isOp("{")
+                                                || nxt.isOp("[") || nxt.isOp("#")) {
+                                            return false;
+                                        }
+                                    }
+                                }
+                                return true;
                             }
                         } else if ("(".equals(op)) {
                             parenDepth++;
@@ -1131,7 +1158,7 @@ public final class LuauTranspiler {
                             bracketDepth++;
                         } else if (")".equals(op) || "}".equals(op) || "]".equals(op)) {
                             return false;
-                        } else if ("==".equals(op) || "~=".equals(op) || "<=".equals(op)
+                        } else if ("=".equals(op) || "==".equals(op) || "~=".equals(op) || "<=".equals(op)
                                 || "+".equals(op) || "-".equals(op) || "*".equals(op) || "/".equals(op)
                                 || "//".equals(op) || "%".equals(op) || "^".equals(op) || "#".equals(op)
                                 || "..".equals(op) || ";".equals(op) || "::".equals(op)
@@ -1446,7 +1473,12 @@ public final class LuauTranspiler {
             while (peek$default(this, 0, 1, null).isOp("::")) {
                 int s = this.p;
                 next();
-                type();
+                this.castDepth++;
+                try {
+                    type();
+                } finally {
+                    this.castDepth--;
+                }
                 drop(s, this.p);
             }
         }

@@ -1974,9 +1974,8 @@ public final class RobloxGlobals {
                 env = $g;
             }
             Globals globals = $rt.getGlobals();
-            LuauTranspiler luauTranspiler = LuauTranspiler.INSTANCE;
             Intrinsics.checkNotNull(src);
-            LuaValue luaValueLoad = globals.load(LuauTranspiler.transpile$default(luauTranspiler, src, false, 2, null), "=" + name, env);
+            LuaValue luaValueLoad = globals.load(LuaRuntime.transpileCached(src, false), "=" + name, env);
             Intrinsics.checkNotNull(luaValueLoad);
             return luaValueLoad;
         } catch (LuaError e) {

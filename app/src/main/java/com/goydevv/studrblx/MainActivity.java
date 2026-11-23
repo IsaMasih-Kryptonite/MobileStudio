@@ -1355,17 +1355,24 @@ public final class MainActivity extends AppCompatActivity implements MainActions
         bottomTabBar.setPadding(bPad, 0, bPad, 0);
         final android.widget.TextView outTabBtn = new android.widget.TextView(this);
         outTabBtn.setText("Output");
+        outTabBtn.setSingleLine(true);
+        outTabBtn.setMinWidth(Ui.INSTANCE.dp(this, 100.0f));
         outTabBtn.setTextSize(11.5f);
         outTabBtn.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
         outTabBtn.setTextColor(Ui.INSTANCE.getTEXT());
         outTabBtn.setPadding(Ui.INSTANCE.dp(this, 10.0f), Ui.INSTANCE.dp(this, 4.0f), Ui.INSTANCE.dp(this, 10.0f), Ui.INSTANCE.dp(this, 4.0f));
-        final int[] outAlertState = new int[]{0, 0, 0}; // [0]=level (0=none,1=warn,2=error), [1]=errCount, [2]=warnCount
+        final java.util.concurrent.atomic.AtomicInteger alertLevel = new java.util.concurrent.atomic.AtomicInteger(0);
+        final java.util.concurrent.atomic.AtomicInteger errCount = new java.util.concurrent.atomic.AtomicInteger(0);
+        final java.util.concurrent.atomic.AtomicInteger warnCount = new java.util.concurrent.atomic.AtomicInteger(0);
+        final java.util.concurrent.atomic.AtomicBoolean clearPending = new java.util.concurrent.atomic.AtomicBoolean(false);
+        final java.util.concurrent.atomic.AtomicBoolean flushScheduled = new java.util.concurrent.atomic.AtomicBoolean(false);
+        final String[] lastLabel = new String[]{"Output"};
         final int[] pulseStep = new int[]{0};
         final Runnable[] pulseRef = new Runnable[1];
         pulseRef[0] = new Runnable() {
             @Override
             public void run() {
-                int lv = outAlertState[0];
+                int lv = alertLevel.get();
                 if (lv == 0) {
                     outTabBtn.setAlpha(1.0f);
                     outTabBtn.setBackgroundColor(0);
@@ -1385,41 +1392,68 @@ public final class MainActivity extends AppCompatActivity implements MainActions
                 }
             }
         };
+        final Runnable flushOutTabRunnable = new Runnable() {
+            @Override
+            public void run() {
+                flushScheduled.set(false);
+                if (MainActivity.this.isFinishing() || MainActivity.this.isDestroyed()) {
+                    return;
+                }
+                if (clearPending.getAndSet(false)) {
+                    pulseStep[0] = 0;
+                    outTabBtn.removeCallbacks(pulseRef[0]);
+                    if (!"Output".equals(lastLabel[0])) {
+                        lastLabel[0] = "Output";
+                        outTabBtn.setText("Output");
+                    }
+                    outTabBtn.setBackgroundColor(0);
+                    boolean shown = MainActivity.this.dock != null && MainActivity.this.dock.isShown("output");
+                    outTabBtn.setTextColor(shown ? Ui.INSTANCE.getACCENT() : Ui.INSTANCE.getTEXT());
+                    return;
+                }
+                int lv = alertLevel.get();
+                int total = errCount.get() + warnCount.get();
+                if (total > 0 && lv > 0) {
+                    String label = total > 999 ? "Output (999+)" : ("Output (" + total + ")");
+                    if (!label.equals(lastLabel[0])) {
+                        lastLabel[0] = label;
+                        outTabBtn.setText(label);
+                    }
+                    if (pulseStep[0] <= 0) {
+                        pulseStep[0] = 6;
+                        outTabBtn.removeCallbacks(pulseRef[0]);
+                        outTabBtn.post(pulseRef[0]);
+                    }
+                }
+            }
+        };
         this.outTabLogListener = new Function1<OutputLog.Entry, Unit>() {
             @Override
             public Unit invoke(final OutputLog.Entry entry) {
-                outTabBtn.post(new Runnable() {
-                    @Override
-                    public void run() {
-                        if (entry == null) {
-                            outAlertState[0] = 0;
-                            outAlertState[1] = 0;
-                            outAlertState[2] = 0;
-                            pulseStep[0] = 0;
-                            outTabBtn.removeCallbacks(pulseRef[0]);
-                            outTabBtn.setText("Output");
-                            outTabBtn.setBackgroundColor(0);
-                            boolean shown = MainActivity.this.dock != null && MainActivity.this.dock.isShown("output");
-                            outTabBtn.setTextColor(shown ? Ui.INSTANCE.getACCENT() : Ui.INSTANCE.getTEXT());
-                            return;
-                        }
-                        OutputLog.Level lv = entry.getLevel();
-                        if (lv == OutputLog.Level.ERROR || lv == OutputLog.Level.WARN) {
-                            if (lv == OutputLog.Level.ERROR) {
-                                outAlertState[0] = 2;
-                                outAlertState[1]++;
-                            } else {
-                                if (outAlertState[0] < 1) outAlertState[0] = 1;
-                                outAlertState[2]++;
-                            }
-                            int total = outAlertState[1] + outAlertState[2];
-                            outTabBtn.setText("Output (" + total + ")");
-                            outTabBtn.removeCallbacks(pulseRef[0]);
-                            pulseStep[0] = 6;
-                            outTabBtn.post(pulseRef[0]);
-                        }
+                if (entry == null) {
+                    alertLevel.set(0);
+                    errCount.set(0);
+                    warnCount.set(0);
+                    clearPending.set(true);
+                    if (flushScheduled.compareAndSet(false, true)) {
+                        outTabBtn.post(flushOutTabRunnable);
                     }
-                });
+                    return Unit.INSTANCE;
+                }
+                OutputLog.Level lv = entry.getLevel();
+                if (lv != OutputLog.Level.ERROR && lv != OutputLog.Level.WARN) {
+                    return Unit.INSTANCE;
+                }
+                if (lv == OutputLog.Level.ERROR) {
+                    alertLevel.set(2);
+                    errCount.incrementAndGet();
+                } else {
+                    alertLevel.compareAndSet(0, 1);
+                    warnCount.incrementAndGet();
+                }
+                if (flushScheduled.compareAndSet(false, true)) {
+                    outTabBtn.postDelayed(flushOutTabRunnable, 200L);
+                }
                 return Unit.INSTANCE;
             }
         };
@@ -1431,12 +1465,13 @@ public final class MainActivity extends AppCompatActivity implements MainActions
                     MainActivity.this.dock.toggle("output");
                     boolean shown = MainActivity.this.dock.isShown("output");
                     if (shown) {
-                        outAlertState[0] = 0;
+                        alertLevel.set(0);
                         pulseStep[0] = 0;
                         outTabBtn.removeCallbacks(pulseRef[0]);
                         outTabBtn.setBackgroundColor(0);
                     }
-                    int color = shown ? Ui.INSTANCE.getACCENT() : (outAlertState[0] == 2 ? Ui.ERROR : (outAlertState[0] == 1 ? Ui.WARN : Ui.INSTANCE.getTEXT()));
+                    int lv = alertLevel.get();
+                    int color = shown ? Ui.INSTANCE.getACCENT() : (lv == 2 ? Ui.ERROR : (lv == 1 ? Ui.WARN : Ui.INSTANCE.getTEXT()));
                     outTabBtn.setTextColor(color);
                 }
             }
@@ -6250,7 +6285,12 @@ public final class MainActivity extends AppCompatActivity implements MainActions
                                             public void run() {
                                                 android.widget.ScrollView sv = new android.widget.ScrollView(mainActivity);
                                                 android.widget.TextView tv = new android.widget.TextView(mainActivity);
-                                                tv.setText(textBody);
+                                                String displayBody = textBody.length() > 120000
+                                                    ? (textBody.substring(0, 120000) + "\n\n... (truncated, " + textBody.length() + " chars total)")
+                                                    : textBody;
+                                                tv.setBreakStrategy(android.text.Layout.BREAK_STRATEGY_SIMPLE);
+                                                tv.setHyphenationFrequency(android.text.Layout.HYPHENATION_FREQUENCY_NONE);
+                                                tv.setText(displayBody);
                                                 tv.setTextColor(Ui.INSTANCE.getTEXT());
                                                 tv.setTextSize(12.5f);
                                                 tv.setTypeface(android.graphics.Typeface.MONOSPACE);

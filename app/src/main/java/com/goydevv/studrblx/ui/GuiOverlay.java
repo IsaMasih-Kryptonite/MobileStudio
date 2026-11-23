@@ -34,6 +34,8 @@ import com.goydevv.studrblx.model.CFrame;
 import com.goydevv.studrblx.model.Color3;
 import com.goydevv.studrblx.model.ColorKey;
 import com.goydevv.studrblx.model.ColorSequence;
+import com.goydevv.studrblx.model.DataModel;
+import com.goydevv.studrblx.model.TreeListener;
 import com.goydevv.studrblx.model.EnumValue;
 import com.goydevv.studrblx.model.Instance;
 import com.goydevv.studrblx.model.NumberKey;
@@ -124,6 +126,9 @@ public final class GuiOverlay extends View {
     private int safeB;
     private Hit hoveredHit;
     private boolean registerHits = true;
+    private volatile boolean dirty = true;
+    private DataModel attachedModel;
+    private final TreeListener dmListener;
     private final Studio.Listener studioListener;
 
     /* JADX INFO: compiled from: GuiOverlay.kt */
@@ -205,43 +210,85 @@ public final class GuiOverlay extends View {
         this.absInset = 58.0f;
         this.absChanged = new ArrayList<>();
         this.pressExtras = new IdentityHashMap<>();
+        setWillNotDraw(false);
+        setVisibility(View.VISIBLE);
+        this.dmListener = new TreeListener() {
+            @Override
+            public void childAdded(Instance parent, Instance child) {
+                if (GuiOverlay.isGuiRelevant(parent) || GuiOverlay.isGuiRelevant(child)) {
+                    if (child != null && ("BillboardGui".equals(child.getClassName()) || "SurfaceGui".equals(child.getClassName()))) {
+                        GuiOverlay.this.billboardScan = 0L;
+                    }
+                    GuiOverlay.this.dirty = true;
+                    GuiOverlay.this.postInvalidate();
+                }
+            }
+
+            @Override
+            public void childRemoved(Instance parent, Instance child) {
+                if (GuiOverlay.isGuiRelevant(parent) || GuiOverlay.isGuiRelevant(child)) {
+                    if (child != null && ("BillboardGui".equals(child.getClassName()) || "SurfaceGui".equals(child.getClassName()))) {
+                        GuiOverlay.this.billboardScan = 0L;
+                    }
+                    GuiOverlay.this.dirty = true;
+                    GuiOverlay.this.postInvalidate();
+                }
+            }
+
+            @Override
+            public void propChanged(Instance inst, String name) {
+                if (GuiOverlay.isGuiRelevant(inst)) {
+                    GuiOverlay.this.dirty = true;
+                    GuiOverlay.this.postInvalidate();
+                }
+            }
+        };
         this.studioListener = new Studio.Listener() {
             @Override
             public void onTreeChanged() {
                 GuiOverlay.this.billboardScan = 0L;
+                GuiOverlay.this.dirty = true;
                 GuiOverlay.this.postInvalidate();
             }
 
             @Override
             public void onPropsChanged() {
+                GuiOverlay.this.dirty = true;
                 GuiOverlay.this.postInvalidate();
             }
 
             @Override
             public void onModelReplaced() {
+                GuiOverlay.this.attachModelListener();
                 GuiOverlay.this.billboardScan = 0L;
+                GuiOverlay.this.dirty = true;
                 GuiOverlay.this.postInvalidate();
             }
 
             @Override
             public void onPlayStateChanged() {
+                GuiOverlay.this.attachModelListener();
                 GuiOverlay.this.billboardScan = 0L;
                 GuiOverlay.this.hoveredHit = null;
                 GuiOverlay.this.pressed = null;
+                GuiOverlay.this.dirty = true;
                 GuiOverlay.this.postInvalidate();
             }
 
             @Override
             public void onSelectionChanged() {
+                GuiOverlay.this.dirty = true;
                 GuiOverlay.this.postInvalidate();
             }
 
             @Override
             public void onPluginsChanged() {
+                GuiOverlay.this.dirty = true;
                 GuiOverlay.this.postInvalidate();
             }
         };
         this.studio.getListeners().add(this.studioListener);
+        attachModelListener();
         setOnApplyWindowInsetsListener(new View.OnApplyWindowInsetsListener() {
             @Override
             public android.view.WindowInsets onApplyWindowInsets(View v, android.view.WindowInsets insets) {
@@ -257,11 +304,49 @@ public final class GuiOverlay extends View {
                     GuiOverlay.this.safeT = cT;
                     GuiOverlay.this.safeR = cR;
                     GuiOverlay.this.safeB = cB;
+                    GuiOverlay.this.dirty = true;
                     GuiOverlay.this.postInvalidate();
                 }
                 return insets;
             }
         });
+    }
+
+    private static boolean isGuiRelevant(Instance inst) {
+        if (inst == null) {
+            return false;
+        }
+        String cn = inst.getClassName();
+        return inst.isA("GuiBase")
+                || inst.isA("UIBase")
+                || "StarterGui".equals(cn)
+                || "PlayerGui".equals(cn)
+                || "CoreGui".equals(cn)
+                || "Folder".equals(cn)
+                || "GuiService".equals(cn);
+    }
+
+    private void attachModelListener() {
+        DataModel current = this.studio.getModel();
+        if (this.attachedModel == current) {
+            return;
+        }
+        if (this.attachedModel != null) {
+            this.attachedModel.getListeners().remove(this.dmListener);
+        }
+        this.attachedModel = current;
+        if (current != null && !current.getListeners().contains(this.dmListener)) {
+            current.getListeners().add(this.dmListener);
+        }
+    }
+
+    public final boolean isDirty() {
+        return this.dirty;
+    }
+
+    public final void markDirty() {
+        this.dirty = true;
+        postInvalidate();
     }
 
     @Override
@@ -270,11 +355,18 @@ public final class GuiOverlay extends View {
         if (!this.studio.getListeners().contains(this.studioListener)) {
             this.studio.getListeners().add(this.studioListener);
         }
+        attachModelListener();
+        this.dirty = true;
+        postInvalidate();
     }
 
     @Override
     protected void onDetachedFromWindow() {
         this.studio.getListeners().remove(this.studioListener);
+        if (this.attachedModel != null) {
+            this.attachedModel.getListeners().remove(this.dmListener);
+            this.attachedModel = null;
+        }
         super.onDetachedFromWindow();
     }
 
@@ -901,14 +993,19 @@ public final class GuiOverlay extends View {
     @Override // android.view.View
     protected void onDraw(Canvas canvas) {
         Intrinsics.checkNotNullParameter(canvas, "canvas");
+        this.dirty = false;
+        float width = getWidth();
+        float height = getHeight();
+        if (width <= 0.0f || height <= 0.0f) {
+            return;
+        }
         synchronized (this.studio.getLock()) {
+            attachModelListener();
             this.newHits = new ArrayList<>();
             this.newScrolls = new ArrayList<>();
             this.newPicks = new ArrayList<>();
             this.newBoxes = new IdentityHashMap<>();
             this.registerHits = true;
-            float width = getWidth();
-            float height = getHeight();
             PlaySession play = this.studio.getPlay();
             boolean playing = play != null;
 
@@ -919,7 +1016,8 @@ public final class GuiOverlay extends View {
                 primaryChildren = (playerGui != null && playerGui.getChildren() != null) ? playerGui.getChildren() : CollectionsKt.emptyList();
             } else {
                 Instance starterGui = this.studio.getModel().findService("StarterGui");
-                primaryChildren = (starterGui != null && starterGui.getChildren() != null) ? starterGui.getChildren() : CollectionsKt.emptyList();
+                boolean showDevGui = starterGui != null && !Boolean.FALSE.equals(starterGui.get("ShowDevelopmentGui"));
+                primaryChildren = (showDevGui && starterGui.getChildren() != null) ? starterGui.getChildren() : CollectionsKt.emptyList();
             }
 
             LuaRuntime activeRt = (playing && play.getRt() != null) ? play.getRt() : this.studio.getEditRuntime();
@@ -934,8 +1032,13 @@ public final class GuiOverlay extends View {
             RectF fullScreenClip = new RectF(0.0f, 0.0f, width, height);
 
             for (Instance sg : screenGuis) {
-                Instance parent = sg.getParent();
-                boolean isCoreGui = parent != null && "CoreGui".equals(parent.getClassName());
+                boolean isCoreGui = false;
+                for (Instance anc = sg.getParent(); anc != null; anc = anc.getParent()) {
+                    if ("CoreGui".equals(anc.getClassName())) {
+                        isCoreGui = true;
+                        break;
+                    }
+                }
                 boolean isPluginCore = isCoreGui && !playing;
 
                 float[] rArr = GuiMath.computeScreenGuiRect(
@@ -1760,8 +1863,10 @@ public final class GuiOverlay extends View {
 
     private final int enumOf(Instance i, String prop, int def) {
         Object obj = i != null ? i.get(prop) : null;
-        EnumValue enumValue = obj instanceof EnumValue ? (EnumValue) obj : null;
-        return enumValue != null ? enumValue.getValue() : def;
+        if (obj instanceof EnumValue) return ((EnumValue) obj).getValue();
+        if (obj instanceof EnumItemV) return ((EnumItemV) obj).getValue();
+        if (obj instanceof Number) return ((Number) obj).intValue();
+        return def;
     }
 
     private final float num(Instance i, String prop, float def) {
@@ -1801,11 +1906,7 @@ public final class GuiOverlay extends View {
                     return null;
                 }
                 Object obj = c.get("Text");
-                String str = obj instanceof String ? (String) obj : null;
-                if (str == null) {
-                    return null;
-                }
-                String str2 = str;
+                String str2 = obj instanceof String ? (String) obj : "";
                 if (str2.length() == 0) {
                     Object obj2 = c.get("PlaceholderText");
                     str2 = obj2 instanceof String ? (String) obj2 : null;
@@ -2604,7 +2705,27 @@ public final class GuiOverlay extends View {
         String content;
         Bitmap bmp;
         float it = num(c, "ImageTransparency", 0.0f);
-        if (it >= 1.0f || (obj = c.get("Image")) == null || (content = obj.toString()) == null || (bmp = ImageLoader.INSTANCE.get(content)) == null) {
+        if (it >= 1.0f) {
+            return;
+        }
+        obj = null;
+        if ("ImageButton".equals(c.getClassName())) {
+            if (this.pressed == c) {
+                Object pi = c.get("PressedImage");
+                if (pi != null && !pi.toString().isEmpty()) {
+                    obj = pi;
+                }
+            } else if (this.hoveredHit != null && this.hoveredHit.getInst() == c) {
+                Object hi = c.get("HoverImage");
+                if (hi != null && !hi.toString().isEmpty()) {
+                    obj = hi;
+                }
+            }
+        }
+        if (obj == null) {
+            obj = c.get("Image");
+        }
+        if (obj == null || (content = obj.toString()) == null || content.isEmpty() || (bmp = ImageLoader.INSTANCE.get(content)) == null) {
             return;
         }
         this.imgPaint.setAlpha((int) ((1.0f - it) * 255.0f));
@@ -3589,8 +3710,13 @@ public final class GuiOverlay extends View {
         synchronized (this.studio.getLock()) {
             r.setFocusedTextBox(inst);
             r.fire(inst, "Focused", new LuaValue[0]);
+            Instance uis = r.getDm().findService("UserInputService");
+            if (uis != null) {
+                r.fire(uis, "TextBoxFocused", r.wrap(inst));
+            }
             Unit unit = Unit.INSTANCE;
         }
+        postInvalidate();
     }
 
     static final void editTextBox$lambda$107(GuiOverlay this$0, Instance $inst, EditText $e, LuaRuntime $r, DialogInterface dialogInterface, int i) {
@@ -3605,8 +3731,13 @@ public final class GuiOverlay extends View {
                 LuaValue NIL = LuaValue.NIL;
                 Intrinsics.checkNotNullExpressionValue(NIL, "NIL");
                 $r.fire($inst, "FocusLost", TRUE, NIL);
+                Instance uis = $r.getDm().findService("UserInputService");
+                if (uis != null) {
+                    $r.fire(uis, "TextBoxFocusReleased", $r.wrap($inst));
+                }
                 Unit unit = Unit.INSTANCE;
             }
+            this$0.postInvalidate();
         } catch (Throwable _ktEx) {
             throw com.goydevv.studrblx.util.KtCompat.sneakyThrow(_ktEx);
         }
@@ -3622,8 +3753,13 @@ public final class GuiOverlay extends View {
             LuaValue NIL = LuaValue.NIL;
             Intrinsics.checkNotNullExpressionValue(NIL, "NIL");
             $r.fire($inst, "FocusLost", FALSE, NIL);
+            Instance uis = $r.getDm().findService("UserInputService");
+            if (uis != null) {
+                $r.fire(uis, "TextBoxFocusReleased", $r.wrap($inst));
+            }
             Unit unit = Unit.INSTANCE;
         }
+        this$0.postInvalidate();
     }
 
     public final boolean tap(float x, float y) {
@@ -3649,7 +3785,7 @@ public final class GuiOverlay extends View {
         Object objPrevious;
         Pair<Instance, RectF> pair;
         Instance instanceComponent1;
-        if (this.studio.getPlay() != null || (sg = this.studio.getModel().findService("StarterGui")) == null) {
+        if (this.studio.getPlay() != null || (sg = this.studio.getModel().findService("StarterGui")) == null || Boolean.FALSE.equals(sg.get("ShowDevelopmentGui"))) {
             return null;
         }
         List list = this.picks;
@@ -3751,7 +3887,10 @@ public final class GuiOverlay extends View {
 
         public static int enumVal(Instance i, String prop, int def) {
             Object obj = i != null ? i.get(prop) : null;
-            return obj instanceof EnumValue ? ((EnumValue) obj).getValue() : def;
+            if (obj instanceof EnumValue) return ((EnumValue) obj).getValue();
+            if (obj instanceof EnumItemV) return ((EnumItemV) obj).getValue();
+            if (obj instanceof Number) return ((Number) obj).intValue();
+            return def;
         }
 
         public static float numVal(Instance i, String prop, float def) {
@@ -3780,13 +3919,21 @@ public final class GuiOverlay extends View {
                     && !Boolean.FALSE.equals(inst.get("Enabled"));
         }
 
-        public static List<Instance> filterAndSortScreenGuis(List<Instance> primary, List<Instance> core) {
-            ArrayList<Instance> pList = new ArrayList<>();
-            if (primary != null) {
-                for (Instance inst : primary) {
-                    if (isScreenGuiEnabled(inst)) pList.add(inst);
+        private static void collectEnabledScreenGuis(List<Instance> list, List<Instance> out) {
+            if (list == null) return;
+            for (Instance inst : list) {
+                if (inst == null) continue;
+                if (isScreenGuiEnabled(inst)) {
+                    out.add(inst);
+                } else if ("Folder".equals(inst.getClassName()) || "Configuration".equals(inst.getClassName())) {
+                    collectEnabledScreenGuis(inst.getChildren(), out);
                 }
             }
+        }
+
+        public static List<Instance> filterAndSortScreenGuis(List<Instance> primary, List<Instance> core) {
+            ArrayList<Instance> pList = new ArrayList<>();
+            collectEnabledScreenGuis(primary, pList);
             Comparator<Instance> byOrder = new Comparator<Instance>() {
                 @Override
                 public int compare(Instance a, Instance b) {
@@ -3798,11 +3945,7 @@ public final class GuiOverlay extends View {
             java.util.Collections.sort(pList, byOrder);
 
             ArrayList<Instance> cList = new ArrayList<>();
-            if (core != null) {
-                for (Instance inst : core) {
-                    if (isScreenGuiEnabled(inst)) cList.add(inst);
-                }
-            }
+            collectEnabledScreenGuis(core, cList);
             java.util.Collections.sort(cList, byOrder);
 
             ArrayList<Instance> combined = new ArrayList<>(pList.size() + cList.size());
@@ -3826,7 +3969,14 @@ public final class GuiOverlay extends View {
         ) {
             boolean ignoreInset = Boolean.TRUE.equals(sg.get("IgnoreGuiInset"));
             Object siObj = sg.get("ScreenInsets");
-            Integer screenInsets = (siObj instanceof EnumValue) ? Integer.valueOf(((EnumValue) siObj).getValue()) : null;
+            Integer screenInsets = null;
+            if (siObj instanceof EnumValue) {
+                screenInsets = Integer.valueOf(((EnumValue) siObj).getValue());
+            } else if (siObj instanceof EnumItemV) {
+                screenInsets = Integer.valueOf(((EnumItemV) siObj).getValue());
+            } else if (siObj instanceof Number) {
+                screenInsets = Integer.valueOf(((Number) siObj).intValue());
+            }
             float topBarPx = density * TOPBAR_INSET;
 
             if (isCoreGui && !playing) {
@@ -3949,6 +4099,20 @@ public final class GuiOverlay extends View {
             return new float[]{Math.max(w2, 0.0f), Math.max(h2, 0.0f)};
         }
 
+        private static void collectFolderGuiObjects(List<Instance> folders, List<Instance> out) {
+            for (Instance f : folders) {
+                if (f == null) continue;
+                for (Instance ch : f.getChildren()) {
+                    if (ch == null) continue;
+                    if (ch.isA("GuiObject") && !Boolean.FALSE.equals(ch.get("Visible"))) {
+                        out.add(ch);
+                    } else if ("Folder".equals(ch.getClassName())) {
+                        collectFolderGuiObjects(java.util.Collections.singletonList(ch), out);
+                    }
+                }
+            }
+        }
+
         public static LayoutResult computeLayout(
                 Instance parent,
                 float areaL, float areaT, float areaR, float areaB,
@@ -3956,6 +4120,7 @@ public final class GuiOverlay extends View {
                 SizeResolver sizeResolver
         ) {
             ArrayList<Instance> kids = new ArrayList<>();
+            ArrayList<Instance> folders = null;
             Instance listLayout = null;
             Instance gridLayout = null;
             Instance pageLayout = null;
@@ -3972,9 +4137,15 @@ public final class GuiOverlay extends View {
                     tableLayout = ch;
                 } else if (ch.isA("GuiObject") && !Boolean.FALSE.equals(ch.get("Visible"))) {
                     kids.add(ch);
+                } else if ("Folder".equals(cn)) {
+                    if (folders == null) folders = new ArrayList<>();
+                    folders.add(ch);
                 }
             }
             Instance activeLayout = listLayout != null ? listLayout : (gridLayout != null ? gridLayout : (pageLayout != null ? pageLayout : tableLayout));
+            if (activeLayout == null && folders != null) {
+                collectFolderGuiObjects(folders, kids);
+            }
             if (kids.isEmpty()) {
                 return new LayoutResult(java.util.Collections.<LayoutBox>emptyList(), activeLayout, 0.0f, 0.0f, 0.0f, 0.0f, 0, 0);
             }

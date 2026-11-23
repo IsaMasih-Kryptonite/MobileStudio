@@ -780,6 +780,12 @@ public final class RobloxServices {
                     }
                     return all;
                 }
+                if ("BindActivate".equals(name) || "UnbindActivate".equals(name) || "CallFunction".equals(name)) {
+                    return LuaValue.NONE;
+                }
+                if ("GetCurrentLocalToolIcon".equals(name)) {
+                    return LuaValue.valueOf("");
+                }
                 return LuaValue.NIL;
             }
             case "StarterGui": {
@@ -815,6 +821,9 @@ public final class RobloxServices {
                     LuaValue cv = CORE_VALUES.get(ck);
                     return cv != null ? cv : LuaValue.TRUE;
                 }
+                if ("RegisterGetCore".equals(name) || "RegisterSetCore".equals(name)) {
+                    return LuaValue.NONE;
+                }
                 return LuaValue.NIL;
             }
             case "GuiService": {
@@ -823,6 +832,21 @@ public final class RobloxServices {
                 }
                 if ("IsTenFootInterface".equals(name)) {
                     return LuaValue.FALSE;
+                }
+                if ("GetSafeZoneOffsets".equals(name)) {
+                    LuaTable offsets = new LuaTable();
+                    offsets.set("Top", 0);
+                    offsets.set("Bottom", 0);
+                    offsets.set("Left", 0);
+                    offsets.set("Right", 0);
+                    return offsets;
+                }
+                if ("AddSelectionParent".equals(name) || "AddSelectionTuple".equals(name)
+                        || "RemoveSelectionGroup".equals(name) || "Select".equals(name)
+                        || "SetGameplayPausedNotificationEnabled".equals(name)
+                        || "CloseInspectMenu".equals(name) || "InspectPlayerFromUserId".equals(name)
+                        || "SetMenuIsOpen".equals(name)) {
+                    return LuaValue.NONE;
                 }
                 return LuaValue.NIL;
             }
@@ -896,13 +920,99 @@ public final class RobloxServices {
                     bi.set("Name", "Badge"); bi.set("Description", ""); bi.set("IconImageId", 0); bi.set("IsEnabled", LuaValue.TRUE);
                     return bi;
                 }
+                if ("CheckUserBadgesAsync".equals(name)) return new LuaTable();
+                if ("IsLegal".equals(name)) return LuaValue.TRUE;
+                if ("IsDisabled".equals(name)) return LuaValue.FALSE;
                 return LuaValue.NIL;
             }
             case "TeleportService": {
+                if ("GetArrivingTeleportGui".equals(name)) {
+                    Object gui = svc.getAttributes().get("__teleportGui");
+                    return (gui instanceof Instance) ? rt.wrap((Instance) gui) : LuaValue.NIL;
+                }
+                if ("GetLocalPlayerTeleportData".equals(name)) {
+                    Object td = svc.getAttributes().get("__teleportData");
+                    return (td instanceof LuaValue) ? (LuaValue) td : LuaValue.NIL;
+                }
+                if ("SetTeleportGui".equals(name)) {
+                    Object guiObj = a.arg(2).isuserdata() ? a.arg(2).touserdata() : null;
+                    if (guiObj instanceof Instance) {
+                        svc.getAttributes().put("__teleportGui", guiObj);
+                    } else {
+                        svc.getAttributes().remove("__teleportGui");
+                    }
+                    return LuaValue.NONE;
+                }
+                if ("Teleport".equals(name)) {
+                    LuaValue td = a.arg(4);
+                    if (!td.isnil()) svc.getAttributes().put("__teleportData", td);
+                    Object guiObj = a.arg(5).isuserdata() ? a.arg(5).touserdata() : null;
+                    if (guiObj instanceof Instance) svc.getAttributes().put("__teleportGui", guiObj);
+                    OutputLog.INSTANCE.warn("Teleporting is not supported in Studio");
+                    return LuaValue.NONE;
+                }
+                if ("TeleportAsync".equals(name)) {
+                    Object optsObj = a.arg(4).isuserdata() ? a.arg(4).touserdata() : null;
+                    if (optsObj instanceof Instance) {
+                        Object td = ((Instance) optsObj).getAttributes().get("__teleportData");
+                        if (td instanceof LuaValue) svc.getAttributes().put("__teleportData", td);
+                    }
+                    OutputLog.INSTANCE.warn("Teleporting is not supported in Studio");
+                    LuaTable res = new LuaTable();
+                    res.set("PrivateServerId", "");
+                    res.set("ReservedServerAccessCode", "");
+                    return res;
+                }
+                if ("TeleportToPlaceInstance".equals(name) || "TeleportToPrivateServer".equals(name)) {
+                    LuaValue td = a.arg(6);
+                    if (!td.isnil()) svc.getAttributes().put("__teleportData", td);
+                    Object guiObj = a.arg(7).isuserdata() ? a.arg(7).touserdata() : null;
+                    if (guiObj instanceof Instance) svc.getAttributes().put("__teleportGui", guiObj);
+                    OutputLog.INSTANCE.warn("Teleporting is not supported in Studio");
+                    return LuaValue.NONE;
+                }
+                if ("TeleportToSpawnByName".equals(name)) {
+                    LuaValue td = a.arg(5);
+                    if (!td.isnil()) svc.getAttributes().put("__teleportData", td);
+                    Object guiObj = a.arg(6).isuserdata() ? a.arg(6).touserdata() : null;
+                    if (guiObj instanceof Instance) svc.getAttributes().put("__teleportGui", guiObj);
+                    OutputLog.INSTANCE.warn("Teleporting is not supported in Studio");
+                    return LuaValue.NONE;
+                }
+                if ("TeleportPartyAsync".equals(name)) {
+                    OutputLog.INSTANCE.warn("Teleporting is not supported in Studio");
+                    return LuaValue.valueOf("");
+                }
+                if ("ReserveServer".equals(name)) {
+                    return LuaValue.varargsOf(
+                            LuaValue.valueOf("00000000-0000-0000-0000-000000000000"),
+                            LuaValue.valueOf(""));
+                }
+                if ("GetPlayerPlaceInstanceAsync".equals(name)) {
+                    return LuaValue.varargsOf(new LuaValue[]{
+                            LuaValue.TRUE,
+                            LuaValue.valueOf(""),
+                            LuaValue.valueOf(0),
+                            LuaValue.valueOf("")
+                    });
+                }
                 return LuaValue.NONE;
             }
+            case "TeleportOptions": {
+                if ("SetTeleportData".equals(name)) {
+                    LuaValue td = a.arg(2);
+                    if (!td.isnil()) svc.getAttributes().put("__teleportData", td);
+                    else svc.getAttributes().remove("__teleportData");
+                    return LuaValue.NONE;
+                }
+                if ("GetTeleportData".equals(name)) {
+                    Object td = svc.getAttributes().get("__teleportData");
+                    return (td instanceof LuaValue) ? (LuaValue) td : LuaValue.NIL;
+                }
+                return LuaValue.NIL;
+            }
             case "Debris":
-                if ("AddItem".equals(name)) {
+                if ("AddItem".equals(name) || "addItem".equals(name)) {
                     Object o = a.arg(2).isuserdata() ? a.arg(2).touserdata() : null;
                     double sec = a.optdouble(3, 10.0d);
                     if (o instanceof Instance) {
@@ -973,10 +1083,43 @@ public final class RobloxServices {
                 if ("CreatePath".equals(name)) {
                     return pathObject(rt);
                 }
+                if ("FindPathAsync".equals(name)) {
+                    LuaTable p = pathObject(rt);
+                    if (!a.arg(2).isnil() && !a.arg(3).isnil()) {
+                        p.get("ComputeAsync").invoke(LuaValue.varargsOf(new LuaValue[]{p, a.arg(2), a.arg(3)}));
+                    }
+                    return p;
+                }
                 return LuaValue.NIL;
             case "MarketplaceService":
                 if ("GetProductInfo".equals(name)) {
                     return productInfo(rt, a.checklong(2), a.optjstring(3, "Asset"));
+                }
+                if ("UserOwnsGamePassAsync".equals(name) || "PlayerOwnsAsset".equals(name) || "PlayerOwnsBundle".equals(name)) {
+                    return LuaValue.FALSE;
+                }
+                if ("PromptPurchase".equals(name) || "PromptGamePassPurchase".equals(name)
+                        || "PromptProductPurchase".equals(name) || "PromptBundlePurchase".equals(name)
+                        || "PromptPremiumPurchase".equals(name) || "PromptSubscriptionPurchase".equals(name)
+                        || "PromptBulkPurchase".equals(name) || "PerformPurchase".equals(name)
+                        || "PerformPurchaseV2".equals(name)) {
+                    return LuaValue.NONE;
+                }
+                if ("GetDeveloperProductsAsync".equals(name)) {
+                    return emptyPages();
+                }
+                if ("GetUserSubscriptionStatusAsync".equals(name)) {
+                    LuaTable st = new LuaTable();
+                    st.set("IsSubscribed", LuaValue.FALSE);
+                    st.set("IsRenewing", LuaValue.FALSE);
+                    return st;
+                }
+                if ("GetSubscriptionProductInfoAsync".equals(name)) {
+                    LuaTable sp = new LuaTable();
+                    sp.set("Name", "Subscription");
+                    sp.set("Description", "");
+                    sp.set("DisplayPrice", "$0.00");
+                    return sp;
                 }
                 return LuaValue.NIL;
             case "Lighting":
@@ -1095,13 +1238,43 @@ public final class RobloxServices {
                 }
                 return LuaValue.NIL;
             case "UserInputService":
-                if ("IsKeyDown".equals(name) || "IsMouseButtonPressed".equals(name)) return LuaValue.FALSE;
-                if ("GetMouseLocation".equals(name)) return LuaTypes.INSTANCE.wrap(new com.goydevv.studrblx.model.Vector2(0.0f, 0.0f));
-                if ("GetKeysPressed".equals(name) || "GetConnectedGamepads".equals(name)) return new LuaTable();
-                if ("GetLastInputType".equals(name)) return LuaTypes.INSTANCE.enumItem("UserInputType", "Touch");
+                if ("IsKeyDown".equals(name) || "IsMouseButtonPressed".equals(name)
+                        || "IsGamepadButtonDown".equals(name) || "GetGamepadConnected".equals(name)
+                        || "IsNavigationGamepad".equals(name) || "GamepadSupports".equals(name)) {
+                    return LuaValue.FALSE;
+                }
+                if ("GetMouseLocation".equals(name) || "GetMouseDelta".equals(name)) {
+                    return LuaTypes.INSTANCE.wrap(new com.goydevv.studrblx.model.Vector2(0.0f, 0.0f));
+                }
+                if ("GetKeysPressed".equals(name) || "GetMouseButtonsPressed".equals(name)
+                        || "GetConnectedGamepads".equals(name) || "GetGamepadState".equals(name)
+                        || "GetNavigationGamepads".equals(name)) {
+                    return new LuaTable();
+                }
+                if ("GetLastInputType".equals(name)) {
+                    return LuaTypes.INSTANCE.enumItem("UserInputType", "Touch");
+                }
                 if ("GetFocusedTextBox".equals(name)) {
                     Instance focused = rt.getFocusedTextBox();
                     return focused != null ? rt.wrap(focused) : LuaValue.NIL;
+                }
+                if ("GetStringForKeyCode".equals(name)) {
+                    return LuaValue.valueOf(stringForKeyCode(a.arg(2)));
+                }
+                if ("GetImageForKeyCode".equals(name)) {
+                    return LuaValue.valueOf("");
+                }
+                if ("GetDeviceRotation".equals(name)) {
+                    LuaTable inp = new LuaTable();
+                    inp.set("Position", LuaTypes.INSTANCE.wrap(Vector3.INSTANCE.getZERO()));
+                    inp.set("Delta", LuaTypes.INSTANCE.wrap(Vector3.INSTANCE.getZERO()));
+                    return LuaValue.varargsOf(inp, LuaTypes.INSTANCE.wrap(com.goydevv.studrblx.model.CFrame.INSTANCE.getIDENTITY()));
+                }
+                if ("GetDeviceGravity".equals(name) || "GetDeviceAcceleration".equals(name)) {
+                    LuaTable inp = new LuaTable();
+                    inp.set("Position", LuaTypes.INSTANCE.wrap(Vector3.INSTANCE.getZERO()));
+                    inp.set("Delta", LuaTypes.INSTANCE.wrap(Vector3.INSTANCE.getZERO()));
+                    return inp;
                 }
                 return LuaValue.NIL;
             case "TextService": {
@@ -1177,7 +1350,32 @@ public final class RobloxServices {
                     if (totalLines < 1) totalLines = 1;
                     return LuaTypes.INSTANCE.wrap(new com.goydevv.studrblx.model.Vector2((float) Math.ceil(maxLineW), (float) Math.ceil(totalLines * lineH)));
                 }
-                if ("FilterStringAsync".equals(name)) {
+                if ("GetTextBoundsAsync".equals(name)) {
+                    LuaValue pArg = a.arg(2);
+                    String text = "";
+                    float fontSize = 14.0f;
+                    float maxW = 100000.0f;
+                    Object pObj = pArg.isuserdata() ? pArg.touserdata() : null;
+                    if (pObj instanceof Instance) {
+                        Instance pi = (Instance) pObj;
+                        Object tObj = pi.get("Text");
+                        if (tObj instanceof String) text = (String) tObj;
+                        Object sObj = pi.get("Size");
+                        if (sObj instanceof Number) fontSize = ((Number) sObj).floatValue();
+                        Object wObj = pi.get("Width");
+                        if (wObj instanceof Number && ((Number) wObj).floatValue() > 0.0f) {
+                            maxW = ((Number) wObj).floatValue();
+                        }
+                    } else if (pArg.istable()) {
+                        text = pArg.get("Text").optjstring("");
+                        fontSize = (float) pArg.get("Size").optdouble(14.0d);
+                        double wVal = pArg.get("Width").optdouble(0.0d);
+                        if (wVal > 0.0d) maxW = (float) wVal;
+                    }
+                    if (fontSize <= 0.0f) fontSize = 14.0f;
+                    return measureTextBounds(text, fontSize, maxW);
+                }
+                if ("FilterStringAsync".equals(name) || "FilterAndTranslateStringAsync".equals(name)) {
                     final String srcText = a.arg(2).optjstring("");
                     LuaTable res = new LuaTable();
                     LuaValue getter = LuaTypesKt.fnv(new Function1() {
@@ -1285,6 +1483,100 @@ public final class RobloxServices {
                     LuaValue successEnum = LuaTypes.INSTANCE.enumItem("AssetFetchStatus", "Success");
                     return successEnum != null ? successEnum : LuaValue.valueOf(0);
                 }
+                return LuaValue.NIL;
+            }
+            case "PolicyService": {
+                if ("GetPolicyInfoForPlayerAsync".equals(name)) {
+                    LuaTable info = new LuaTable();
+                    info.set("ArePaidRandomItemsRestricted", LuaValue.FALSE);
+                    info.set("AllowedExternalLinkReferences", new LuaTable());
+                    info.set("IsPaidItemTradingAllowed", LuaValue.TRUE);
+                    info.set("IsSubjectToChinaPolicies", LuaValue.FALSE);
+                    info.set("AreAdsAllowed", LuaValue.FALSE);
+                    info.set("IsContentSharingAllowed", LuaValue.TRUE);
+                    return info;
+                }
+                return LuaValue.NIL;
+            }
+            case "LocalizationService": {
+                if ("GetTranslatorForPlayerAsync".equals(name) || "GetTranslatorForPlayer".equals(name)
+                        || "GetTranslatorForLocaleAsync".equals(name)) {
+                    LuaTable tr = new LuaTable();
+                    tr.set("LocaleId", "en-us");
+                    tr.set("FormatByKey", LuaTypesKt.fnv(new Function1() {
+                        @Override
+                        public final Object invoke(Object obj) {
+                            return ((Varargs) obj).arg(2).isnil() ? LuaValue.valueOf("") : ((Varargs) obj).arg(2);
+                        }
+                    }));
+                    tr.set("Translate", LuaTypesKt.fnv(new Function1() {
+                        @Override
+                        public final Object invoke(Object obj) {
+                            return ((Varargs) obj).arg(3).isnil() ? LuaValue.valueOf("") : ((Varargs) obj).arg(3);
+                        }
+                    }));
+                    tr.set("RobloxTranslate", LuaTypesKt.fnv(new Function1() {
+                        @Override
+                        public final Object invoke(Object obj) {
+                            return ((Varargs) obj).arg(3).isnil() ? LuaValue.valueOf("") : ((Varargs) obj).arg(3);
+                        }
+                    }));
+                    return tr;
+                }
+                if ("GetCountryRegionForPlayerAsync".equals(name)) {
+                    return LuaValue.valueOf("US");
+                }
+                if ("GetCorescriptLocalizations".equals(name) || "GetTableEntries".equals(name)) {
+                    return new LuaTable();
+                }
+                return LuaValue.NIL;
+            }
+            case "SocialService": {
+                if ("CanSendGameInviteAsync".equals(name) || "CanSendCallInviteAsync".equals(name)) {
+                    return LuaValue.FALSE;
+                }
+                if ("PromptGameInvite".equals(name) || "PromptPhoneBook".equals(name)
+                        || "HideSelfView".equals(name) || "ShowSelfView".equals(name)) {
+                    return LuaValue.NONE;
+                }
+                if ("GetPlayersByPartyId".equals(name)) {
+                    return new LuaTable();
+                }
+                return LuaValue.NIL;
+            }
+            case "GroupService": {
+                if ("GetGroupInfoAsync".equals(name)) {
+                    long gid = a.arg(2).optlong(0L);
+                    LuaTable g = new LuaTable();
+                    g.set("Name", "Group");
+                    g.set("Id", LuaValue.valueOf(gid));
+                    LuaTable owner = new LuaTable();
+                    owner.set("Name", "Owner");
+                    owner.set("Id", 1);
+                    g.set("Owner", owner);
+                    g.set("EmblemUrl", "");
+                    g.set("Description", "");
+                    g.set("Roles", new LuaTable());
+                    return g;
+                }
+                if ("GetGroupsAsync".equals(name)) {
+                    return new LuaTable();
+                }
+                if ("GetAlliesAsync".equals(name) || "GetEnemiesAsync".equals(name)) {
+                    return emptyPages();
+                }
+                return LuaValue.NIL;
+            }
+            case "TextChatService": {
+                if ("DisplayBubble".equals(name)) {
+                    return LuaValue.NONE;
+                }
+                if ("CanUserChatAsync".equals(name) || "CanUsersChatAsync".equals(name) || "CanUserDirectChatAsync".equals(name)) {
+                    return LuaValue.TRUE;
+                }
+                return LuaValue.NIL;
+            }
+            case "ProximityPromptService": {
                 return LuaValue.NIL;
             }
             default:
@@ -2091,5 +2383,127 @@ public final class RobloxServices {
     public final boolean areCollisionGroupsCollidable(String g1, String g2) {
         Boolean v = COLLISION_MATRIX.get(cgKey(g1, g2));
         return v == null || v.booleanValue();
+    }
+
+    private static LuaTable emptyPages() {
+        LuaTable page = new LuaTable();
+        final LuaTable items = new LuaTable();
+        page.set("GetCurrentPage", LuaTypesKt.fnv(new Function1() {
+            @Override
+            public final Object invoke(Object obj) {
+                return items;
+            }
+        }));
+        page.set("AdvanceToNextPageAsync", LuaTypesKt.fnv(new Function1() {
+            @Override
+            public final Object invoke(Object obj) {
+                return LuaValue.NONE;
+            }
+        }));
+        page.set("IsFinished", LuaValue.TRUE);
+        return page;
+    }
+
+    private static String stringForKeyCode(LuaValue arg) {
+        if (arg == null || arg.isnil()) return "";
+        String kName = null;
+        if (arg.isuserdata() && arg.touserdata() instanceof EnumItemV) {
+            kName = ((EnumItemV) arg.touserdata()).getName();
+        } else if (arg.isstring()) {
+            kName = arg.tojstring();
+        }
+        if (kName == null || kName.isEmpty() || "Unknown".equals(kName)) return "";
+        switch (kName) {
+            case "Space": return " ";
+            case "Zero": return "0";
+            case "One": return "1";
+            case "Two": return "2";
+            case "Three": return "3";
+            case "Four": return "4";
+            case "Five": return "5";
+            case "Six": return "6";
+            case "Seven": return "7";
+            case "Eight": return "8";
+            case "Nine": return "9";
+            case "Minus": return "-";
+            case "Equals": return "=";
+            case "LeftBracket": return "[";
+            case "RightBracket": return "]";
+            case "BackSlash": return "\\";
+            case "Semicolon": return ";";
+            case "Quote": return "'";
+            case "Comma": return ",";
+            case "Period": return ".";
+            case "Slash": return "/";
+            case "Backquote": return "`";
+            case "Return": return "\n";
+            case "Tab": return "\t";
+            default: return kName;
+        }
+    }
+
+    private static LuaValue measureTextBounds(String text, float fontSize, float maxW) {
+        if (text == null || text.isEmpty()) {
+            return LuaTypes.INSTANCE.wrap(new com.goydevv.studrblx.model.Vector2(0.0f, 0.0f));
+        }
+        try {
+            android.text.TextPaint tp = new android.text.TextPaint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+            tp.setTextSize(fontSize);
+            int wrapW = (maxW > 0.0f && maxW < 100000.0f) ? Math.max(1, (int) Math.ceil(maxW)) : 100000;
+            android.text.StaticLayout sl;
+            if (android.os.Build.VERSION.SDK_INT >= 23) {
+                sl = android.text.StaticLayout.Builder.obtain(text, 0, text.length(), tp, wrapW)
+                        .setAlignment(android.text.Layout.Alignment.ALIGN_NORMAL)
+                        .setIncludePad(false)
+                        .build();
+            } else {
+                sl = new android.text.StaticLayout(text, tp, wrapW, android.text.Layout.Alignment.ALIGN_NORMAL, 1.0f, 0.0f, false);
+            }
+            float measuredW = 0.0f;
+            int lc = sl.getLineCount();
+            for (int li = 0; li < lc; li++) {
+                float lw = sl.getLineWidth(li);
+                if (lw > measuredW) measuredW = lw;
+            }
+            float measuredH = sl.getHeight();
+            if (measuredW > 0.0f || measuredH > 0.0f) {
+                return LuaTypes.INSTANCE.wrap(new com.goydevv.studrblx.model.Vector2((float) Math.ceil(measuredW), (float) Math.ceil(measuredH)));
+            }
+        } catch (Throwable ignored) {
+        }
+        float charW = fontSize * 0.55f;
+        float lineH = fontSize * 1.2f;
+        float limitW = (maxW > 0.0f && maxW < 100000.0f) ? maxW : Float.MAX_VALUE;
+        String[] paras = text.split("\n", -1);
+        int totalLines = 0;
+        float maxLineW = 0.0f;
+        for (String para : paras) {
+            if (para.isEmpty()) {
+                totalLines++;
+                continue;
+            }
+            String[] words = para.split(" ", -1);
+            float curW = 0.0f;
+            for (int wi = 0; wi < words.length; wi++) {
+                float wordW = words[wi].length() * charW;
+                float spaceW = curW > 0.0f ? charW : 0.0f;
+                if (curW > 0.0f && curW + spaceW + wordW > limitW) {
+                    if (curW > maxLineW) maxLineW = curW;
+                    totalLines++;
+                    curW = wordW;
+                } else {
+                    curW += spaceW + wordW;
+                }
+                while (curW > limitW && limitW > charW) {
+                    if (limitW > maxLineW) maxLineW = limitW;
+                    totalLines++;
+                    curW -= limitW;
+                }
+            }
+            if (curW > maxLineW) maxLineW = curW;
+            totalLines++;
+        }
+        if (totalLines < 1) totalLines = 1;
+        return LuaTypes.INSTANCE.wrap(new com.goydevv.studrblx.model.Vector2((float) Math.ceil(maxLineW), (float) Math.ceil(totalLines * lineH)));
     }
 }

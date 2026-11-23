@@ -153,6 +153,8 @@ String str;
         TextView textView = new TextView(ctx);
         textView.setTypeface(Typeface.MONOSPACE);
         textView.setTextSize(fontSize);
+        textView.setBreakStrategy(Layout.BREAK_STRATEGY_SIMPLE);
+        textView.setHyphenationFrequency(Layout.HYPHENATION_FREQUENCY_NONE);
         textView.setTextColor(Ui.INSTANCE.blend(Ui.INSTANCE.getEDITOR_GUTTER(), Ui.INSTANCE.getEDITOR_TEXT(), 0.45f));
         textView.setGravity(GravityCompat.END);
         textView.setPadding(Ui.INSTANCE.dp(ctx, 6.0f), Ui.INSTANCE.dp(ctx, 8.0f), Ui.INSTANCE.dp(ctx, 6.0f), Ui.INSTANCE.dp(ctx, 8.0f));
@@ -165,22 +167,16 @@ String str;
         codeEdit.setBackground(null);
         codeEdit.setGravity(8388659);
         codeEdit.setInputType(655361);
-        codeEdit.setHorizontallyScrolling(false);
+        codeEdit.setHorizontallyScrolling(true);
+        codeEdit.setBreakStrategy(Layout.BREAK_STRATEGY_SIMPLE);
+        codeEdit.setHyphenationFrequency(Layout.HYPHENATION_FREQUENCY_NONE);
         codeEdit.setPadding(Ui.INSTANCE.dp(ctx, 8.0f), Ui.INSTANCE.dp(ctx, 8.0f), Ui.INSTANCE.dp(ctx, 24.0f), Ui.INSTANCE.dp(ctx, 200.0f));
         codeEdit.setMinWidth(codeEdit.getResources().getDisplayMetrics().widthPixels);
         synchronized (this.studio.getLock()) {
-            try {
-                Object obj = this.script.get("Source");
-                if (obj instanceof String) {
-                    try {
-                        str = (String) obj;
-                    } catch (Throwable th) {
-                        throw th;
-                    }
-                } else {
-                    str = null;
-                }
-                codeEdit.setText(str == null ? "" : str);
+            Object obj = this.script.get("Source");
+            str = (obj instanceof String) ? (String) obj : null;
+        }
+        codeEdit.setText(str == null ? "" : str);
                 this.editor = codeEdit;
                 HorizontalScrollView horizontalScrollView = new HorizontalScrollView(ctx);
                 horizontalScrollView.setFillViewport(true);
@@ -279,12 +275,8 @@ String str;
                         }
                     }
                 });
-                updateLines();
-                highlight();
-            } catch (Throwable th2) {
-                Throwable th = th2;
-            }
-        }
+        updateLines();
+        postDelayed(this.highlightRunnable, 120L);
     }
 
     public final Instance getScript() {
@@ -324,12 +316,69 @@ String str;
     /* JADX INFO: compiled from: ScriptEditor.kt */
     final class CodeEdit extends EditText {
         final /* synthetic */ ScriptEditor this$0;
+        private int cachedMaxLineChars = 1;
+        private boolean lineWidthDirty = true;
+        private float cachedCharWidth = 0.0f;
+        private float cachedMeasureTextSize = -1.0f;
 
-        /* JADX WARN: 'super' call moved to the top of the method (can break code semantics) */
         public CodeEdit(ScriptEditor this$0, Context c) {
             super(c);
             Intrinsics.checkNotNullParameter(c, "c");
             this.this$0 = this$0;
+        }
+
+        @Override
+        protected void onTextChanged(CharSequence text, int start, int lengthBefore, int lengthAfter) {
+            super.onTextChanged(text, start, lengthBefore, lengthAfter);
+            this.lineWidthDirty = true;
+        }
+
+        private int computeMonospaceWidth(int minWidth) {
+            if (this.lineWidthDirty) {
+                CharSequence t = getText();
+                int maxCols = 1;
+                int cols = 0;
+                if (t != null) {
+                    int len = t.length();
+                    for (int i = 0; i < len; i++) {
+                        char ch = t.charAt(i);
+                        if (ch == '\n') {
+                            if (cols > maxCols) {
+                                maxCols = cols;
+                            }
+                            cols = 0;
+                        } else if (ch == '\t') {
+                            cols += 4;
+                        } else {
+                            cols++;
+                        }
+                    }
+                    if (cols > maxCols) {
+                        maxCols = cols;
+                    }
+                }
+                this.cachedMaxLineChars = maxCols;
+                this.lineWidthDirty = false;
+            }
+            float ts = getTextSize();
+            if (this.cachedCharWidth <= 0.0f || this.cachedMeasureTextSize != ts) {
+                this.cachedCharWidth = Math.max(1.0f, getPaint().measureText("M"));
+                this.cachedMeasureTextSize = ts;
+            }
+            int raw = (int) Math.ceil((this.cachedMaxLineChars + 4) * this.cachedCharWidth) + getPaddingLeft() + getPaddingRight();
+            int bucketed = ((raw + 127) / 128) * 128;
+            return Math.max(minWidth, Math.max(getSuggestedMinimumWidth(), bucketed));
+        }
+
+        @Override
+        protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+            if (MeasureSpec.getMode(widthMeasureSpec) == MeasureSpec.UNSPECIFIED) {
+                int minW = Math.max(MeasureSpec.getSize(widthMeasureSpec), getSuggestedMinimumWidth());
+                int targetW = computeMonospaceWidth(minW);
+                super.onMeasure(MeasureSpec.makeMeasureSpec(targetW, MeasureSpec.EXACTLY), heightMeasureSpec);
+                return;
+            }
+            super.onMeasure(widthMeasureSpec, heightMeasureSpec);
         }
 
         @Override // android.widget.TextView
@@ -406,6 +455,11 @@ String str;
         }
         if (z) {
             this$0.positionPopup();
+        }
+        Editable edText = this$0.editor.getText();
+        if (edText != null && edText.length() > 32768) {
+            this$0.removeCallbacks(this$0.highlightRunnable);
+            this$0.postDelayed(this$0.highlightRunnable, 200L);
         }
     }
 
@@ -909,6 +963,15 @@ String str;
                 }
             }
         }
+        ViewGroup.LayoutParams glp = this.lines.getLayoutParams();
+        if (glp != null) {
+            String maxNum = String.valueOf(Math.max(n, 10));
+            int desiredGutterW = (int) Math.ceil(this.lines.getPaint().measureText(maxNum)) + this.lines.getPaddingLeft() + this.lines.getPaddingRight() + Ui.INSTANCE.dp(getContext(), 4.0f);
+            if (glp.width != desiredGutterW) {
+                glp.width = desiredGutterW;
+                this.lines.setLayoutParams(glp);
+            }
+        }
         this.lines.setText(sb);
         this.status.setText(n + " lines");
     }
@@ -1025,8 +1088,27 @@ String str;
             }
             String text = s.toString();
             int n = text.length();
-            int i = 0;
-            while (i < n) {
+            int rangeStart = 0;
+            int rangeEnd = n;
+            if (n > 32768) {
+                Layout layout = this.editor.getLayout();
+                if (layout != null && this.scroll != null) {
+                    int scrollY = this.scroll.getScrollY();
+                    int viewH = Math.max(this.scroll.getHeight(), 1200);
+                    int firstLine = Math.max(0, layout.getLineForVertical(Math.max(0, scrollY - 400)) - 10);
+                    int lastLine = Math.min(layout.getLineCount() - 1, layout.getLineForVertical(scrollY + viewH + 400) + 10);
+                    rangeStart = Math.max(0, layout.getLineStart(firstLine));
+                    rangeEnd = Math.min(n, layout.getLineEnd(lastLine));
+                } else {
+                    rangeEnd = 32768;
+                }
+                if (rangeEnd - rangeStart > 32768) {
+                    rangeEnd = Math.min(n, rangeStart + 32768);
+                }
+            }
+            int spanBudget = 2500;
+            int i = rangeStart;
+            while (i < rangeEnd && spanBudget > 0) {
                 char c = text.charAt(i);
                 if (c == '-' && i + 1 < n && text.charAt(i + 1) == '-') {
                     int lvl = highlight$longLevel(n, text, i + 2);
@@ -1036,7 +1118,7 @@ String str;
                         int iIndexOf$default = StringsKt.indexOf((CharSequence) text, '\n', i, false);
                         e = iIndexOf$default < 0 ? n : iIndexOf$default;
                     }
-                    highlight$span(s, n, i, e, comment);
+                    highlight$span(s, n, i, e, comment); spanBudget--;
                     i = e;
                 } else if (c == '\"' || c == '\'') {
                     j = i + 1;
@@ -1047,7 +1129,7 @@ String str;
                         j++;
                     }
                     int j2 = Math.min(j + 1, n);
-                    highlight$span(s, n, i, j2, str);
+                    highlight$span(s, n, i, j2, str); spanBudget--;
                     i = j2;
                 } else if (c == '`') {
                     j = i + 1;
@@ -1058,7 +1140,7 @@ String str;
                         j++;
                     }
                     int j3 = Math.min(j + 1, n);
-                    highlight$span(s, n, i, j3, str);
+                    highlight$span(s, n, i, j3, str); spanBudget--;
                     i = j3;
                 } else if (c != '[' || highlight$longLevel(n, text, i) < 0) {
                     boolean z2 = z;
@@ -1067,7 +1149,7 @@ String str;
                         while (j4 < n && (Character.isLetterOrDigit(text.charAt(j4)) || text.charAt(j4) == '.' || text.charAt(j4) == '_')) {
                             j4++;
                         }
-                        highlight$span(s, n, i, j4, num);
+                        highlight$span(s, n, i, j4, num); spanBudget--;
                         i = j4;
                         z = z2;
                     } else if (Character.isLetter(c) || c == '_') {
@@ -1079,9 +1161,9 @@ String str;
                         Intrinsics.checkNotNullExpressionValue(w, "substring(...)");
                         boolean prevDot = (i <= 0 || !(text.charAt(i + (-1)) == '.' || text.charAt(i + (-1)) == ':')) ? false : z2;
                         if (!prevDot && keywords.contains(w)) {
-                            highlight$span(s, n, i, j5, kw);
+                            highlight$span(s, n, i, j5, kw); spanBudget--;
                         } else if (!prevDot && builtins.contains(w)) {
-                            highlight$span(s, n, i, j5, builtin);
+                            highlight$span(s, n, i, j5, builtin); spanBudget--;
                         }
                         i = j5;
                         z = z2;
@@ -1092,7 +1174,7 @@ String str;
                 } else {
                     int l = highlight$longLevel(n, text, i);
                     int e2 = highlight$longClose(text, n, i + 2 + l, l);
-                    highlight$span(s, n, i, e2, str);
+                    highlight$span(s, n, i, e2, str); spanBudget--;
                     i = e2;
                 }
             }
@@ -1132,6 +1214,8 @@ String str;
     @Override // android.view.ViewGroup, android.view.View
     protected void onDetachedFromWindow() {
         removeCallbacks(this.completeRunnable);
+        removeCallbacks(this.highlightRunnable);
+        removeCallbacks(this.commitRunnable);
         hidePopup();
         commit();
         super.onDetachedFromWindow();

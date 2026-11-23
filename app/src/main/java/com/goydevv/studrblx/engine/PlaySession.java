@@ -750,18 +750,22 @@ public final class PlaySession implements TreeListener {
         // 4) resetGui(true) & clone StarterPack
         resetGui(true);
         Instance instanceFindService = this.dm.findService("StarterPack");
-        if (instanceFindService != null && (children = instanceFindService.getChildren()) != null) {
-            Iterable iterable2 = children;
-            for (Iterator it = iterable2.iterator(); it.hasNext(); ) {
-                Instance.setParent$default(((Instance) it.next()).cloneTree(), Instance.findFirstChild$default(p, "Backpack", false, 2, null), 0, 2, null);
+        Instance backpack = Instance.findFirstChild$default(p, "Backpack", false, 2, null);
+        if (instanceFindService != null && backpack != null && instanceFindService.getChildren() != null) {
+            for (Instance item : new ArrayList<>(instanceFindService.getChildren())) {
+                Instance clonedTool = item.cloneTree();
+                Instance.setParent$default(clonedTool, backpack, 0, 2, null);
+                runScriptsInSubtree(clonedTool);
             }
         }
         // 5) Clone StarterPlayerScripts into PlayerScripts
-        if (sp != null && (instanceFindFirstChild$default = Instance.findFirstChild$default(sp, "StarterPlayerScripts", false, 2, null)) != null && (children2 = instanceFindFirstChild$default.getChildren()) != null) {
-            Iterable<Instance> iterable = children2;
-            for (Instance instance : iterable) {
+        Instance playerScripts = Instance.findFirstChild$default(p, "PlayerScripts", false, 2, null);
+        if (sp != null && playerScripts != null && (instanceFindFirstChild$default = Instance.findFirstChild$default(sp, "StarterPlayerScripts", false, 2, null)) != null && instanceFindFirstChild$default.getChildren() != null) {
+            for (Instance instance : new ArrayList<>(instanceFindFirstChild$default.getChildren())) {
                 if (!Intrinsics.areEqual(instance.getName(), "PlayerModule")) {
-                    Instance.setParent$default(instance.cloneTree(), Instance.findFirstChild$default(p, "PlayerScripts", false, 2, null), 0, 2, null);
+                    Instance clonedPs = instance.cloneTree();
+                    Instance.setParent$default(clonedPs, playerScripts, 0, 2, null);
+                    runScriptsInSubtree(clonedPs);
                 }
             }
         }
@@ -783,21 +787,36 @@ public final class PlaySession implements TreeListener {
         if (instance == null || (pg = Instance.findFirstChild$default(instance, "PlayerGui", false, 2, null)) == null) {
             return;
         }
+        Instance starterGui = this.dm.findService("StarterGui");
+        if (!initial && starterGui != null && Boolean.FALSE.equals(starterGui.get("ResetPlayerGuiOnSpawn"))) {
+            return;
+        }
         if (!initial) {
             for (Instance g : CollectionsKt.toList(pg.getChildren())) {
-                if (!Intrinsics.areEqual(g.get("ResetOnSpawn"), (Object) false)) {
+                if (!Boolean.FALSE.equals(g.get("ResetOnSpawn"))) {
                     g.destroy();
                 }
             }
         }
-        Instance instanceFindService = this.dm.findService("StarterGui");
-        if (instanceFindService == null || (children = instanceFindService.getChildren()) == null) {
+        if (starterGui == null || (children = starterGui.getChildren()) == null) {
             return;
         }
-        for (Instance instance2 : children) {
-            if (initial || !Intrinsics.areEqual(instance2.get("ResetOnSpawn"), (Object) false)) {
-                Instance.setParent$default(instance2.cloneTree(), pg, 0, 2, null);
+        for (Instance src : CollectionsKt.toList(children)) {
+            if (initial || !Boolean.FALSE.equals(src.get("ResetOnSpawn"))) {
+                Instance clone = src.cloneTree();
+                Instance.setParent$default(clone, pg, 0, 2, null);
+                runScriptsInSubtree(clone);
             }
+        }
+    }
+
+    private final void runScriptsInSubtree(Instance root) {
+        if (root == null) {
+            return;
+        }
+        maybeRunScript(root);
+        for (Instance d : Instance.descendants$default(root, null, 1, null)) {
+            maybeRunScript(d);
         }
     }
 
@@ -898,12 +917,18 @@ public final class PlaySession implements TreeListener {
     private final boolean isRunnable(Instance s) {
         boolean inBackpack;
         boolean z;
-        if (Intrinsics.areEqual(s.get("Disabled"), (Object) true)) {
+        if (Boolean.TRUE.equals(s.get("Disabled")) || Boolean.FALSE.equals(s.get("Enabled"))) {
             return false;
         }
         Object obj = s.get("RunContext");
-        EnumValue enumValue = obj instanceof EnumValue ? (EnumValue) obj : null;
-        int ctx = enumValue != null ? enumValue.getValue() : 0;
+        int ctx = 0;
+        if (obj instanceof EnumValue) {
+            ctx = ((EnumValue) obj).getValue();
+        } else if (obj instanceof EnumItemV) {
+            ctx = ((EnumItemV) obj).getValue();
+        } else if (obj instanceof Number) {
+            ctx = ((Number) obj).intValue();
+        }
         Instance p = this.player;
         boolean clientPlaces = isRunnable$underInst(s, p) || isRunnable$underInst(s, this.character) || isRunnable$under(s, "ReplicatedFirst");
         if (p != null) {
@@ -1246,8 +1271,12 @@ public final class PlaySession implements TreeListener {
                 }
                 break;
             default:
+                if (("Enabled".equals(name) || "Disabled".equals(name)) && inst.isA("BaseScript")) {
+                    maybeRunScript(inst);
+                }
                 if ("Part0".equals(name) || "Part1".equals(name) || "Part0Internal".equals(name) || "Part1Internal".equals(name)
-                        || "Attachment0".equals(name) || "Attachment1".equals(name) || "Enabled".equals(name)
+                        || "Attachment0".equals(name) || "Attachment1".equals(name)
+                        || ("Enabled".equals(name) && !inst.isA("GuiBase") && !inst.isA("UIBase") && !inst.isA("BaseScript"))
                         || "Massless".equals(name) || "CustomPhysicalProperties".equals(name)
                         || "Shape".equals(name) || "shape".equals(name) || "CollisionGroup".equals(name)) {
                     this.physicsDirty = true;
