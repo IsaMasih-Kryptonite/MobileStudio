@@ -105,6 +105,7 @@ public final class LuaRuntime {
     private final boolean isPlay;
     private final ConcurrentLinkedQueue<Function0<Unit>> mainQueue;
     private final IdentityHashMap<Instance, LuaValue> moduleCache;
+    private final Set<Instance> loadingModules;
     private final IdentityHashMap<LuaThread, ArrayList<LuaTable>> moduleEnvs;
     private PlaySession play;
     private long resumeStart;
@@ -151,11 +152,13 @@ public final class LuaRuntime {
         this.signalWaiters = new IdentityHashMap<>();
         this.tweens = new ArrayList<>();
         this.moduleCache = new IdentityHashMap<>();
+        this.loadingModules = Collections.newSetFromMap(new IdentityHashMap<Instance, Boolean>());
+        LuaTypes.setActiveRuntime(this);
         this.wrappers = new WeakHashMap<>();
         this.callbacks = new IdentityHashMap<>();
         this.mainQueue = new ConcurrentLinkedQueue<>();
         this.sharedTable = new LuaTable();
-        this.directEvents = SetsKt.setOf(new String[]{"Heartbeat", "RenderStepped", "Stepped", "PreSimulation", "PostSimulation", "PreRender", "Changed", "AttributeChanged"});
+        this.directEvents = SetsKt.setOf(new String[]{"Heartbeat", "RenderStepped", "Stepped", "PreSimulation", "PostSimulation", "PreRender", "PreAnimation", "Changed", "AttributeChanged"});
         this.treeListener = new TreeListener() { // from class: com.goydevv.studrblx.lua.LuaRuntime$treeListener$1
             @Override // com.goydevv.studrblx.model.TreeListener
             public void childAdded(Instance parent, Instance child) {
@@ -526,6 +529,7 @@ public final class LuaRuntime {
         this.conns.clear();
         this.signalWaiters.clear();
         this.tweens.clear();
+        this.loadingModules.clear();
     }
 
     public final LuaValue wrap(Instance inst) {
@@ -836,6 +840,18 @@ public final class LuaRuntime {
 
     /* JADX INFO: Access modifiers changed from: private */
     public final void disconnectTree(Instance i) {
+        HashMap<String, ArrayList<Connection>> map = this.conns.get(i);
+        if (map != null) {
+            for (ArrayList<Connection> list : map.values()) {
+                if (list != null) {
+                    for (Connection conn : list) {
+                        if (conn != null) {
+                            conn.setConnected(false);
+                        }
+                    }
+                }
+            }
+        }
         this.conns.remove(i);
         this.signalWaiters.remove(i);
         this.callbacks.remove(i);
@@ -939,6 +955,8 @@ public final class LuaRuntime {
         if (outer == 0L) {
             this.resumeStart = System.currentTimeMillis();
         }
+        LuaRuntime prevRt = LuaTypes.getActiveRuntime();
+        LuaTypes.setActiveRuntime(this);
         Varargs varargsInvoke = null;
         try {
             varargsInvoke = fn.invoke(args);
@@ -954,6 +972,7 @@ public final class LuaRuntime {
             reportError(e3.toString());
         } finally {
             this.resumeStart = outer;
+            LuaTypes.setActiveRuntime(prevRt);
         }
         return varargsInvoke;
     }
@@ -981,6 +1000,8 @@ public final class LuaRuntime {
         }
         long outer = this.resumeStart;
         this.resumeStart = System.currentTimeMillis();
+        LuaRuntime prevRt = LuaTypes.getActiveRuntime();
+        LuaTypes.setActiveRuntime(this);
         try {
             Varargs r = co.resume(args);
             if (!r.arg1().toboolean()) {
@@ -993,6 +1014,7 @@ public final class LuaRuntime {
             reportError(e.toString());
         } finally {
             this.resumeStart = outer;
+            LuaTypes.setActiveRuntime(prevRt);
         }
     }
 
@@ -1419,6 +1441,10 @@ public final class LuaRuntime {
                     }
                 } catch (Throwable ignored) {
                 }
+                String tf = LuauTranspiler.INSTANCE.getLastFailure();
+                if (tf != null) {
+                    OutputLog.INSTANCE.warn("Luau transpile failed (" + chunkName + "): " + tf);
+                }
                 throw e;
             }
             Globals globals2 = this.globals;
@@ -1716,6 +1742,9 @@ public final class LuaRuntime {
         if (!module.isA("ModuleScript")) {
             throw new LuaError("Attempted to call require with invalid argument(s).");
         }
+        if (this.loadingModules.contains(module)) {
+            throw new LuaError("Circular require detected: " + module.fullName());
+        }
         Instance top = module;
         while (true) {
             if ((top != null ? top.getParent() : null) == null) {
@@ -1741,8 +1770,10 @@ public final class LuaRuntime {
         }
         ArrayList<LuaTable> arrayList3 = arrayList;
         arrayList3.add(env);
+        this.loadingModules.add(module);
         try {
             LuaValue r = fn.call();
+            this.loadingModules.remove(module);
             arrayList3.remove(arrayList3.size() - 1);
             if (arrayList3.isEmpty()) {
                 this.moduleEnvs.remove(co);
@@ -1754,6 +1785,7 @@ public final class LuaRuntime {
             Intrinsics.checkNotNull(r);
             return r;
         } catch (Throwable th) {
+            this.loadingModules.remove(module);
             arrayList3.remove(arrayList3.size() - 1);
             if (arrayList3.isEmpty()) {
                 this.moduleEnvs.remove(co);

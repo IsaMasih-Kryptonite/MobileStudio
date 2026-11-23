@@ -784,7 +784,20 @@ public final class RobloxServices {
             }
             case "StarterGui": {
                 if ("SetCoreGuiEnabled".equals(name)) {
-                    CORE_GUI_ENABLED.put(Integer.valueOf(a.arg(2).isuserdata() && a.arg(2).touserdata() instanceof EnumItemV ? ((EnumItemV) a.arg(2).touserdata()).getValue() : a.arg(2).optint(0)), Boolean.valueOf(a.arg(3).toboolean()));
+                    int key = a.arg(2).isuserdata() && a.arg(2).touserdata() instanceof EnumItemV ? ((EnumItemV) a.arg(2).touserdata()).getValue() : a.arg(2).optint(0);
+                    boolean en = a.arg(3).toboolean();
+                    if (key == 4) { // Enum.CoreGuiType.All
+                        for (int k = 0; k <= 4; k++) CORE_GUI_ENABLED.put(Integer.valueOf(k), Boolean.valueOf(en));
+                    } else {
+                        CORE_GUI_ENABLED.put(Integer.valueOf(key), Boolean.valueOf(en));
+                    }
+                    com.goydevv.studrblx.engine.PlaySession pl = rt.getPlay();
+                    if (pl != null) {
+                        if (key == 0 || key == 4) pl.setCorePlayerList(en);
+                        if (key == 1 || key == 4) pl.setCoreHealth(en);
+                        if (key == 2 || key == 4) pl.setCoreBackpack(en);
+                        if (key == 3 || key == 4) pl.setCoreChat(en);
+                    }
                     return LuaValue.NONE;
                 }
                 if ("GetCoreGuiEnabled".equals(name)) {
@@ -793,10 +806,14 @@ public final class RobloxServices {
                     return LuaValue.valueOf(b == null || b.booleanValue());
                 }
                 if ("SetCore".equals(name)) {
+                    String ck = a.arg(2).optjstring("");
+                    if (!ck.isEmpty()) CORE_VALUES.put(ck, a.arg(3));
                     return LuaValue.NONE;
                 }
                 if ("GetCore".equals(name)) {
-                    return LuaValue.TRUE;
+                    String ck = a.arg(2).optjstring("");
+                    LuaValue cv = CORE_VALUES.get(ck);
+                    return cv != null ? cv : LuaValue.TRUE;
                 }
                 return LuaValue.NIL;
             }
@@ -822,7 +839,30 @@ public final class RobloxServices {
             }
             case "PhysicsService": {
                 if ("RegisterCollisionGroup".equals(name) || "CreateCollisionGroup".equals(name)) {
-                    COLLISION_GROUPS.add(a.arg(2).optjstring("Default"));
+                    String gn = a.arg(2).optjstring("Default");
+                    COLLISION_GROUPS.add(gn);
+                    return LuaValue.NONE;
+                }
+                if ("UnregisterCollisionGroup".equals(name) || "RemoveCollisionGroup".equals(name)) {
+                    String gn = a.arg(2).optjstring("");
+                    if (!"Default".equals(gn)) COLLISION_GROUPS.remove(gn);
+                    return LuaValue.NONE;
+                }
+                if ("CollisionGroupSetCollidable".equals(name)) {
+                    String g1 = a.arg(2).optjstring("Default");
+                    String g2 = a.arg(3).optjstring("Default");
+                    boolean col = a.arg(4).toboolean();
+                    COLLISION_GROUPS.add(g1);
+                    COLLISION_GROUPS.add(g2);
+                    COLLISION_MATRIX.put(cgKey(g1, g2), Boolean.valueOf(col));
+                    return LuaValue.NONE;
+                }
+                if ("SetPartCollisionGroup".equals(name)) {
+                    Object po = a.arg(2).isuserdata() ? a.arg(2).touserdata() : null;
+                    String gn = a.arg(3).optjstring("Default");
+                    if (po instanceof Instance) {
+                        ((Instance) po).set("CollisionGroup", gn, true);
+                    }
                     return LuaValue.NONE;
                 }
                 if ("IsCollisionGroupRegistered".equals(name)) {
@@ -842,7 +882,9 @@ public final class RobloxServices {
                     return out;
                 }
                 if ("CollisionGroupsAreCollidable".equals(name)) {
-                    return LuaValue.TRUE;
+                    String g1 = a.arg(2).optjstring("Default");
+                    String g2 = a.arg(3).optjstring("Default");
+                    return LuaValue.valueOf(areCollisionGroupsCollidable(g1, g2));
                 }
                 return LuaValue.NONE;
             }
@@ -886,10 +928,39 @@ public final class RobloxServices {
                     }
                     return LuaValue.NIL;
                 }
+                if ("GetPlayerByUserId".equals(name)) {
+                    long uid = a.arg(2).optlong(-1L);
+                    com.goydevv.studrblx.engine.PlaySession pl = rt.getPlay();
+                    if (pl != null && pl.getPlayer() != null) {
+                        Object pUid = pl.getPlayer().get("UserId");
+                        if (pUid instanceof Number && ((Number) pUid).longValue() == uid) {
+                            return rt.wrap(pl.getPlayer());
+                        }
+                    }
+                    return LuaValue.NIL;
+                }
                 return LuaValue.NIL;
             case "RunService":
                 if ("IsClient".equals(name) || "IsServer".equals(name) || "IsStudio".equals(name)) return LuaValue.TRUE;
                 if ("IsRunning".equals(name) || "IsRunMode".equals(name)) return LuaValue.valueOf(rt.getPlay() != null);
+                if ("IsEdit".equals(name)) return LuaValue.valueOf(rt.getPlay() == null);
+                if ("BindToRenderStep".equals(name)) {
+                    String bindName = a.arg(2).checkjstring();
+                    LuaValue fn = a.arg(4);
+                    if (fn.isfunction()) {
+                        Connection prev = RENDER_STEP_BINDINGS.remove(bindName);
+                        if (prev != null) rt.disconnect(prev);
+                        Connection conn = rt.connect(svc, "RenderStepped", fn.checkfunction(), false);
+                        RENDER_STEP_BINDINGS.put(bindName, conn);
+                    }
+                    return LuaValue.NONE;
+                }
+                if ("UnbindFromRenderStep".equals(name)) {
+                    String bindName = a.arg(2).optjstring("");
+                    Connection prev = RENDER_STEP_BINDINGS.remove(bindName);
+                    if (prev != null) rt.disconnect(prev);
+                    return LuaValue.NONE;
+                }
                 return LuaValue.NIL;
             case "HttpService":
                 return http(rt, svc, name, a);
@@ -910,14 +981,24 @@ public final class RobloxServices {
                 return LuaValue.NIL;
             case "Lighting":
                 if ("GetMinutesAfterMidnight".equals(name)) {
-                    Object ct = svc.get("ClockTime");
-                    float ctf = ct instanceof Number ? ((Number) ct).floatValue() : 14.0f;
+                    float ctf = com.goydevv.studrblx.core.PlaceFactory.resolveClockTime(svc);
                     return LuaValue.valueOf(ctf * 60.0f);
                 }
                 if ("SetMinutesAfterMidnight".equals(name)) {
                     float mins = (float) a.checkdouble(2);
-                    svc.set("ClockTime", Float.valueOf((mins / 60.0f) % 24.0f), true);
+                    float hours = (mins / 60.0f) % 24.0f;
+                    if (hours < 0.0f) {
+                        hours += 24.0f;
+                    }
+                    svc.set("ClockTime", Float.valueOf(hours), true);
+                    svc.set("TimeOfDay", com.goydevv.studrblx.core.PlaceFactory.formatClockTime(hours), true);
                     return LuaValue.NIL;
+                }
+                if ("GetSunDirection".equals(name) || "GetMoonDirection".equals(name)) {
+                    float hours = com.goydevv.studrblx.core.PlaceFactory.resolveClockTime(svc);
+                    double ang = ((hours - 6.0d) / 24.0d) * Math.PI * 2.0d;
+                    Vector3 sun = new Vector3((float) Math.cos(ang), (float) Math.sin(ang), -0.25f).getUnit();
+                    return LuaTypes.INSTANCE.wrap("GetMoonDirection".equals(name) ? sun.unaryMinus() : sun);
                 }
                 return LuaValue.NIL;
             case "SoundService":
@@ -1014,8 +1095,10 @@ public final class RobloxServices {
                 }
                 return LuaValue.NIL;
             case "UserInputService":
-                if ("IsKeyDown".equals(name)) return LuaValue.FALSE;
+                if ("IsKeyDown".equals(name) || "IsMouseButtonPressed".equals(name)) return LuaValue.FALSE;
                 if ("GetMouseLocation".equals(name)) return LuaTypes.INSTANCE.wrap(new com.goydevv.studrblx.model.Vector2(0.0f, 0.0f));
+                if ("GetKeysPressed".equals(name) || "GetConnectedGamepads".equals(name)) return new LuaTable();
+                if ("GetLastInputType".equals(name)) return LuaTypes.INSTANCE.enumItem("UserInputType", "Touch");
                 if ("GetFocusedTextBox".equals(name)) {
                     Instance focused = rt.getFocusedTextBox();
                     return focused != null ? rt.wrap(focused) : LuaValue.NIL;
@@ -1165,6 +1248,43 @@ public final class RobloxServices {
                 if ("IsLoaded".equals(name)) return LuaValue.TRUE;
                 if ("GetJobsInfo".equals(name)) return new LuaTable();
                 if ("BindToClose".equals(name) || "SetPlaceId".equals(name)) return LuaValue.NONE;
+                return LuaValue.NIL;
+            }
+            case "ReplicatedFirst": {
+                if ("RemoveDefaultLoadingScreen".equals(name)) {
+                    svc.getAttributes().put("__defaultLoadingScreenRemoved", Boolean.TRUE);
+                    return LuaValue.NONE;
+                }
+                if ("IsFinishedReplicating".equals(name)) {
+                    return LuaValue.TRUE;
+                }
+                if ("IsDefaultLoadingScreenRemoved".equals(name)) {
+                    return LuaValue.valueOf(Boolean.TRUE.equals(svc.getAttributes().get("__defaultLoadingScreenRemoved")));
+                }
+                return LuaValue.NIL;
+            }
+            case "ContentProvider": {
+                if ("PreloadAsync".equals(name)) {
+                    LuaValue listArg = a.arg(2);
+                    LuaValue cbArg = a.arg(3);
+                    if (listArg.istable()) {
+                        LuaTable tbl = listArg.checktable();
+                        int len = tbl.length();
+                        LuaValue successEnum = LuaTypes.INSTANCE.enumItem("AssetFetchStatus", "Success");
+                        for (int idx = 1; idx <= len; idx++) {
+                            LuaValue item = tbl.get(idx);
+                            if (cbArg.isfunction()) {
+                                String idStr = item.isstring() ? item.tojstring() : item.tojstring();
+                                cbArg.call(LuaValue.valueOf(idStr), successEnum != null ? successEnum : LuaValue.valueOf(0));
+                            }
+                        }
+                    }
+                    return LuaValue.NONE;
+                }
+                if ("GetAssetFetchStatus".equals(name)) {
+                    LuaValue successEnum = LuaTypes.INSTANCE.enumItem("AssetFetchStatus", "Success");
+                    return successEnum != null ? successEnum : LuaValue.valueOf(0);
+                }
                 return LuaValue.NIL;
             }
             default:
@@ -1957,5 +2077,19 @@ public final class RobloxServices {
     private static final java.util.LinkedHashMap<String, CasEntry> CAS_ACTIONS = new java.util.LinkedHashMap<>();
     private static int CAS_BTN_COUNT = 0;
     private static final java.util.HashMap<Integer, Boolean> CORE_GUI_ENABLED = new java.util.HashMap<>();
+    private static final java.util.HashMap<String, LuaValue> CORE_VALUES = new java.util.HashMap<>();
     private static final java.util.LinkedHashSet<String> COLLISION_GROUPS = new java.util.LinkedHashSet<>();
+    private static final java.util.HashMap<String, Boolean> COLLISION_MATRIX = new java.util.HashMap<>();
+    private static final java.util.HashMap<String, Connection> RENDER_STEP_BINDINGS = new java.util.HashMap<>();
+
+    private static String cgKey(String a, String b) {
+        String s1 = a != null ? a : "Default";
+        String s2 = b != null ? b : "Default";
+        return s1.compareTo(s2) <= 0 ? (s1 + "\u0000" + s2) : (s2 + "\u0000" + s1);
+    }
+
+    public final boolean areCollisionGroupsCollidable(String g1, String g2) {
+        Boolean v = COLLISION_MATRIX.get(cgKey(g1, g2));
+        return v == null || v.booleanValue();
+    }
 }

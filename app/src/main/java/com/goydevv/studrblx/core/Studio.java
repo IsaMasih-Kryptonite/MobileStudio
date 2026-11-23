@@ -801,6 +801,14 @@ public final class Studio {
                         }
                     }
                 }
+                Instance rfSvc = getModel().findService("ReplicatedFirst");
+                if (rfSvc != null) {
+                    for (Instance rfInst : Instance.descendants$default(rfSvc, null, 1, null)) {
+                        if (Intrinsics.areEqual(rfInst.getClassName(), "Sound")) {
+                            this.soundsCache.add(rfInst);
+                        }
+                    }
+                }
                 PlaySession playSession3 = this.play;
                 if (playSession3 != null && (player = playSession3.getPlayer()) != null && (instanceFindFirstChild$default = Instance.findFirstChild$default(player, "PlayerScripts", false, 2, null)) != null && (iterableDescendants$default2 = Instance.descendants$default(instanceFindFirstChild$default, null, 1, null)) != null) {
                     for (Instance instance5 : iterableDescendants$default2) {
@@ -1308,11 +1316,12 @@ public final class Studio {
         String[] assetKeys = {
             "MeshId", "MeshID", "MeshContent",
             "TextureID", "TextureId", "Texture", "TextureContent",
-            "SoundId", "Image", "AnimationId",
+            "SoundId", "Image", "ImageContent", "AnimationId",
             "ColorMap", "ColorMapContent", "NormalMap", "NormalMapContent",
             "RoughnessMap", "RoughnessMapContent", "MetalnessMap", "MetalnessMapContent",
             "AssetId", "Graphic", "ShirtTemplate", "PantsTemplate",
-            "SkyboxBk", "SkyboxDn", "SkyboxFt", "SkyboxLf", "SkyboxRt", "SkyboxUp"
+            "SkyboxBk", "SkyboxDn", "SkyboxFt", "SkyboxLf", "SkyboxRt", "SkyboxUp",
+            "SkyboxBkContent", "SkyboxDnContent", "SkyboxFtContent", "SkyboxLfContent", "SkyboxRtContent", "SkyboxUpContent"
         };
         ArrayList<Instance> allInsts = new ArrayList<>();
         for (Instance root : roots) {
@@ -1560,6 +1569,35 @@ public final class Studio {
         studio.insertDocument(rbxDocument, instance);
     }
 
+    public static boolean isSingletonLightingClass(String cls) {
+        return "Sky".equals(cls) || "Atmosphere".equals(cls) || "Clouds".equals(cls) || "ColorGradingEffect".equals(cls);
+    }
+
+    private final void removeExistingLightingSingletons(Instance lightingSvc, String cls) {
+        if (lightingSvc == null || !isSingletonLightingClass(cls)) {
+            return;
+        }
+        for (Instance existing : new ArrayList<>(Instance.descendants$default(lightingSvc, null, 1, null))) {
+            if (cls.equals(existing.getClassName())) {
+                reparent(existing, null);
+            }
+        }
+    }
+
+    private final void removeExistingLightingSingletonsForSubtree(Instance lightingSvc, Instance incoming) {
+        if (lightingSvc == null || incoming == null) {
+            return;
+        }
+        if (isSingletonLightingClass(incoming.getClassName())) {
+            removeExistingLightingSingletons(lightingSvc, incoming.getClassName());
+        }
+        for (Instance desc : Instance.descendants$default(incoming, null, 1, null)) {
+            if (isSingletonLightingClass(desc.getClassName())) {
+                removeExistingLightingSingletons(lightingSvc, desc.getClassName());
+            }
+        }
+    }
+
     public final void insertDocument(RbxDocument doc, Instance parent) {
         Instance service;
         Object obj;
@@ -1578,6 +1616,23 @@ public final class Studio {
                 Instance next = it.next();
                 if (parent == null && (next.getIsService() || ClassDb.INSTANCE.isServiceName(next.getClassName()))) {
                     Instance targetSvc = getModel().getService(next.getClassName());
+                    for (java.util.Map.Entry<String, Object> propEntry : next.getProps().entrySet()) {
+                        setProp(targetSvc, propEntry.getKey(), propEntry.getValue());
+                    }
+                    targetSvc.getPropTypes().putAll(next.getPropTypes());
+                    targetSvc.getAttributes().putAll(next.getAttributes());
+                    boolean isLightingSvc = "Lighting".equals(targetSvc.getClassName());
+                    if (isLightingSvc) {
+                        Object impCt = next.getProps().get("ClockTime");
+                        Object impTod = next.getProps().get("TimeOfDay");
+                        boolean hasImpCt = impCt instanceof Number;
+                        Float parsedImpTod = (impTod instanceof String) ? PlaceFactory.parseTimeOfDay((String) impTod) : null;
+                        if (hasImpCt && parsedImpTod == null) {
+                            setProp(targetSvc, "TimeOfDay", PlaceFactory.formatClockTime(((Number) impCt).floatValue()));
+                        } else if (!hasImpCt && parsedImpTod != null) {
+                            setProp(targetSvc, "ClockTime", parsedImpTod);
+                        }
+                    }
                     boolean hasTerrain = false;
                     for (Instance existing : targetSvc.getChildren()) {
                         if ("Terrain".equals(existing.getClassName())) {
@@ -1588,6 +1643,9 @@ public final class Studio {
                     for (Instance ch : new ArrayList<>(next.getChildren())) {
                         if ("Terrain".equals(ch.getClassName()) && hasTerrain) {
                             continue;
+                        }
+                        if (isLightingSvc) {
+                            removeExistingLightingSingletonsForSubtree(targetSvc, ch);
                         }
                         reparent(ch, targetSvc);
                         inserted.add(ch);
@@ -1611,7 +1669,7 @@ public final class Studio {
                     boolean isLightOnly = false;
                     if (!isMatOnly) {
                         String rcn = next.getClassName();
-                        if ("Sky".equals(rcn) || "Atmosphere".equals(rcn) || "Clouds".equals(rcn) || "ColorCorrectionEffect".equals(rcn) || "BloomEffect".equals(rcn) || "SunRaysEffect".equals(rcn) || "BlurEffect".equals(rcn) || "DepthOfFieldEffect".equals(rcn) || "Lighting".equals(rcn)) {
+                        if ("Sky".equals(rcn) || "Atmosphere".equals(rcn) || "Clouds".equals(rcn) || "ColorGradingEffect".equals(rcn) || "ColorCorrectionEffect".equals(rcn) || "BloomEffect".equals(rcn) || "SunRaysEffect".equals(rcn) || "BlurEffect".equals(rcn) || "DepthOfFieldEffect".equals(rcn) || "Lighting".equals(rcn)) {
                             isLightOnly = true;
                         } else if (("Folder".equals(rcn) || "Model".equals(rcn)) && !next.getChildren().isEmpty()) {
                             boolean hasLightChild = false;
@@ -1622,7 +1680,7 @@ public final class Studio {
                                     hasPartChild = true;
                                     break;
                                 }
-                                if ("Sky".equals(dcn) || "Atmosphere".equals(dcn) || "ColorCorrectionEffect".equals(dcn) || "BloomEffect".equals(dcn) || "SunRaysEffect".equals(dcn)) {
+                                if ("Sky".equals(dcn) || "Atmosphere".equals(dcn) || "Clouds".equals(dcn) || "ColorGradingEffect".equals(dcn) || "ColorCorrectionEffect".equals(dcn) || "BloomEffect".equals(dcn) || "SunRaysEffect".equals(dcn) || "BlurEffect".equals(dcn) || "DepthOfFieldEffect".equals(dcn)) {
                                     hasLightChild = true;
                                 }
                             }
@@ -1656,6 +1714,9 @@ public final class Studio {
                     }
                 } else {
                     service = parent;
+                }
+                if (service != null && "Lighting".equals(service.getClassName())) {
+                    removeExistingLightingSingletonsForSubtree(service, next);
                 }
                 reparent(next, service);
                 inserted.add(next);
@@ -1831,6 +1892,16 @@ public final class Studio {
                 try {
                     try {
                         this.undo.record(new UndoManager.Op.Prop(inst, name, obj, value, zContainsKey));
+                        if ("Lighting".equals(inst.getClassName())) {
+                            if ("TimeOfDay".equals(name) && value instanceof String) {
+                                Float parsed = PlaceFactory.parseTimeOfDay((String) value);
+                                if (parsed != null) {
+                                    inst.set("ClockTime", parsed, false);
+                                }
+                            } else if ("ClockTime".equals(name) && value instanceof Number) {
+                                inst.set("TimeOfDay", PlaceFactory.formatClockTime(((Number) value).floatValue()), false);
+                            }
+                        }
                         if ((Intrinsics.areEqual(name, "MaterialVariant") || Intrinsics.areEqual(name, "MaterialVariantSerialized")) && inst.isA("BasePart")) {
                             String string = value != null ? value.toString() : null;
                             if (string == null) {

@@ -75,6 +75,7 @@ public final class AudioEngine {
             } else if (focusChange == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK) {
                 duckFactor = 0.25f;
             } else if (focusChange == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT) {
+                hasAudioFocus = false;
                 duckFactor = 0.0f;
                 INSTANCE.pauseAllVoicesOnHandler();
             } else if (focusChange == AudioManager.AUDIOFOCUS_LOSS) {
@@ -168,6 +169,7 @@ public final class AudioEngine {
     }
 
     public final void requestAudioFocus() {
+        duckFactor = 1.0f;
         AudioManager am = audioManager;
         if (am == null || hasAudioFocus) {
             return;
@@ -233,6 +235,7 @@ public final class AudioEngine {
 
     public final void onAppResume() {
         appPaused = false;
+        duckFactor = 1.0f;
         if (!voices.isEmpty()) {
             requestAudioFocus();
             resumeAllVoicesOnHandler();
@@ -322,6 +325,7 @@ public final class AudioEngine {
         private volatile double pendingSeek;
         private volatile double position;
         private volatile boolean prepared;
+        private volatile boolean started;
         private volatile boolean released;
         private double seek;
         private int seekSeq;
@@ -370,6 +374,14 @@ public final class AudioEngine {
 
         public final void setPrepared(boolean z) {
             this.prepared = z;
+        }
+
+        public final boolean getStarted() {
+            return this.started;
+        }
+
+        public final void setStarted(boolean z) {
+            this.started = z;
         }
 
         public final boolean getReleased() {
@@ -580,8 +592,17 @@ public final class AudioEngine {
         onDidLoop = function2;
     }
 
-    private final Long soundId(Instance s) {
+    public static Long resolveSoundId(Instance s) {
+        if (s == null) return null;
+        Long id = AssetFetcher.INSTANCE.idOf(s.get("AudioContent"));
+        if (id != null) return id;
+        id = AssetFetcher.INSTANCE.idOf(s.get("SoundContent"));
+        if (id != null) return id;
         return AssetFetcher.INSTANCE.idOf(s.get("SoundId"));
+    }
+
+    private final Long soundId(Instance s) {
+        return resolveSoundId(s);
     }
 
     private final float num(Instance i, String k, float d) {
@@ -771,6 +792,7 @@ public final class AudioEngine {
                 if (v != null) {
                     if (v.getWantPlay()) {
                         v.setWantPlay(false);
+                        v.setStarted(false);
                         v.setLoudness(0.0f);
                         final boolean stopped = Boolean.TRUE.equals(s.getAttributes().get("__stopFlag"))
                                 || num(s, "TimePosition", 0.0f) == 0.0f;
@@ -816,38 +838,6 @@ public final class AudioEngine {
                 requestAudioFocus();
             }
 
-            if (v == null) {
-                if (voices.size() >= MAX_VOICES) {
-                    continue;
-                }
-                boolean cached = AssetFetcher.INSTANCE.isCached(id.longValue());
-                if (!cached) {
-                    AssetFetcher.INSTANCE.request(id.longValue());
-                    if (!missing.contains(id) && AssetFetcher.INSTANCE.lastError(id.longValue()) != null) {
-                        missing.add(id);
-                        OutputLog.INSTANCE.warn("Couldn't load sound " + s.fullName() + " (rbxassetid://" + id + "): " + AssetFetcher.INSTANCE.lastError(id.longValue()));
-                    }
-                    continue;
-                }
-                Voice created = new Voice(s, id.longValue());
-                voices.put(s, created);
-                Object stp = s.getAttributes().remove("__scriptTimePos");
-                double startPos = (stp instanceof Number) ? Math.max(0.0d, ((Number) stp).doubleValue()) : Math.max(0.0d, (double) num(s, "TimePosition", 0.0f));
-                created.setSeek(startPos);
-                if (startPos > 0.0d) {
-                    created.setPendingSeek(startPos);
-                }
-                create(created);
-                v = created;
-            }
-
-            if (v.getFailed()) {
-                if (isTransient) {
-                    transientSounds.remove(s);
-                }
-                continue;
-            }
-
             float vol = RangesKt.coerceIn(num(s, "Volume", 0.5f), 0.0f, 10.0f);
             vol *= computeSoundGroupGain(s);
             vol *= master;
@@ -879,6 +869,43 @@ public final class AudioEngine {
             float r = RangesKt.coerceIn(vol * right, 0.0f, 1.0f);
             float speed = RangesKt.coerceIn(num(s, "PlaybackSpeed", num(s, "Pitch", 1.0f)), 0.0f, 20.0f);
             boolean loop = Intrinsics.areEqual(s.get("Looped"), Boolean.TRUE);
+
+            if (v == null) {
+                if (voices.size() >= MAX_VOICES) {
+                    continue;
+                }
+                boolean cached = AssetFetcher.INSTANCE.isCached(id.longValue());
+                if (!cached) {
+                    AssetFetcher.INSTANCE.request(id.longValue());
+                    if (!missing.contains(id) && AssetFetcher.INSTANCE.lastError(id.longValue()) != null) {
+                        missing.add(id);
+                        OutputLog.INSTANCE.warn("Couldn't load sound " + s.fullName() + " (rbxassetid://" + id + "): " + AssetFetcher.INSTANCE.lastError(id.longValue()));
+                    }
+                    continue;
+                }
+                Voice created = new Voice(s, id.longValue());
+                created.setWantPlay(true);
+                created.setLastL(l);
+                created.setLastR(r);
+                created.setLastSpeed(speed);
+                created.setLooped(loop);
+                voices.put(s, created);
+                Object stp = s.getAttributes().remove("__scriptTimePos");
+                double startPos = (stp instanceof Number) ? Math.max(0.0d, ((Number) stp).doubleValue()) : Math.max(0.0d, (double) num(s, "TimePosition", 0.0f));
+                created.setSeek(startPos);
+                if (startPos > 0.0d) {
+                    created.setPendingSeek(startPos);
+                }
+                create(created);
+                v = created;
+            }
+
+            if (v.getFailed()) {
+                if (isTransient) {
+                    transientSounds.remove(s);
+                }
+                continue;
+            }
 
             Object seqObj = s.getAttributes().get("__playSeq");
             int seq = (seqObj instanceof Integer) ? ((Integer) seqObj).intValue() : 0;
@@ -918,7 +945,7 @@ public final class AudioEngine {
                 });
             }
 
-            boolean needStart = !v.getWantPlay();
+            boolean needStart = !v.getWantPlay() || (v.getPrepared() && !v.getStarted() && !appPaused && speed > 0.001f);
             boolean volDirty = Math.abs(l - v.getLastL()) > 0.01f || Math.abs(r - v.getLastR()) > 0.01f;
             boolean speedDirty = Math.abs(speed - v.getLastSpeed()) > 0.001f;
             boolean loopDirty = loop != v.getLooped();
@@ -972,6 +999,7 @@ public final class AudioEngine {
             if (v.getEnded()) {
                 v.setEnded(false);
                 v.setWantPlay(false);
+                v.setStarted(false);
                 v.setLoudness(0.0f);
                 s.set("TimePosition", Double.valueOf(0.0d), false);
                 s.set("PlaybackLoudness", Float.valueOf(0.0f), false);
@@ -1066,8 +1094,12 @@ public final class AudioEngine {
             File f = INSTANCE.prepareAudioFile($v.getId(), new File(strCacheFile));
             MediaPlayer mp = new MediaPlayer();
             mp.setAudioAttributes(new AudioAttributes.Builder().setUsage(14).setContentType(4).build());
-            try (java.io.FileInputStream fis = new java.io.FileInputStream(f)) {
-                mp.setDataSource(fis.getFD());
+            try {
+                mp.setDataSource(f.getAbsolutePath());
+            } catch (Exception pathEx) {
+                try (java.io.FileInputStream fis = new java.io.FileInputStream(f)) {
+                    mp.setDataSource(fis.getFD());
+                }
             }
             mp.setOnPreparedListener(new MediaPlayer.OnPreparedListener() {
                 @Override
@@ -1090,8 +1122,7 @@ public final class AudioEngine {
             $v.setMp(mp);
             mp.prepareAsync();
         } catch (Exception e) {
-            $v.setFailed(true);
-            OutputLog.INSTANCE.warn("Sound rbxassetid://" + $v.getId() + ": " + e.getMessage());
+            create$lambda$12$lambda$11($v, $v.getMp(), -1, -1);
         }
     }
 
@@ -1122,6 +1153,7 @@ public final class AudioEngine {
         if ($v.getWantPlay() && !appPaused) {
             it.setVolume(RangesKt.coerceAtLeast($v.getLastL(), 0.0f), RangesKt.coerceAtLeast($v.getLastR(), 0.0f));
             if ($v.getLastSpeed() > 0.001f) {
+                $v.setStarted(true);
                 it.start();
                 INSTANCE.setSpeed($v, it, $v.getLastSpeed());
                 INSTANCE.tick($v);
@@ -1149,6 +1181,7 @@ public final class AudioEngine {
         }
         $v.setEnded(true);
         $v.setWantPlay(false);
+        $v.setStarted(false);
         $v.setLoudness(0.0f);
         $v.setPosition(0.0d);
     }
@@ -1256,8 +1289,9 @@ public final class AudioEngine {
                 } catch (Throwable ignored) {
                 }
             }
-            // Reject HTML/JSON/XML error payloads from Roblox CDN so they are never cached as audio
+            // Reject HTML/JSON/XML error payloads from Roblox CDN and purge corrupt cache
             if (data.length < 32 || data[0] == '{' || data[0] == '<' || (data[0] == '[' && data[1] == '{')) {
+                try { rawFile.delete(); } catch (Throwable ignored) {}
                 if (id == 9114222045L) {
                     return writeSynthJumpWav(new File(normDir, id + ".wav"));
                 }
@@ -1346,6 +1380,7 @@ public final class AudioEngine {
             float initR = Math.max(0.0f, v.getLastR());
             track.setStereoVolume(initL, initR);
             track.play();
+            v.setStarted(true);
             boolean trackPaused = false;
             codec = android.media.MediaCodec.createDecoderByType(mime);
             codec.configure(fmt, null, null, 0);
@@ -1481,6 +1516,7 @@ public final class AudioEngine {
                 if (pSeek >= 0.0d) {
                     mp.seekTo((int) (pSeek * 1000.0d));
                 }
+                v.setStarted(true);
                 mp.start();
                 tick(v);
             }
@@ -1526,6 +1562,7 @@ public final class AudioEngine {
     private final void release(final Voice v) {
         v.setReleased(true);
         v.setWantPlay(false);
+        v.setStarted(false);
         v.setLoudness(0.0f);
         h.post(new Runnable() {
             @Override

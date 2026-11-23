@@ -429,255 +429,88 @@ String str;
     /* JADX WARN: Code duplicated, block: B:70:0x0145  */
     /* JADX WARN: Code duplicated, block: B:72:0x0148 A[Catch: all -> 0x02e8, TRY_ENTER, TryCatch #5 {all -> 0x02e8, blocks: (B:59:0x0126, B:72:0x0148, B:74:0x014e, B:79:0x016a, B:94:0x01b8, B:64:0x0135), top: B:180:0x0126 }] */
     public final void handleNewline(Editable s) {
-        try {
-        String prevLine;
-        String baseIndent;
-        boolean opensFunction;
-        boolean opensBlock = false;
-        String indent = null;
-        boolean z;
-        boolean needsEnd;
-        String nextLine;
-        boolean closed;
-        String close = "end";
-        int pos = this.editor.getSelectionStart();
-        if (pos <= 0) {
+        if (s == null) {
             return;
         }
-        int iLastIndexOf$default = StringsKt.lastIndexOf((CharSequence) s, '\n', pos - 2, false);
-        int prevStart = iLastIndexOf$default < 0 ? 0 : iLastIndexOf$default + 1;
-        String prevLine2 = s.subSequence(prevStart, Math.max(prevStart, pos - 1)).toString();
-        String baseIndent2 = prevLine2;
-        int length = baseIndent2.length();
-        for (int i = 0; i < length; i++) {
-            char cCharAt = baseIndent2.charAt(i);
-            if (((cCharAt == ' ' || cCharAt == '\t') ? (char) 1 : (char) 0) == 0) {
-                String strSubstring = baseIndent2.substring(0, i);
-                Intrinsics.checkNotNullExpressionValue(strSubstring, "substring(...)");
-                baseIndent2 = strSubstring;
+        int pos = this.editor.getSelectionStart();
+        if (pos <= 0 || pos > s.length()) {
+            return;
+        }
+        int prevNl = StringsKt.lastIndexOf((CharSequence) s, '\n', Math.max(0, pos - 2), false);
+        int prevStart = prevNl < 0 ? 0 : prevNl + 1;
+        String prevLine = s.subSequence(prevStart, Math.max(prevStart, pos - 1)).toString();
+        int indentEnd = 0;
+        while (indentEnd < prevLine.length()) {
+            char ch = prevLine.charAt(indentEnd);
+            if (ch != ' ' && ch != '\t') {
                 break;
             }
+            indentEnd++;
         }
-        String t = StringsKt.trim((CharSequence) prevLine2).toString();
-        boolean opensFunction2 = new Regex("(^|[^\\w])function\\s*[\\w.:]*\\s*\\([^)]*\\)\\s*$").containsMatchIn(t);
+        String baseIndent = prevLine.substring(0, indentEnd);
+        String t = StringsKt.trim((CharSequence) prevLine).toString();
+        boolean opensFunction = new Regex("(^|[^\\w])function\\s*[\\w.:]*\\s*\\([^)]*\\)\\s*$").containsMatchIn(t);
+        boolean endsThen = StringsKt.endsWith(t, " then", false) || Intrinsics.areEqual(t, "then");
+        boolean endsDo = StringsKt.endsWith(t, " do", false) || Intrinsics.areEqual(t, "do");
+        boolean isRepeat = Intrinsics.areEqual(t, "repeat");
+        boolean isElse = Intrinsics.areEqual(t, "else");
+        boolean isElseIf = StringsKt.startsWith(t, "elseif", false) && StringsKt.endsWith(t, "then", false);
+        boolean opensBrace = StringsKt.endsWith(t, "{", false);
+        boolean opensBlock = endsThen || endsDo || opensFunction || isRepeat || opensBrace || isElse || isElseIf;
+        String indent = opensBlock ? (baseIndent + "    ") : baseIndent;
+
+        this.suppressCompletion = true;
         try {
-            if (StringsKt.endsWith(t, " then", false) || Intrinsics.areEqual(t, "then")) {
-                prevLine = prevLine2;
-                baseIndent = baseIndent2;
-                opensFunction = opensFunction2;
-            } else {
-                prevLine = prevLine2;
-                opensFunction = opensFunction2;
-                if (!StringsKt.endsWith(t, " do", false) && !Intrinsics.areEqual(t, "do") && !opensFunction && !Intrinsics.areEqual(t, "repeat")) {
-                    baseIndent = baseIndent2;
-                    if (!StringsKt.endsWith(t, "{", false) && !Intrinsics.areEqual(t, "else") && (!StringsKt.startsWith(t, "elseif", false) || !StringsKt.endsWith(t, "then", false))) {
-                        opensBlock = false;
-                    }
-                    indent = baseIndent;
-                    if (opensBlock) {
-                        indent = indent + "    ";
-                    }
-                    this.suppressCompletion = true;
-                    if (indent.length() > 0) {
-                        z = true;
-                    } else {
-                        z = false;
-                    }
-                    if (z) {
-                        int cur = indent.length() + pos;
-                        if (StringsKt.endsWith(t, " then", false)) {
-                            if (StringsKt.endsWith(t, " do", false)) {
-                                needsEnd = true;
-                            } else {
-                                needsEnd = true;
-                            }
-                            if (!needsEnd) {
-                            }
-                            this.suppressCompletion = false;
-                            return;
-                        }
-                        if (StringsKt.startsWith(t, "elseif", false)) {
-                            needsEnd = true;
-                        } else if (StringsKt.endsWith(t, " do", false)) {
-                            needsEnd = true;
-                        } else {
-                            needsEnd = true;
-                        }
-                        if (!needsEnd) {
-                        }
-                        this.suppressCompletion = false;
-                        return;
-                    }
-                    try {
-                        s.insert(pos, indent);
-                        int cur2 = indent.length() + pos;
-                        try {
-                            if (StringsKt.endsWith(t, " then", false)) {
-                                if (StringsKt.endsWith(t, " do", false)) {
-                                    needsEnd = true;
-                                } else {
-                                    needsEnd = true;
-                                }
-                                if (!needsEnd) {
-                                }
-                                this.suppressCompletion = false;
-                                return;
-                            }
-                            try {
-                                if (StringsKt.startsWith(t, "elseif", false)) {
-                                    needsEnd = true;
-                                } else if (StringsKt.endsWith(t, " do", false) || Intrinsics.areEqual(t, "do") || opensFunction) {
-                                    needsEnd = true;
-                                } else {
-                                    needsEnd = false;
-                                }
-                                if (!needsEnd && !Intrinsics.areEqual(t, "else")) {
-                                    int restLineEnd = StringsKt.indexOf((CharSequence) s, '\n', cur2, false);
-                                    if (restLineEnd < 0) {
-                                        restLineEnd = s.length();
-                                    }
-                                    String afterCursor = s.subSequence(cur2, restLineEnd).toString();
-                                    int nextLineStart = restLineEnd < s.length() ? restLineEnd + 1 : -1;
-                                    if (nextLineStart >= 0) {
-                                        Editable editable = s;
-                                        int iIndexOf$default = StringsKt.indexOf((CharSequence) s, '\n', nextLineStart, false);
-                                        if (iIndexOf$default < 0) {
-                                            iIndexOf$default = s.length();
-                                        }
-                                        nextLine = editable.subSequence(nextLineStart, iIndexOf$default).toString();
-                                    } else {
-                                        nextLine = "";
-                                    }
-                                    String str = nextLine;
-                                    int length2 = str.length();
-                                    int i2 = 0;
-                                    while (i2 < length2) {
-                                        try {
-                                            char cCharAt2 = str.charAt(i2);
-                                            int i3 = length2;
-                                            String indent2 = indent;
-                                            if (((cCharAt2 == ' ' || cCharAt2 == '\t') ? (char) 1 : (char) 0) == 0) {
-                                                try {
-                                                    String strSubstring2 = str.substring(0, i2);
-                                                    Intrinsics.checkNotNullExpressionValue(strSubstring2, "substring(...)");
-                                                    str = strSubstring2;
-                                                    break;
-                                                } catch (Throwable th) {
-                                                }
-                                            } else {
-                                                i2++;
-                                                indent = indent2;
-                                                length2 = i3;
-                                            }
-                                        } catch (Throwable th2) {
-                                            Throwable th = th2;
-                                        }
-                                    }
-                                    try {
-                                        int nextIndent = str.length();
-                                        String nt = StringsKt.trim((CharSequence) nextLine).toString();
-                                        if (StringsKt.startsWith(nt, "end", false) || StringsKt.startsWith(nt, "else", false) || StringsKt.startsWith(nt, "until", false) || StringsKt.startsWith(nt, ")", false)) {
-                                            closed = true;
-                                        } else if ((nt.length() > 0) && nextIndent > baseIndent.length()) {
-                                            closed = true;
-                                        } else if ((StringsKt.trim((CharSequence) afterCursor).toString().length() > 0) || unbalancedEnds(s.toString()) <= 0) {
-                                            closed = true;
-                                        } else {
-                                            closed = false;
-                                        }
-                                        if (!closed) {
-                                            if ((opensFunction && new Regex("\\(\\s*function").containsMatchIn(t)) || (StringsKt.endsWith(t, "function()", false) && StringsKt.contains((CharSequence) prevLine, (CharSequence) "(", false))) {
-                                                close = "end)";
-                                            }
-                                            try {
-                                                s.insert(cur2, "\n" + baseIndent + close);
-                                                this.editor.setSelection(cur2);
-                                            } catch (Throwable th3) {
-                                                Throwable th = th3;
-                                            }
-                                        }
-                                    } catch (Throwable th4) {
-                                        Throwable th = th4;
-                                    }
-                                }
-                                this.suppressCompletion = false;
-                                return;
-                            } catch (Throwable th5) {
-                                this.suppressCompletion = false;
-                                throw th5;
-                            }
-                        } catch (Throwable th6) {
-                            this.suppressCompletion = false;
-                            throw th6;
-                        }
-                    } catch (Throwable th7) {
-                        this.suppressCompletion = false;
-                        throw th7;
-                    }
-                }
-                baseIndent = baseIndent2;
-            }
             if (indent.length() > 0) {
-                z = true;
-            } else {
-                z = false;
+                s.insert(pos, indent);
             }
-            if (z) {
-                int cur3 = indent.length() + pos;
-                if (StringsKt.endsWith(t, " then", false)) {
-                    if (StringsKt.endsWith(t, " do", false)) {
-                        needsEnd = true;
-                    } else {
-                        needsEnd = true;
+            int cur = pos + indent.length();
+            boolean needsEnd = (endsThen && !isElseIf) || endsDo || opensFunction;
+            if (needsEnd && !isElse) {
+                int restLineEnd = StringsKt.indexOf((CharSequence) s, '\n', cur, false);
+                if (restLineEnd < 0) {
+                    restLineEnd = s.length();
+                }
+                String afterCursor = s.subSequence(cur, restLineEnd).toString();
+                int nextLineStart = restLineEnd < s.length() ? restLineEnd + 1 : -1;
+                String nextLine;
+                if (nextLineStart >= 0) {
+                    int nextLineEnd = StringsKt.indexOf((CharSequence) s, '\n', nextLineStart, false);
+                    if (nextLineEnd < 0) {
+                        nextLineEnd = s.length();
                     }
-                    if (!needsEnd) {
+                    nextLine = s.subSequence(nextLineStart, nextLineEnd).toString();
+                } else {
+                    nextLine = "";
+                }
+                int nextIndent = 0;
+                while (nextIndent < nextLine.length()) {
+                    char ch = nextLine.charAt(nextIndent);
+                    if (ch != ' ' && ch != '\t') {
+                        break;
                     }
-                    this.suppressCompletion = false;
-                    return;
+                    nextIndent++;
                 }
-                if (StringsKt.startsWith(t, "elseif", false)) {
-                    needsEnd = true;
-                } else if (StringsKt.endsWith(t, " do", false)) {
-                    needsEnd = true;
-                } else {
-                    needsEnd = true;
+                String nt = StringsKt.trim((CharSequence) nextLine).toString();
+                boolean closed = StringsKt.startsWith(nt, "end", false)
+                        || StringsKt.startsWith(nt, "else", false)
+                        || StringsKt.startsWith(nt, "until", false)
+                        || StringsKt.startsWith(nt, ")", false)
+                        || (nt.length() > 0 && nextIndent > baseIndent.length())
+                        || StringsKt.trim((CharSequence) afterCursor).toString().length() > 0
+                        || unbalancedEnds(s.toString()) <= 0;
+                if (!closed) {
+                    String close = "end";
+                    if ((opensFunction && new Regex("\\(\\s*function").containsMatchIn(t))
+                            || (StringsKt.endsWith(t, "function()", false) && StringsKt.contains((CharSequence) prevLine, (CharSequence) "(", false))) {
+                        close = "end)";
+                    }
+                    s.insert(cur, "\n" + baseIndent + close);
+                    this.editor.setSelection(cur);
                 }
-                if (!needsEnd) {
-                }
-                this.suppressCompletion = false;
-                return;
             }
-            s.insert(pos, indent);
-            int cur4 = indent.length() + pos;
-            if (StringsKt.endsWith(t, " then", false)) {
-                if (StringsKt.endsWith(t, " do", false)) {
-                    needsEnd = true;
-                } else {
-                    needsEnd = true;
-                }
-                if (!needsEnd) {
-                }
-                this.suppressCompletion = false;
-                return;
-            }
-            if (StringsKt.startsWith(t, "elseif", false)) {
-                needsEnd = true;
-            } else if (StringsKt.endsWith(t, " do", false)) {
-                needsEnd = true;
-            } else {
-                needsEnd = true;
-            }
-            if (!needsEnd) {
-            }
+        } finally {
             this.suppressCompletion = false;
-            return;
-        } catch (Throwable th8) {
-            this.suppressCompletion = false;
-            throw th8;
-        }
-    }
-        catch (Throwable _ktEx) {
-            throw com.goydevv.studrblx.util.KtCompat.sneakyThrow(_ktEx);
         }
     }
 
@@ -1218,7 +1051,7 @@ String str;
                     i = j2;
                 } else if (c == '`') {
                     j = i + 1;
-                    while (j < n) {
+                    while (j < n && text.charAt(j) != '`') {
                         if (text.charAt(j) == '\\') {
                             j++;
                         }

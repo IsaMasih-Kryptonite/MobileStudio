@@ -145,6 +145,7 @@ public final class LuauTranspiler {
         String str;
         Exception e;
         Intrinsics.checkNotNullParameter(src, "src");
+        lastFailure = null;
         Parser parser = null;
         ArrayList<Tok> arrayListLex = null;
         try {
@@ -155,14 +156,19 @@ public final class LuauTranspiler {
                 StringBuilder sb = new StringBuilder(src.length() + 64);
                 Iterator<Tok> it = arrayListLex.iterator();
                 Intrinsics.checkNotNullExpressionValue(it, "iterator(...)");
+                Tok prev = null;
                 while (it.hasNext()) {
                     Tok next = it.next();
                     Intrinsics.checkNotNullExpressionValue(next, "next(...)");
                     Tok t = next;
+                    if (prev != null && prev.getK() == K.NUMBER && t.isOp("..") && t.getTrivia().isEmpty()) {
+                        sb.append(' ');
+                    }
                     sb.append(t.getTrivia());
                     sb.append(t.getPrefix());
                     sb.append(t.getOut());
                     sb.append(t.getSuffix());
+                    prev = t;
                 }
                 String string = sb.toString();
                 Intrinsics.checkNotNull(string);
@@ -302,7 +308,7 @@ public final class LuauTranspiler {
 
     private final ArrayList<Tok> lex(String s) {
         ArrayList<Tok> arrayList = new ArrayList<>();
-        int lvl = 0;
+        int lvl = (s.length() > 0 && s.charAt(0) == '\uFEFF') ? 1 : 0;
         int n = s.length();
         StringBuilder triv = new StringBuilder();
         while (true) {
@@ -355,8 +361,17 @@ public final class LuauTranspiler {
                         j++;
                     }
                 } else {
-                    while (j < n && (Character.isDigit(s.charAt(j)) || s.charAt(j) == '.' || s.charAt(j) == '_')) {
-                        j++;
+                    boolean seenDot = false;
+                    while (j < n) {
+                        char ch = s.charAt(j);
+                        if (Character.isDigit(ch) || ch == '_') {
+                            j++;
+                        } else if (ch == '.' && !seenDot && !(j + 1 < n && s.charAt(j + 1) == '.')) {
+                            seenDot = true;
+                            j++;
+                        } else {
+                            break;
+                        }
                     }
                     if (j < n && (s.charAt(j) == 'e' || s.charAt(j) == 'E')) {
                         j++;
@@ -374,8 +389,11 @@ public final class LuauTranspiler {
                 if (StringsKt.startsWith(num, "0b", false) || StringsKt.startsWith(num, "0B", false)) {
                     String binPart = num.substring(2);
                     Intrinsics.checkNotNullExpressionValue(binPart, "substring(...)");
-                    Long longOrNull = StringsKt.toLongOrNull(binPart, 2);
-                    num = String.valueOf(longOrNull != null ? longOrNull.longValue() : 0L);
+                    try {
+                        num = new java.math.BigInteger(binPart, 2).toString();
+                    } catch (Exception ignored) {
+                        num = "0";
+                    }
                 }
                 Tok t = new Tok(K.NUMBER, rawNum, tr);
                 t.setOut(num);
@@ -395,6 +413,8 @@ public final class LuauTranspiler {
                                     break;
                                 }
                             }
+                        } else if (j2 + 2 < n && s.charAt(j2 + 1) == '\r' && s.charAt(j2 + 2) == '\n') {
+                            j2 += 3;
                         } else {
                             j2 += 2;
                         }
@@ -480,45 +500,78 @@ public final class LuauTranspiler {
             char c = s.charAt(i);
             if (c == '\\' && i + 1 < s.length()) {
                 char nx = s.charAt(i + 1);
-                switch (nx) {
-                    case '\n':
-                        lit.append("\\n");
-                        break;
-                    case '`':
-                    case '{':
-                    case '}':
-                        lit.append(nx);
-                        break;
-                    default:
-                        lit.append('\\');
-                        lit.append(nx);
-                        break;
+                if (nx == '\r' && i + 2 < s.length() && s.charAt(i + 2) == '\n') {
+                    lit.append("\\n");
+                    i += 3;
+                } else if (nx == 'z') {
+                    i += 2;
+                    while (i < s.length()) {
+                        char wc = s.charAt(i);
+                        if (wc == ' ' || wc == '\t' || wc == '\n' || wc == '\r' || wc == '\f' || wc == 0x0B) {
+                            i++;
+                        } else {
+                            break;
+                        }
+                    }
+                } else if (nx == 'u' && i + 2 < s.length() && s.charAt(i + 2) == '{') {
+                    int close = s.indexOf('}', i + 3);
+                    if (close > i + 3) {
+                        try {
+                            int cp = Integer.parseInt(s.substring(i + 3, close), 16);
+                            byte[] utf8Bytes = new String(Character.toChars(cp)).getBytes(kotlin.text.Charsets.UTF_8);
+                            for (byte b : utf8Bytes) {
+                                lit.append(String.format(java.util.Locale.US, "\\%03d", b & 0xFF));
+                            }
+                            i = close + 1;
+                            continue;
+                        } catch (Exception ignored) {
+                        }
+                    }
+                    lit.append('\\').append(nx);
+                    i += 2;
+                } else {
+                    switch (nx) {
+                        case '\n':
+                            lit.append("\\n");
+                            break;
+                        case '\r':
+                            lit.append("\\r");
+                            break;
+                        case '`':
+                        case '{':
+                        case '}':
+                            lit.append(nx);
+                            break;
+                        default:
+                            lit.append('\\');
+                            lit.append(nx);
+                            break;
+                    }
+                    i += 2;
                 }
-                i += 2;
             } else if (c == '{') {
                 interpolated$flush(lit, parts);
                 int depth = 1;
                 int j = i + 1;
                 while (j < s.length() && depth > 0) {
-                    switch (s.charAt(j)) {
-                        case '\"':
-                        case '\'':
-                            char q = s.charAt(j);
-                            while (true) {
+                    char cj = s.charAt(j);
+                    if (cj == '"' || cj == '\'') {
+                        char q = cj;
+                        while (true) {
+                            j++;
+                            if (j >= s.length() || s.charAt(j) == q) {
+                                break;
+                            } else if (s.charAt(j) == '\\') {
                                 j++;
-                                if (j >= s.length() || s.charAt(j) == q) {
-                                    break;
-                                } else if (s.charAt(j) == '\\') {
-                                    j++;
-                                }
                             }
-                            break;
-                        case '{':
-                            depth++;
-                            break;
-                        case '}':
-                            depth--;
-                            break;
+                        }
+                    } else if (cj == '-' && j + 1 < s.length() && s.charAt(j + 1) == '-') {
+                        int nl = s.indexOf('\n', j + 2);
+                        j = nl < 0 ? s.length() - 1 : nl;
+                    } else if (cj == '{') {
+                        depth++;
+                    } else if (cj == '}') {
+                        depth--;
                     }
                     if (depth > 0) {
                         j++;
@@ -531,6 +584,14 @@ public final class LuauTranspiler {
             } else if (c == '\"') {
                 lit.append("\\\"");
                 i++;
+            } else if (c == '\r') {
+                if (i + 1 < s.length() && s.charAt(i + 1) == '\n') {
+                    lit.append("\\n");
+                    i += 2;
+                } else {
+                    lit.append("\\r");
+                    i++;
+                }
             } else if (c == '\n') {
                 lit.append("\\n");
                 i++;
@@ -844,11 +905,13 @@ public final class LuauTranspiler {
                                 }
                             }
                         } else {
-                            if (k.isKw("local")) {
+                            if (k.isKw("local") || (k.isName("const") && (peek(1).getK() == K.NAME || peek(1).isKw("function")))) {
                                 Tok localTok = next();
                                 boolean hoistThis = this.hoist && this.depth == 1;
                                 if (hoistThis) {
                                     localTok.setOut("");
+                                } else if (localTok.isName("const")) {
+                                    localTok.setOut("local");
                                 }
                                 if (peek$default(this, 0, 1, null).isKw("function")) {
                                     next();
@@ -890,6 +953,14 @@ public final class LuauTranspiler {
                                         Unit unit4 = Unit.INSTANCE;
                                         return;
                                     }
+                                    if (k.isName("type") && peek(1).isKw("function")) {
+                                        typeFuncDecl(this.p);
+                                        return;
+                                    }
+                                    if (k.isName("export") && peek(1).isName("type") && peek(2).isKw("function")) {
+                                        typeFuncDecl(this.p);
+                                        return;
+                                    }
                                     if (!k.isName("type") || peek(1).getK() != K.NAME || (!peek(2).isOp("=") && !peek(2).isOp("<"))) {
                                         if (!k.isName("export") || !peek(1).isName("type")) {
                                             exprStatement();
@@ -929,7 +1000,7 @@ public final class LuauTranspiler {
 
         public final boolean isStatementWord() {
             Tok n = peek(1);
-            return (n.isOp("(") || n.isOp("=") || n.isOp(".") || n.isOp("[") || n.isOp(":") || n.isOp(",") || n.getK() == K.STRING || n.isOp("{") || n.isOp("+=") || n.isOp("-=")) ? false : true;
+            return !(n.isOp("(") || n.isOp("=") || n.isOp(".") || n.isOp("[") || n.isOp(":") || n.isOp(",") || n.getK() == K.STRING || n.isOp("{") || n.isOp("+=") || n.isOp("-=") || n.isOp("*=") || n.isOp("/=") || n.isOp("//=") || n.isOp("%=") || n.isOp("^=") || n.isOp("..="));
         }
 
         public final void typeDecl(int start) throws IOException, ParseError {
@@ -943,6 +1014,17 @@ public final class LuauTranspiler {
             }
             expectOp("=");
             type();
+            drop(start, this.p);
+        }
+
+        public final void typeFuncDecl(int start) throws IOException, ParseError {
+            if (peek$default(this, 0, 1, null).isName("export")) {
+                next();
+            }
+            next();
+            expectKw("function");
+            expectName();
+            funcBody();
             drop(start, this.p);
         }
 
@@ -1007,6 +1089,69 @@ public final class LuauTranspiler {
             block();
             this.loops.remove(this.loops.size() - 1);
             expectKw("end");
+        }
+
+        private final boolean looksLikeGenericArgs() {
+            int n = this.t.size();
+            if (this.p >= n || !this.t.get(this.p).isOp("<")) {
+                return false;
+            }
+            int angleDepth = 1;
+            int parenDepth = 0;
+            int braceDepth = 0;
+            int bracketDepth = 0;
+            int i = this.p + 1;
+            while (i < n) {
+                Tok tk = this.t.get(i);
+                K kind = tk.getK();
+                if (kind == K.EOF) {
+                    return false;
+                }
+                if (parenDepth == 0 && braceDepth == 0 && bracketDepth == 0) {
+                    if (kind == K.NUMBER) {
+                        return false;
+                    }
+                    if (kind == K.KEYWORD && !tk.isKw("nil") && !tk.isKw("true") && !tk.isKw("false")) {
+                        return false;
+                    }
+                    if (kind == K.OP) {
+                        String op = tk.getText();
+                        if ("<".equals(op)) {
+                            angleDepth++;
+                        } else if (">".equals(op) || ">=".equals(op)) {
+                            angleDepth--;
+                            if (angleDepth == 0) {
+                                return i > this.p + 1;
+                            }
+                        } else if ("(".equals(op)) {
+                            parenDepth++;
+                        } else if ("{".equals(op)) {
+                            braceDepth++;
+                        } else if ("[".equals(op)) {
+                            bracketDepth++;
+                        } else if (")".equals(op) || "}".equals(op) || "]".equals(op)) {
+                            return false;
+                        } else if ("==".equals(op) || "~=".equals(op) || "<=".equals(op)
+                                || "+".equals(op) || "-".equals(op) || "*".equals(op) || "/".equals(op)
+                                || "//".equals(op) || "%".equals(op) || "^".equals(op) || "#".equals(op)
+                                || "..".equals(op) || ";".equals(op) || "::".equals(op)
+                                || "+=".equals(op) || "-=".equals(op) || "*=".equals(op) || "/=".equals(op)
+                                || "%=".equals(op) || "^=".equals(op) || "..=".equals(op) || "//=".equals(op)) {
+                            return false;
+                        }
+                    }
+                } else if (kind == K.OP) {
+                    String op = tk.getText();
+                    if ("(".equals(op)) parenDepth++;
+                    else if (")".equals(op)) { if (parenDepth > 0) parenDepth--; else return false; }
+                    else if ("{".equals(op)) braceDepth++;
+                    else if ("}".equals(op)) { if (braceDepth > 0) braceDepth--; else return false; }
+                    else if ("[".equals(op)) bracketDepth++;
+                    else if ("]".equals(op)) { if (bracketDepth > 0) bracketDepth--; else return false; }
+                }
+                i++;
+            }
+            return false;
         }
 
         public final void skipAngle() throws ParseError {
@@ -1099,17 +1244,30 @@ public final class LuauTranspiler {
             } else if (k.isName("typeof")) {
                 next();
                 skipBalanced("(", ")");
+                while (true) {
+                    if (peek$default(this, 0, 1, null).isOp(".")) {
+                        next();
+                        expectName();
+                    } else if (peek$default(this, 0, 1, null).isOp("<") && looksLikeGenericArgs()) {
+                        skipAngle();
+                    } else {
+                        break;
+                    }
+                }
             } else if (k.isOp("...")) {
                 next();
                 simpleType();
             } else if (k.getK() == K.NAME || k.isKw("nil") || k.isKw("true") || k.isKw("false") || k.getK() == K.STRING) {
                 next();
-                while (peek$default(this, 0, 1, null).isOp(".")) {
-                    next();
-                    expectName();
-                }
-                if (peek$default(this, 0, 1, null).isOp("<")) {
-                    skipAngle();
+                while (true) {
+                    if (peek$default(this, 0, 1, null).isOp(".")) {
+                        next();
+                        expectName();
+                    } else if (peek$default(this, 0, 1, null).isOp("<") && looksLikeGenericArgs()) {
+                        skipAngle();
+                    } else {
+                        break;
+                    }
                 }
                 if (peek$default(this, 0, 1, null).isOp("...")) {
                     next();
@@ -1259,6 +1417,19 @@ public final class LuauTranspiler {
         }
 
         public final void simpleExpr() throws IOException, ParseError {
+            while (peek$default(this, 0, 1, null).isOp("@")) {
+                int attrStart = this.p;
+                next();
+                if (peek$default(this, 0, 1, null).isOp("[")) {
+                    skipBalanced("[", "]");
+                } else if (peek$default(this, 0, 1, null).getK() == K.NAME || peek$default(this, 0, 1, null).getK() == K.KEYWORD) {
+                    next();
+                    if (peek$default(this, 0, 1, null).isOp("(")) {
+                        skipBalanced("(", ")");
+                    }
+                }
+                drop(attrStart, this.p);
+            }
             Tok k = peek$default(this, 0, 1, null);
             if (k.getK() == K.NUMBER || k.getK() == K.STRING || k.isKw("nil") || k.isKw("true") || k.isKw("false") || k.isOp("...")) {
                 next();
@@ -1281,8 +1452,8 @@ public final class LuauTranspiler {
         }
 
         public final void ifExpr() throws IOException, ParseError {
+            int ifStart = this.p;
             Tok ifTok = next();
-            ifTok.setOut("(function() if");
             expr();
             expectKw("then").setOut("then return");
             expr();
@@ -1294,8 +1465,22 @@ public final class LuauTranspiler {
             }
             expectKw("else").setOut("else return");
             expr();
+            boolean hasVararg = false;
+            int fnDepth = 0;
+            for (int i = ifStart + 1; i < this.p; i++) {
+                Tok tk = this.t.get(i);
+                if (tk.isKw("function")) {
+                    fnDepth++;
+                } else if (tk.isKw("end") && fnDepth > 0) {
+                    fnDepth--;
+                } else if (fnDepth == 0 && tk.isOp("...") && !tk.getOut().isEmpty()) {
+                    hasVararg = true;
+                    break;
+                }
+            }
+            ifTok.setOut(hasVararg ? "(function(...) if" : "(function() if");
             Tok tok = this.t.get(this.p - 1);
-            tok.setSuffix(tok.getSuffix() + " end end)()");
+            tok.setSuffix(tok.getSuffix() + (hasVararg ? " end end)(...)" : " end end)()"));
         }
 
         /* JADX WARN: Failed to restore switch over string. Please report as a decompilation issue */

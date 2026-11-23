@@ -118,6 +118,13 @@ public final class GuiOverlay extends View {
     private final Paint stroke;
     private final Studio studio;
     private final TextPaint textPaint;
+    private int safeL;
+    private int safeT;
+    private int safeR;
+    private int safeB;
+    private Hit hoveredHit;
+    private boolean registerHits = true;
+    private final Studio.Listener studioListener;
 
     /* JADX INFO: compiled from: GuiOverlay.kt */
     public static final class Hit {
@@ -198,6 +205,77 @@ public final class GuiOverlay extends View {
         this.absInset = 58.0f;
         this.absChanged = new ArrayList<>();
         this.pressExtras = new IdentityHashMap<>();
+        this.studioListener = new Studio.Listener() {
+            @Override
+            public void onTreeChanged() {
+                GuiOverlay.this.billboardScan = 0L;
+                GuiOverlay.this.postInvalidate();
+            }
+
+            @Override
+            public void onPropsChanged() {
+                GuiOverlay.this.postInvalidate();
+            }
+
+            @Override
+            public void onModelReplaced() {
+                GuiOverlay.this.billboardScan = 0L;
+                GuiOverlay.this.postInvalidate();
+            }
+
+            @Override
+            public void onPlayStateChanged() {
+                GuiOverlay.this.billboardScan = 0L;
+                GuiOverlay.this.hoveredHit = null;
+                GuiOverlay.this.pressed = null;
+                GuiOverlay.this.postInvalidate();
+            }
+
+            @Override
+            public void onSelectionChanged() {
+                GuiOverlay.this.postInvalidate();
+            }
+
+            @Override
+            public void onPluginsChanged() {
+                GuiOverlay.this.postInvalidate();
+            }
+        };
+        this.studio.getListeners().add(this.studioListener);
+        setOnApplyWindowInsetsListener(new View.OnApplyWindowInsetsListener() {
+            @Override
+            public android.view.WindowInsets onApplyWindowInsets(View v, android.view.WindowInsets insets) {
+                int cL = 0, cT = 0, cR = 0, cB = 0;
+                if (android.os.Build.VERSION.SDK_INT >= 28 && insets != null && insets.getDisplayCutout() != null) {
+                    cL = insets.getDisplayCutout().getSafeInsetLeft();
+                    cT = insets.getDisplayCutout().getSafeInsetTop();
+                    cR = insets.getDisplayCutout().getSafeInsetRight();
+                    cB = insets.getDisplayCutout().getSafeInsetBottom();
+                }
+                if (cL != GuiOverlay.this.safeL || cT != GuiOverlay.this.safeT || cR != GuiOverlay.this.safeR || cB != GuiOverlay.this.safeB) {
+                    GuiOverlay.this.safeL = cL;
+                    GuiOverlay.this.safeT = cT;
+                    GuiOverlay.this.safeR = cR;
+                    GuiOverlay.this.safeB = cB;
+                    GuiOverlay.this.postInvalidate();
+                }
+                return insets;
+            }
+        });
+    }
+
+    @Override
+    protected void onAttachedToWindow() {
+        super.onAttachedToWindow();
+        if (!this.studio.getListeners().contains(this.studioListener)) {
+            this.studio.getListeners().add(this.studioListener);
+        }
+    }
+
+    @Override
+    protected void onDetachedFromWindow() {
+        this.studio.getListeners().remove(this.studioListener);
+        super.onDetachedFromWindow();
     }
 
     /* JADX INFO: compiled from: GuiOverlay.kt */
@@ -766,387 +844,173 @@ public final class GuiOverlay extends View {
         return l.getHeight() <= $k.getH();
     }
 
+    private final Object surfaceRenderLock = new Object();
+
     public final void renderSurface(Instance gui, float cw, float ch, Bitmap bmp) {
+        synchronized (this.surfaceRenderLock) {
+            renderSurfaceLocked(gui, cw, ch, bmp);
+        }
+    }
+
+    private final void renderSurfaceLocked(Instance gui, float cw, float ch, Bitmap bmp) {
         Intrinsics.checkNotNullParameter(gui, "gui");
         Intrinsics.checkNotNullParameter(bmp, "bmp");
         bmp.eraseColor(0);
+        if (Boolean.FALSE.equals(gui.get("Enabled"))) {
+            return;
+        }
+        float canvasW = cw;
+        float canvasH = ch;
+        if (canvasW <= 0.0f || canvasH <= 0.0f) {
+            Object csObj = gui.get("CanvasSize");
+            Vector2 cs = csObj instanceof Vector2 ? (Vector2) csObj : null;
+            canvasW = (cs != null && cs.getX() > 0.0f) ? cs.getX() : 800.0f;
+            canvasH = (cs != null && cs.getY() > 0.0f) ? cs.getY() : 600.0f;
+        }
         Canvas c = new Canvas(bmp);
-        c.scale(bmp.getWidth() / cw, bmp.getHeight() / ch);
-        ArrayList<Hit> arrayList = this.newHits;
-        ArrayList<Scroll> arrayList2 = this.newScrolls;
-        ArrayList<Pair<Instance, RectF>> arrayList3 = this.newPicks;
+        c.scale(bmp.getWidth() / canvasW, bmp.getHeight() / canvasH);
+        ArrayList<Hit> savedHits = this.newHits;
+        ArrayList<Scroll> savedScrolls = this.newScrolls;
+        ArrayList<Pair<Instance, RectF>> savedPicks = this.newPicks;
         LuaRuntime sr = this.rt;
+        boolean savedRegHits = this.registerHits;
         this.newHits = new ArrayList<>();
         this.newScrolls = new ArrayList<>();
         this.newPicks = new ArrayList<>();
-        RectF area = new RectF(0.0f, 0.0f, cw, ch);
+        this.registerHits = false;
+        RectF area = new RectF(0.0f, 0.0f, canvasW, canvasH);
         float su = this.absUnit;
         float si = this.absInset;
         this.absUnit = 1.0f;
         this.absInset = 0.0f;
         try {
-            drawChildren(c, gui, area, 1.0f / this.d, area);
+            setAbs(gui, area);
+            float baseScale = this.d > 0.0f ? (1.0f / this.d) : 1.0f;
+            drawLayerCollector(c, gui, area, baseScale, area);
         } finally {
-            this.newHits = arrayList;
-            this.newScrolls = arrayList2;
-            this.newPicks = arrayList3;
+            this.newHits = savedHits;
+            this.newScrolls = savedScrolls;
+            this.newPicks = savedPicks;
             this.rt = sr;
             this.absUnit = su;
             this.absInset = si;
+            this.registerHits = savedRegHits;
         }
     }
 
-    /* JADX WARN: Code duplicated, block: B:101:0x022c  */
-    /* JADX WARN: Code duplicated, block: B:102:0x022e  */
-    /* JADX WARN: Code duplicated, block: B:105:0x0234 A[ADDED_TO_REGION] */
-    /* JADX WARN: Code duplicated, block: B:107:0x0238  */
-    /* JADX WARN: Code duplicated, block: B:110:0x023e A[Catch: all -> 0x027a, TRY_ENTER, TRY_LEAVE, TryCatch #4 {all -> 0x027a, blocks: (B:71:0x01d1, B:74:0x01d7, B:80:0x01e8, B:86:0x0208, B:110:0x023e, B:115:0x024c, B:117:0x0256, B:123:0x0270, B:90:0x0213), top: B:191:0x01d1 }] */
-    /* JADX WARN: Code duplicated, block: B:112:0x0242 A[Catch: all -> 0x027c, TRY_ENTER, TryCatch #5 {all -> 0x027c, blocks: (B:69:0x01c7, B:78:0x01e2, B:83:0x01ee, B:99:0x0227, B:103:0x022f, B:113:0x0245, B:121:0x025f, B:112:0x0242), top: B:193:0x01c7 }] */
-    /* JADX WARN: Code duplicated, block: B:115:0x024c A[Catch: all -> 0x027a, TRY_ENTER, TryCatch #4 {all -> 0x027a, blocks: (B:71:0x01d1, B:74:0x01d7, B:80:0x01e8, B:86:0x0208, B:110:0x023e, B:115:0x024c, B:117:0x0256, B:123:0x0270, B:90:0x0213), top: B:191:0x01d1 }] */
-    /* JADX WARN: Code duplicated, block: B:117:0x0256 A[Catch: all -> 0x027a, TRY_LEAVE, TryCatch #4 {all -> 0x027a, blocks: (B:71:0x01d1, B:74:0x01d7, B:80:0x01e8, B:86:0x0208, B:110:0x023e, B:115:0x024c, B:117:0x0256, B:123:0x0270, B:90:0x0213), top: B:191:0x01d1 }] */
-    /* JADX WARN: Code duplicated, block: B:119:0x025b  */
-    /* JADX WARN: Multi-variable type inference failed */
-    /* JADX WARN: Type inference failed for: r18v6 */
-    /* JADX WARN: Type inference failed for: r19v3 */
-    /* JADX WARN: Type inference failed for: r22v0 */
-    /* JADX WARN: Type inference failed for: r22v1, types: [boolean] */
-    /* JADX WARN: Type inference failed for: r22v2 */
-    /* JADX WARN: Type inference failed for: r3v19 */
-    /* JADX WARN: Type inference failed for: r3v20 */
-    /* JADX WARN: Type inference failed for: r3v22 */
-    /* JADX WARN: Type inference failed for: r3v38 */
-    /* JADX WARN: Type inference failed for: r3v42 */
-    /* JADX WARN: Type inference failed for: r3v44 */
-    /* JADX WARN: Type inference failed for: r4v44 */
-    /* JADX WARN: Type inference failed for: r4v45 */
-    /* JADX WARN: Type inference failed for: r4v52 */
-    /* JADX WARN: Type inference failed for: r4v53 */
-    /* JADX WARN: Type inference failed for: r4v54 */
-    /* JADX WARN: Type inference failed for: r4v55 */
-    /* JADX WARN: Type inference failed for: r4v65 */
-    /* JADX WARN: Type inference failed for: r4v66 */
-    /* JADX WARN: Type inference failed for: r4v67 */
-    /* JADX WARN: Type inference failed for: r6v21 */
-    /* JADX WARN: Type inference failed for: r6v22 */
-    /* JADX WARN: Type inference failed for: r6v25 */
     @Override // android.view.View
     protected void onDraw(Canvas canvas) {
-        try {
-            List<Instance> arrayListEmptyList;
-            ArrayList<Instance> children;
-            LuaRuntime editRuntime;
-            GuiOverlay guiOverlay;
-            Object next;
-            EnumValue enumValue;
-            int r4;
-            int r5 = 0;
-            int r3 = 0;
-            float f;
-            int r6;
-            int r19;
-            float fPluginScale;
-            ArrayList<Instance> children2;
-            Instance instanceFindFirstChild$default;
-            ArrayList<Instance> children3;
-            GuiOverlay guiOverlay2 = this;
-            Intrinsics.checkNotNullParameter(canvas, "canvas");
-            synchronized (guiOverlay2.studio.getLock()) {
-                int i = 0;
-                guiOverlay2.newHits = new ArrayList<>();
-                guiOverlay2.newScrolls = new ArrayList<>();
-                guiOverlay2.newPicks = new ArrayList<>();
-                guiOverlay2.newBoxes = new IdentityHashMap<>();
-                float width = guiOverlay2.getWidth();
-                float height = guiOverlay2.getHeight();
-                PlaySession play = guiOverlay2.studio.getPlay();
-                char c = 2;
-                boolean z = false;
-                if (play != null) {
-                    Instance player = play.getPlayer();
-                    arrayListEmptyList = (player == null || (instanceFindFirstChild$default = Instance.findFirstChild$default(player, "PlayerGui", false, 2, null)) == null || (children3 = instanceFindFirstChild$default.getChildren()) == null) ? CollectionsKt.emptyList() : children3;
+        Intrinsics.checkNotNullParameter(canvas, "canvas");
+        synchronized (this.studio.getLock()) {
+            this.newHits = new ArrayList<>();
+            this.newScrolls = new ArrayList<>();
+            this.newPicks = new ArrayList<>();
+            this.newBoxes = new IdentityHashMap<>();
+            this.registerHits = true;
+            float width = getWidth();
+            float height = getHeight();
+            PlaySession play = this.studio.getPlay();
+            boolean playing = play != null;
+
+            List<Instance> primaryChildren;
+            if (playing) {
+                Instance player = play.getPlayer();
+                Instance playerGui = player != null ? Instance.findFirstChild$default(player, "PlayerGui", false, 2, null) : null;
+                primaryChildren = (playerGui != null && playerGui.getChildren() != null) ? playerGui.getChildren() : CollectionsKt.emptyList();
+            } else {
+                Instance starterGui = this.studio.getModel().findService("StarterGui");
+                primaryChildren = (starterGui != null && starterGui.getChildren() != null) ? starterGui.getChildren() : CollectionsKt.emptyList();
+            }
+
+            LuaRuntime activeRt = (playing && play.getRt() != null) ? play.getRt() : this.studio.getEditRuntime();
+            this.rt = activeRt;
+
+            boolean hasAny = drawBillboards(canvas, playing);
+
+            Instance coreGui = this.studio.getModel().findService("CoreGui");
+            List<Instance> coreChildren = (coreGui != null && coreGui.getChildren() != null) ? coreGui.getChildren() : CollectionsKt.emptyList();
+
+            List<Instance> screenGuis = GuiMath.filterAndSortScreenGuis(primaryChildren, coreChildren);
+            RectF fullScreenClip = new RectF(0.0f, 0.0f, width, height);
+
+            for (Instance sg : screenGuis) {
+                Instance parent = sg.getParent();
+                boolean isCoreGui = parent != null && "CoreGui".equals(parent.getClassName());
+                boolean isPluginCore = isCoreGui && !playing;
+
+                float[] rArr = GuiMath.computeScreenGuiRect(
+                        sg, width, height, this.d,
+                        this.safeL, this.safeT, this.safeR, this.safeB,
+                        isCoreGui, playing
+                );
+                RectF rectF = new RectF(rArr[0], rArr[1], rArr[2], rArr[3]);
+
+                if (isPluginCore) {
+                    usePluginUnits();
                 } else {
-                    Instance instanceFindService = guiOverlay2.studio.getModel().findService("StarterGui");
-                    arrayListEmptyList = (instanceFindService == null || (children = instanceFindService.getChildren()) == null) ? CollectionsKt.emptyList() : children;
+                    useGameUnits();
                 }
-                Iterable iterable = arrayListEmptyList;
-                if (play == null || (editRuntime = play.getRt()) == null) {
-                    editRuntime = guiOverlay2.studio.getEditRuntime();
+                setAbs(sg, rectF);
+
+                LuaRuntime savedRt = this.rt;
+                if (isPluginCore) {
+                    this.rt = this.studio.getEditRuntime();
                 }
-                guiOverlay2.rt = editRuntime;
-                float f2 = guiOverlay2.d * 58.0f;
-                boolean zDrawBillboards = false | guiOverlay2.drawBillboards(canvas, play != null);
-                Instance instanceFindService2 = guiOverlay2.studio.getModel().findService("CoreGui");
-                Iterable iterableEmptyList = (instanceFindService2 == null || (children2 = instanceFindService2.getChildren()) == null) ? CollectionsKt.emptyList() : children2;
-                ArrayList arrayList = new ArrayList();
-                for (Object obj : iterable) {
-                    Instance instance = (Instance) obj;
-                    char c2 = c;
-                    boolean z2 = z;
-                    if ((!Intrinsics.areEqual(instance.getClassName(), "ScreenGui") || Intrinsics.areEqual(instance.get("Enabled"), Boolean.valueOf(z2))) ? z2 : true) {
-                        ArrayList arrayList2 = arrayList;
-                        arrayList2.add(obj);
-                        arrayList = arrayList2;
-                    }
-                    c = c2;
-                    z = z2;
-                }
-                char c3 = c;
-                boolean z3 = z;
-                List listSortedWith = CollectionsKt.sortedWith(arrayList, new Comparator() { // from class: com.goydevv.studrblx.ui.GuiOverlay$onDraw$lambda$17$$inlined$sortedBy$1
-                    /* JADX WARN: Multi-variable type inference failed */
-                    @Override // java.util.Comparator
-                    public final int compare(Object t, Object t2) {
-                        Object obj2 = ((Instance) t).get("DisplayOrder");
-                        Number number = obj2 instanceof Number ? (Number) obj2 : null;
-                        Integer numValueOf = Integer.valueOf(number != null ? number.intValue() : 0);
-                        Object obj3 = ((Instance) t2).get("DisplayOrder");
-                        Number number2 = obj3 instanceof Number ? (Number) obj3 : null;
-                        return ComparisonsKt.compareValues(numValueOf, Integer.valueOf(number2 != null ? number2.intValue() : 0));
-                    }
-                });
-                ArrayList arrayList3 = new ArrayList();
-                for (Object obj2 : iterableEmptyList) {
-                    Instance instance2 = (Instance) obj2;
-                    int i2 = i;
-                    if ((!Intrinsics.areEqual(instance2.getClassName(), "ScreenGui") || Intrinsics.areEqual(instance2.get("Enabled"), Boolean.valueOf(z3))) ? z3 : true) {
-                        arrayList3.add(obj2);
-                    }
-                    i = i2;
-                }
-                int r22 = 1;
-                List<Instance> listPlus = CollectionsKt.plus((Collection) listSortedWith, (Iterable) CollectionsKt.sortedWith(arrayList3, new Comparator() { // from class: com.goydevv.studrblx.ui.GuiOverlay$onDraw$lambda$17$$inlined$sortedBy$2
-                    /* JADX WARN: Multi-variable type inference failed */
-                    @Override // java.util.Comparator
-                    public final int compare(Object t, Object t2) {
-                        Object obj3 = ((Instance) t).get("DisplayOrder");
-                        Number number = obj3 instanceof Number ? (Number) obj3 : null;
-                        Integer numValueOf = Integer.valueOf(number != null ? number.intValue() : 0);
-                        Object obj4 = ((Instance) t2).get("DisplayOrder");
-                        Number number2 = obj4 instanceof Number ? (Number) obj4 : null;
-                        return ComparisonsKt.compareValues(numValueOf, Integer.valueOf(number2 != null ? number2.intValue() : 0));
-                    }
-                }));
-                for (Instance instance3 : listPlus) {
-                    try {
-                        try {
-                            Object obj3 = instance3.get("ScreenInsets");
-                            if (obj3 instanceof EnumValue) {
-                                try {
-                                    enumValue = (EnumValue) obj3;
-                                } catch (Throwable th) {
-                                    throw th;
-                                }
-                            } else {
-                                enumValue = null;
-                            }
-                            Integer numValueOf = enumValue != null ? Integer.valueOf(enumValue.getValue()) : null;
-                            Instance parent = instance3.getParent();
-                            boolean zAreEqual = Intrinsics.areEqual(parent != null ? parent.getClassName() : null, "CoreGui");
-                            if (Intrinsics.areEqual(instance3.get("IgnoreGuiInset"), Boolean.valueOf(r22 != 0)) || (numValueOf != null && numValueOf.intValue() == 0)) {
-                                r4 = r22;
-                            } else {
-                                if (numValueOf == null) {
-                                    r4 = r22;
-                                } else {
-                                    r4 = r22;
-                                    if (numValueOf.intValue() != r4) {
-                                    }
-                                    if (r3 != 0) {
-                                        f = 0.0f;
-                                    } else {
-                                        f = f2;
-                                    }
-                                    RectF rectF = new RectF(0.0f, f, width, height);
-                                    if (zAreEqual || play != null) {
-                                        r6 = z3 ? 1 : 0;
-                                    } else {
-                                        r6 = r5;
-                                    }
-                                    r19 = r6;
-                                    if (r19 != 0) {
-                                        guiOverlay2.usePluginUnits();
-                                    } else {
-                                        guiOverlay2.useGameUnits();
-                                    }
-                                    guiOverlay2.setAbs(instance3, rectF);
-                                    LuaRuntime luaRuntime = guiOverlay2.rt;
-                                    if (r19 != 0) {
-                                        guiOverlay2.rt = guiOverlay2.studio.getEditRuntime();
-                                    }
-                                    if (r19 != 0) {
-                                        fPluginScale = guiOverlay2.pluginScale(height);
-                                    } else {
-                                        fPluginScale = 1.0f;
-                                    }
-                                    List list = listPlus;
-                                    r22 = 1;
-                                    guiOverlay2.drawChildren(canvas, instance3, rectF, fPluginScale, new RectF(0.0f, 0.0f, width, height));
-                                    guiOverlay2.rt = luaRuntime;
-                                    zDrawBillboards = true;
-                                    listPlus = list;
-                                }
-                                if (!zAreEqual || play != null) {
-                                    r3 = z3 ? 1 : 0;
-                                    r5 = r4;
-                                }
-                                if (r3 != 0) {
-                                    f = 0.0f;
-                                } else {
-                                    f = f2;
-                                }
-                                RectF rectF2 = new RectF(0.0f, f, width, height);
-                                if (zAreEqual) {
-                                    r6 = z3 ? 1 : 0;
-                                } else {
-                                    r6 = z3 ? 1 : 0;
-                                }
-                                r19 = r6;
-                                if (r19 != 0) {
-                                    guiOverlay2.usePluginUnits();
-                                } else {
-                                    guiOverlay2.useGameUnits();
-                                }
-                                guiOverlay2.setAbs(instance3, rectF2);
-                                LuaRuntime luaRuntime2 = guiOverlay2.rt;
-                                if (r19 != 0) {
-                                    guiOverlay2.rt = guiOverlay2.studio.getEditRuntime();
-                                }
-                                if (r19 != 0) {
-                                    fPluginScale = guiOverlay2.pluginScale(height);
-                                } else {
-                                    fPluginScale = 1.0f;
-                                }
-                                List list2 = listPlus;
-                                r22 = 1;
-                                guiOverlay2.drawChildren(canvas, instance3, rectF2, fPluginScale, new RectF(0.0f, 0.0f, width, height));
-                                guiOverlay2.rt = luaRuntime2;
-                                zDrawBillboards = true;
-                                listPlus = list2;
-                            }
-                            r3 = r4;
-                            r5 = r4;
-                            if (r3 != 0) {
-                                f = 0.0f;
-                            } else {
-                                f = f2;
-                            }
-                            RectF rectF3 = new RectF(0.0f, f, width, height);
-                            if (zAreEqual) {
-                                r6 = z3 ? 1 : 0;
-                            } else {
-                                r6 = z3 ? 1 : 0;
-                            }
-                            r19 = r6;
-                            if (r19 != 0) {
-                                guiOverlay2.usePluginUnits();
-                            } else {
-                                guiOverlay2.useGameUnits();
-                            }
-                            guiOverlay2.setAbs(instance3, rectF3);
-                            LuaRuntime luaRuntime3 = guiOverlay2.rt;
-                            if (r19 != 0) {
-                                guiOverlay2.rt = guiOverlay2.studio.getEditRuntime();
-                            }
-                            if (r19 != 0) {
-                                fPluginScale = guiOverlay2.pluginScale(height);
-                            } else {
-                                fPluginScale = 1.0f;
-                            }
-                            List list3 = listPlus;
-                            r22 = 1;
-                            guiOverlay2.drawChildren(canvas, instance3, rectF3, fPluginScale, new RectF(0.0f, 0.0f, width, height));
-                            guiOverlay2.rt = luaRuntime3;
-                            zDrawBillboards = true;
-                            listPlus = list3;
-                        } catch (Throwable th2) {
-                            Throwable th = th2;
-                        }
-                    } catch (Throwable th3) {
-                        Throwable th = th3;
-                        throw th;
+                float sgScale = isPluginCore ? pluginScale(height) : 1.0f;
+                drawLayerCollector(canvas, sg, rectF, sgScale, fullScreenClip);
+                this.rt = savedRt;
+                hasAny = true;
+            }
+
+            useGameUnits();
+            if (playing) {
+                hasAny = true;
+            }
+            if (!playing) {
+                hasAny = drawPluginWidgets(canvas, width, height) | hasAny;
+            }
+
+            Instance selectedGui = getSelectedGui();
+            if (selectedGui != null) {
+                RectF selRect = null;
+                for (Pair<Instance, RectF> pair : this.newPicks) {
+                    if (pair.getFirst() == selectedGui) {
+                        selRect = pair.getSecond();
+                        break;
                     }
                 }
-                guiOverlay2.useGameUnits();
-                if (play != null) {
-                    zDrawBillboards = true;
-                }
-                boolean zDrawPluginWidgets = play == null ? guiOverlay2.drawPluginWidgets(canvas, width, height) | zDrawBillboards : zDrawBillboards;
-                try {
-                    Instance selectedGui = guiOverlay2.getSelectedGui();
-                    if (selectedGui != null) {
-                        ArrayList<Pair<Instance, RectF>> arrayList4 = guiOverlay2.newPicks;
-                        Iterator it = arrayList4.iterator();
-                        while (true) {
-                            if (!it.hasNext()) {
-                                next = null;
-                                break;
-                            }
-                            next = it.next();
-                            ArrayList<Pair<Instance, RectF>> arrayList5 = arrayList4;
-                            if ((((Pair) next).getFirst() == selectedGui ? r22 : z3 ? 1 : 0) != 0) {
-                                break;
-                            } else {
-                                arrayList4 = arrayList5;
-                            }
-                        }
-                        Pair pair = (Pair) next;
-                        if (pair != null) {
-                            RectF rectF4 = (RectF) pair.component2();
-                            guiOverlay2.stroke.setColor(-15096065);
-                            guiOverlay2.stroke.setStrokeWidth(guiOverlay2.d * 2.0f);
-                            guiOverlay2.stroke.setShader(null);
-                            canvas.drawRect(rectF4, guiOverlay2.stroke);
-                            for (float[] fArr : guiOverlay2.handlePoints(rectF4)) {
-                                guiOverlay2.fill.setShader(null);
-                                guiOverlay2.fill.setColor(-1);
-                                Instance instance4 = selectedGui;
-                                RectF rectF5 = rectF4;
-                                float f3 = width;
-                                GuiOverlay guiOverlay3 = guiOverlay2;
-                                try {
-                                    canvas.drawRect(fArr[z3 ? 1 : 0] - (guiOverlay2.d * 4.0f), fArr[r22] - (guiOverlay2.d * 4.0f), fArr[z3 ? 1 : 0] + (guiOverlay2.d * 4.0f), fArr[r22] + (guiOverlay2.d * 4.0f), guiOverlay2.fill);
-                                    canvas.drawRect(fArr[z3 ? 1 : 0] - (guiOverlay3.d * 4.0f), fArr[r22] - (guiOverlay3.d * 4.0f), (guiOverlay3.d * 4.0f) + fArr[z3 ? 1 : 0], (guiOverlay3.d * 4.0f) + fArr[r22], guiOverlay3.stroke);
-                                    rectF4 = rectF5;
-                                    guiOverlay2 = guiOverlay3;
-                                    selectedGui = instance4;
-                                    width = f3;
-                                } catch (Throwable th4) {
-                                    Throwable th = th4;
-                                    throw th;
-                                }
-                            }
-                            guiOverlay = guiOverlay2;
-                            zDrawPluginWidgets = true;
-                        } else {
-                            guiOverlay = guiOverlay2;
-                        }
-                    } else {
-                        guiOverlay = guiOverlay2;
+                if (selRect != null) {
+                    this.stroke.setColor(-15096065);
+                    this.stroke.setStrokeWidth(this.d * 2.0f);
+                    this.stroke.setShader(null);
+                    canvas.drawRect(selRect, this.stroke);
+                    float hs = this.d * 4.0f;
+                    for (float[] pt : handlePoints(selRect)) {
+                        this.fill.setShader(null);
+                        this.fill.setColor(-1);
+                        canvas.drawRect(pt[0] - hs, pt[1] - hs, pt[0] + hs, pt[1] + hs, this.fill);
+                        canvas.drawRect(pt[0] - hs, pt[1] - hs, pt[0] + hs, pt[1] + hs, this.stroke);
                     }
-                    List<float[]> list4 = guiOverlay.guides;
-                    if (!list4.isEmpty()) {
-                        guiOverlay.stroke.setColor(-49766);
-                        guiOverlay.stroke.setStrokeWidth(guiOverlay.d * 1.5f);
-                        guiOverlay.stroke.setShader(null);
-                        for (float[] fArr2 : list4) {
-                            canvas.drawLine(fArr2[z3 ? 1 : 0], fArr2[r22], fArr2[c3], fArr2[3], guiOverlay.stroke);
-                        }
-                    }
-                    guiOverlay.hits = guiOverlay.newHits;
-                    guiOverlay.scrolls = guiOverlay.newScrolls;
-                    guiOverlay.picks = guiOverlay.newPicks;
-                    guiOverlay.boxes = guiOverlay.newBoxes;
-                    guiOverlay.fireAbsChanges();
-                    Unit unit = Unit.INSTANCE;
-                    guiOverlay.hasContent = zDrawPluginWidgets;
-                } catch (Throwable th5) {
-                    Throwable th = th5;
+                    hasAny = true;
                 }
             }
-        } catch (Throwable _t) {
-            if (_t instanceof RuntimeException) throw (RuntimeException) _t;
-            if (_t instanceof Error) throw (Error) _t;
-            throw new RuntimeException(_t);
+
+            List<float[]> gList = this.guides;
+            if (!gList.isEmpty()) {
+                this.stroke.setColor(-49766);
+                this.stroke.setStrokeWidth(this.d * 1.5f);
+                this.stroke.setShader(null);
+                for (float[] g : gList) {
+                    canvas.drawLine(g[0], g[1], g[2], g[3], this.stroke);
+                }
+            }
+
+            this.hits = this.newHits;
+            this.scrolls = this.newScrolls;
+            this.picks = this.newPicks;
+            this.boxes = this.newBoxes;
+            fireAbsChanges();
+            this.hasContent = hasAny;
         }
     }
 
@@ -1212,18 +1076,14 @@ public final class GuiOverlay extends View {
                 return false;
             }
         }
-        Iterable<Instance> children = c.getChildren();
-        if ((children instanceof Collection) && ((Collection) children).isEmpty()) {
-            z = false;
-        } else {
-            for (Instance instance : children) {
-                if (Intrinsics.areEqual(instance.getClassName(), "UIStroke") && !Intrinsics.areEqual(instance.get("Enabled"), (Object) false) && num(instance, "Transparency", 0.0f) < 0.999f) {
-                    z = true;
-                }
+        for (Instance instance : c.getChildren()) {
+            if ("UIStroke".equals(instance.getClassName())
+                    && !Boolean.FALSE.equals(instance.get("Enabled"))
+                    && num(instance, "Transparency", 0.0f) < 0.999f) {
+                return false;
             }
-            z = false;
         }
-        return !z;
+        return true;
     }
 
     /* JADX INFO: compiled from: GuiOverlay.kt */
@@ -1314,782 +1174,176 @@ public final class GuiOverlay extends View {
         }
     }
 
-    /* JADX WARN: Code duplicated, block: B:100:0x0297 A[Catch: all -> 0x02c4, TryCatch #0 {, blocks: (B:61:0x00d4, B:62:0x0120, B:64:0x0126, B:66:0x0144, B:68:0x0154, B:71:0x01b2, B:73:0x01bb, B:74:0x01be, B:77:0x01f0, B:78:0x01f4, B:80:0x01fd, B:81:0x0213, B:85:0x021c, B:86:0x021e, B:90:0x0246, B:91:0x0249, B:94:0x0271, B:95:0x0275, B:97:0x027e, B:98:0x0293, B:102:0x029a, B:103:0x029b, B:106:0x02bf, B:100:0x0297, B:101:0x0299, B:92:0x024e, B:93:0x0253, B:83:0x0217, B:84:0x021a, B:75:0x01c5, B:76:0x01d0), top: B:161:0x00d4 }] */
-    /* JADX WARN: Code duplicated, block: B:101:0x0299 A[Catch: all -> 0x02c4, TryCatch #0 {, blocks: (B:61:0x00d4, B:62:0x0120, B:64:0x0126, B:66:0x0144, B:68:0x0154, B:71:0x01b2, B:73:0x01bb, B:74:0x01be, B:77:0x01f0, B:78:0x01f4, B:80:0x01fd, B:81:0x0213, B:85:0x021c, B:86:0x021e, B:90:0x0246, B:91:0x0249, B:94:0x0271, B:95:0x0275, B:97:0x027e, B:98:0x0293, B:102:0x029a, B:103:0x029b, B:106:0x02bf, B:100:0x0297, B:101:0x0299, B:92:0x024e, B:93:0x0253, B:83:0x0217, B:84:0x021a, B:75:0x01c5, B:76:0x01d0), top: B:161:0x00d4 }] */
-    /* JADX WARN: Code duplicated, block: B:104:0x02ba  */
-    /* JADX WARN: Code duplicated, block: B:105:0x02bd  */
-    /* JADX WARN: Code duplicated, block: B:114:0x02cf  */
-    /* JADX WARN: Code duplicated, block: B:116:0x02d7 A[ADDED_TO_REGION] */
-    /* JADX WARN: Code duplicated, block: B:118:0x02dc  */
-    /* JADX WARN: Code duplicated, block: B:119:0x02e3  */
-    /* JADX WARN: Code duplicated, block: B:120:0x02ea  */
-    /* JADX WARN: Code duplicated, block: B:122:0x02f6 A[ADDED_TO_REGION] */
-    /* JADX WARN: Code duplicated, block: B:124:0x02fb  */
-    /* JADX WARN: Code duplicated, block: B:125:0x0302  */
-    /* JADX WARN: Code duplicated, block: B:126:0x0309  */
-    /* JADX WARN: Code duplicated, block: B:129:0x032f  */
-    /* JADX WARN: Code duplicated, block: B:139:0x0384 A[Catch: all -> 0x043c, TryCatch #3 {all -> 0x043c, blocks: (B:137:0x036d, B:139:0x0384, B:148:0x03b4, B:150:0x03ba, B:152:0x0420, B:154:0x0434), top: B:167:0x036d }] */
-    /* JADX WARN: Code duplicated, block: B:140:0x0396  */
-    /* JADX WARN: Code duplicated, block: B:147:0x03ae  */
-    /* JADX WARN: Code duplicated, block: B:150:0x03ba A[Catch: all -> 0x043c, TryCatch #3 {all -> 0x043c, blocks: (B:137:0x036d, B:139:0x0384, B:148:0x03b4, B:150:0x03ba, B:152:0x0420, B:154:0x0434), top: B:167:0x036d }] */
-    /* JADX WARN: Code duplicated, block: B:152:0x0420 A[Catch: all -> 0x043c, TryCatch #3 {all -> 0x043c, blocks: (B:137:0x036d, B:139:0x0384, B:148:0x03b4, B:150:0x03ba, B:152:0x0420, B:154:0x0434), top: B:167:0x036d }] */
-    /* JADX WARN: Code duplicated, block: B:153:0x0432  */
-    /* JADX WARN: Code duplicated, block: B:163:0x0335 A[EXC_TOP_SPLITTER, SYNTHETIC] */
-    /* JADX WARN: Code duplicated, block: B:171:0x01ab A[ADDED_TO_REGION, SYNTHETIC] */
-    /* JADX WARN: Code duplicated, block: B:54:0x00ba  */
-    /* JADX WARN: Code duplicated, block: B:58:0x00ca  */
-    /* JADX WARN: Code duplicated, block: B:60:0x00d1  */
-    /* JADX WARN: Code duplicated, block: B:64:0x0126 A[Catch: all -> 0x02c4, TryCatch #0 {, blocks: (B:61:0x00d4, B:62:0x0120, B:64:0x0126, B:66:0x0144, B:68:0x0154, B:71:0x01b2, B:73:0x01bb, B:74:0x01be, B:77:0x01f0, B:78:0x01f4, B:80:0x01fd, B:81:0x0213, B:85:0x021c, B:86:0x021e, B:90:0x0246, B:91:0x0249, B:94:0x0271, B:95:0x0275, B:97:0x027e, B:98:0x0293, B:102:0x029a, B:103:0x029b, B:106:0x02bf, B:100:0x0297, B:101:0x0299, B:92:0x024e, B:93:0x0253, B:83:0x0217, B:84:0x021a, B:75:0x01c5, B:76:0x01d0), top: B:161:0x00d4 }] */
-    /* JADX WARN: Code duplicated, block: B:66:0x0144 A[Catch: all -> 0x02c4, TryCatch #0 {, blocks: (B:61:0x00d4, B:62:0x0120, B:64:0x0126, B:66:0x0144, B:68:0x0154, B:71:0x01b2, B:73:0x01bb, B:74:0x01be, B:77:0x01f0, B:78:0x01f4, B:80:0x01fd, B:81:0x0213, B:85:0x021c, B:86:0x021e, B:90:0x0246, B:91:0x0249, B:94:0x0271, B:95:0x0275, B:97:0x027e, B:98:0x0293, B:102:0x029a, B:103:0x029b, B:106:0x02bf, B:100:0x0297, B:101:0x0299, B:92:0x024e, B:93:0x0253, B:83:0x0217, B:84:0x021a, B:75:0x01c5, B:76:0x01d0), top: B:161:0x00d4 }] */
-    /* JADX WARN: Code duplicated, block: B:73:0x01bb A[Catch: all -> 0x02c4, TryCatch #0 {, blocks: (B:61:0x00d4, B:62:0x0120, B:64:0x0126, B:66:0x0144, B:68:0x0154, B:71:0x01b2, B:73:0x01bb, B:74:0x01be, B:77:0x01f0, B:78:0x01f4, B:80:0x01fd, B:81:0x0213, B:85:0x021c, B:86:0x021e, B:90:0x0246, B:91:0x0249, B:94:0x0271, B:95:0x0275, B:97:0x027e, B:98:0x0293, B:102:0x029a, B:103:0x029b, B:106:0x02bf, B:100:0x0297, B:101:0x0299, B:92:0x024e, B:93:0x0253, B:83:0x0217, B:84:0x021a, B:75:0x01c5, B:76:0x01d0), top: B:161:0x00d4 }] */
-    /* JADX WARN: Code duplicated, block: B:74:0x01be A[Catch: all -> 0x02c4, TryCatch #0 {, blocks: (B:61:0x00d4, B:62:0x0120, B:64:0x0126, B:66:0x0144, B:68:0x0154, B:71:0x01b2, B:73:0x01bb, B:74:0x01be, B:77:0x01f0, B:78:0x01f4, B:80:0x01fd, B:81:0x0213, B:85:0x021c, B:86:0x021e, B:90:0x0246, B:91:0x0249, B:94:0x0271, B:95:0x0275, B:97:0x027e, B:98:0x0293, B:102:0x029a, B:103:0x029b, B:106:0x02bf, B:100:0x0297, B:101:0x0299, B:92:0x024e, B:93:0x0253, B:83:0x0217, B:84:0x021a, B:75:0x01c5, B:76:0x01d0), top: B:161:0x00d4 }] */
-    /* JADX WARN: Code duplicated, block: B:75:0x01c5 A[Catch: all -> 0x02c4, TryCatch #0 {, blocks: (B:61:0x00d4, B:62:0x0120, B:64:0x0126, B:66:0x0144, B:68:0x0154, B:71:0x01b2, B:73:0x01bb, B:74:0x01be, B:77:0x01f0, B:78:0x01f4, B:80:0x01fd, B:81:0x0213, B:85:0x021c, B:86:0x021e, B:90:0x0246, B:91:0x0249, B:94:0x0271, B:95:0x0275, B:97:0x027e, B:98:0x0293, B:102:0x029a, B:103:0x029b, B:106:0x02bf, B:100:0x0297, B:101:0x0299, B:92:0x024e, B:93:0x0253, B:83:0x0217, B:84:0x021a, B:75:0x01c5, B:76:0x01d0), top: B:161:0x00d4 }] */
-    /* JADX WARN: Code duplicated, block: B:76:0x01d0 A[Catch: all -> 0x02c4, TryCatch #0 {, blocks: (B:61:0x00d4, B:62:0x0120, B:64:0x0126, B:66:0x0144, B:68:0x0154, B:71:0x01b2, B:73:0x01bb, B:74:0x01be, B:77:0x01f0, B:78:0x01f4, B:80:0x01fd, B:81:0x0213, B:85:0x021c, B:86:0x021e, B:90:0x0246, B:91:0x0249, B:94:0x0271, B:95:0x0275, B:97:0x027e, B:98:0x0293, B:102:0x029a, B:103:0x029b, B:106:0x02bf, B:100:0x0297, B:101:0x0299, B:92:0x024e, B:93:0x0253, B:83:0x0217, B:84:0x021a, B:75:0x01c5, B:76:0x01d0), top: B:161:0x00d4 }] */
-    /* JADX WARN: Code duplicated, block: B:80:0x01fd A[Catch: all -> 0x02c4, TryCatch #0 {, blocks: (B:61:0x00d4, B:62:0x0120, B:64:0x0126, B:66:0x0144, B:68:0x0154, B:71:0x01b2, B:73:0x01bb, B:74:0x01be, B:77:0x01f0, B:78:0x01f4, B:80:0x01fd, B:81:0x0213, B:85:0x021c, B:86:0x021e, B:90:0x0246, B:91:0x0249, B:94:0x0271, B:95:0x0275, B:97:0x027e, B:98:0x0293, B:102:0x029a, B:103:0x029b, B:106:0x02bf, B:100:0x0297, B:101:0x0299, B:92:0x024e, B:93:0x0253, B:83:0x0217, B:84:0x021a, B:75:0x01c5, B:76:0x01d0), top: B:161:0x00d4 }] */
-    /* JADX WARN: Code duplicated, block: B:82:0x0216  */
-    /* JADX WARN: Code duplicated, block: B:83:0x0217 A[Catch: all -> 0x02c4, TryCatch #0 {, blocks: (B:61:0x00d4, B:62:0x0120, B:64:0x0126, B:66:0x0144, B:68:0x0154, B:71:0x01b2, B:73:0x01bb, B:74:0x01be, B:77:0x01f0, B:78:0x01f4, B:80:0x01fd, B:81:0x0213, B:85:0x021c, B:86:0x021e, B:90:0x0246, B:91:0x0249, B:94:0x0271, B:95:0x0275, B:97:0x027e, B:98:0x0293, B:102:0x029a, B:103:0x029b, B:106:0x02bf, B:100:0x0297, B:101:0x0299, B:92:0x024e, B:93:0x0253, B:83:0x0217, B:84:0x021a, B:75:0x01c5, B:76:0x01d0), top: B:161:0x00d4 }] */
-    /* JADX WARN: Code duplicated, block: B:84:0x021a A[Catch: all -> 0x02c4, TryCatch #0 {, blocks: (B:61:0x00d4, B:62:0x0120, B:64:0x0126, B:66:0x0144, B:68:0x0154, B:71:0x01b2, B:73:0x01bb, B:74:0x01be, B:77:0x01f0, B:78:0x01f4, B:80:0x01fd, B:81:0x0213, B:85:0x021c, B:86:0x021e, B:90:0x0246, B:91:0x0249, B:94:0x0271, B:95:0x0275, B:97:0x027e, B:98:0x0293, B:102:0x029a, B:103:0x029b, B:106:0x02bf, B:100:0x0297, B:101:0x0299, B:92:0x024e, B:93:0x0253, B:83:0x0217, B:84:0x021a, B:75:0x01c5, B:76:0x01d0), top: B:161:0x00d4 }] */
-    /* JADX WARN: Code duplicated, block: B:87:0x023d  */
-    /* JADX WARN: Code duplicated, block: B:88:0x0240  */
-    /* JADX WARN: Code duplicated, block: B:90:0x0246 A[Catch: all -> 0x02c4, TryCatch #0 {, blocks: (B:61:0x00d4, B:62:0x0120, B:64:0x0126, B:66:0x0144, B:68:0x0154, B:71:0x01b2, B:73:0x01bb, B:74:0x01be, B:77:0x01f0, B:78:0x01f4, B:80:0x01fd, B:81:0x0213, B:85:0x021c, B:86:0x021e, B:90:0x0246, B:91:0x0249, B:94:0x0271, B:95:0x0275, B:97:0x027e, B:98:0x0293, B:102:0x029a, B:103:0x029b, B:106:0x02bf, B:100:0x0297, B:101:0x0299, B:92:0x024e, B:93:0x0253, B:83:0x0217, B:84:0x021a, B:75:0x01c5, B:76:0x01d0), top: B:161:0x00d4 }] */
-    /* JADX WARN: Code duplicated, block: B:91:0x0249 A[Catch: all -> 0x02c4, TryCatch #0 {, blocks: (B:61:0x00d4, B:62:0x0120, B:64:0x0126, B:66:0x0144, B:68:0x0154, B:71:0x01b2, B:73:0x01bb, B:74:0x01be, B:77:0x01f0, B:78:0x01f4, B:80:0x01fd, B:81:0x0213, B:85:0x021c, B:86:0x021e, B:90:0x0246, B:91:0x0249, B:94:0x0271, B:95:0x0275, B:97:0x027e, B:98:0x0293, B:102:0x029a, B:103:0x029b, B:106:0x02bf, B:100:0x0297, B:101:0x0299, B:92:0x024e, B:93:0x0253, B:83:0x0217, B:84:0x021a, B:75:0x01c5, B:76:0x01d0), top: B:161:0x00d4 }] */
-    /* JADX WARN: Code duplicated, block: B:92:0x024e A[Catch: all -> 0x02c4, TryCatch #0 {, blocks: (B:61:0x00d4, B:62:0x0120, B:64:0x0126, B:66:0x0144, B:68:0x0154, B:71:0x01b2, B:73:0x01bb, B:74:0x01be, B:77:0x01f0, B:78:0x01f4, B:80:0x01fd, B:81:0x0213, B:85:0x021c, B:86:0x021e, B:90:0x0246, B:91:0x0249, B:94:0x0271, B:95:0x0275, B:97:0x027e, B:98:0x0293, B:102:0x029a, B:103:0x029b, B:106:0x02bf, B:100:0x0297, B:101:0x0299, B:92:0x024e, B:93:0x0253, B:83:0x0217, B:84:0x021a, B:75:0x01c5, B:76:0x01d0), top: B:161:0x00d4 }] */
-    /* JADX WARN: Code duplicated, block: B:93:0x0253 A[Catch: all -> 0x02c4, TryCatch #0 {, blocks: (B:61:0x00d4, B:62:0x0120, B:64:0x0126, B:66:0x0144, B:68:0x0154, B:71:0x01b2, B:73:0x01bb, B:74:0x01be, B:77:0x01f0, B:78:0x01f4, B:80:0x01fd, B:81:0x0213, B:85:0x021c, B:86:0x021e, B:90:0x0246, B:91:0x0249, B:94:0x0271, B:95:0x0275, B:97:0x027e, B:98:0x0293, B:102:0x029a, B:103:0x029b, B:106:0x02bf, B:100:0x0297, B:101:0x0299, B:92:0x024e, B:93:0x0253, B:83:0x0217, B:84:0x021a, B:75:0x01c5, B:76:0x01d0), top: B:161:0x00d4 }] */
-    /* JADX WARN: Code duplicated, block: B:97:0x027e A[Catch: all -> 0x02c4, TryCatch #0 {, blocks: (B:61:0x00d4, B:62:0x0120, B:64:0x0126, B:66:0x0144, B:68:0x0154, B:71:0x01b2, B:73:0x01bb, B:74:0x01be, B:77:0x01f0, B:78:0x01f4, B:80:0x01fd, B:81:0x0213, B:85:0x021c, B:86:0x021e, B:90:0x0246, B:91:0x0249, B:94:0x0271, B:95:0x0275, B:97:0x027e, B:98:0x0293, B:102:0x029a, B:103:0x029b, B:106:0x02bf, B:100:0x0297, B:101:0x0299, B:92:0x024e, B:93:0x0253, B:83:0x0217, B:84:0x021a, B:75:0x01c5, B:76:0x01d0), top: B:161:0x00d4 }] */
-    /* JADX WARN: Code duplicated, block: B:99:0x0296  */
     public final void dragTo(DragState s, float dx, float dy) {
-        try {
-        float b;
-        float b2;
-        float r;
-        float t;
-        char c;
-        boolean moveX = false;
-        char c2;
-        char c3 = 0;
-        char c4;
-        boolean snappedX;
-        boolean snappedY;
-        int grid;
-        float w;
-        float hh;
-        float aw;
-        float ah;
-        float u;
-        UDim2 uDim2;
-        float w2 = 0.0f;
-        float l = 0.0f;
-        UDim2 uDim3;
-        float g;
-        int i;
-        ArrayList arrayListArrayListOf;
-        ArrayList arrayListArrayListOf2;
-        float f;
-        float f2;
-        List listListOf;
-        Float fValueOf;
-        Pair<Float, Float> pairDragTo$lambda$23$best;
-        float fFloatValue;
-        List listListOf2;
-        Pair<Float, Float> pairDragTo$lambda$23$best2;
-        float fFloatValue2;
-        Instance key;
         Intrinsics.checkNotNullParameter(s, "s");
-        if (s.getHandle() == -1 && s.getInLayout()) {
+        int h = s.getHandle();
+        if (h == -1 && s.getInLayout()) {
             return;
         }
-        float l2 = s.getStart().left;
-        float t2 = s.getStart().top;
-        float r2 = s.getStart().right;
-        float b3 = s.getStart().bottom;
-        int h = s.getHandle();
+        float l = s.getStart().left;
+        float t = s.getStart().top;
+        float r = s.getStart().right;
+        float b = s.getStart().bottom;
         if (h == -1) {
-            b = b3 + dy;
-            b2 = r2 + dx;
-            r = t2 + dy;
-            t = l2 + dx;
+            l += dx;
+            r += dx;
+            t += dy;
+            b += dy;
         } else {
-            switch (h) {
-                case 0:
-                case 6:
-                case 7:
-                    l2 += dx;
-                    break;
+            if (h == 0 || h == 6 || h == 7) l += dx;
+            if (h == 2 || h == 3 || h == 4) r += dx;
+            if (h == 0 || h == 1 || h == 2) t += dy;
+            if (h == 4 || h == 5 || h == 6) b += dy;
+            if (r - l < 1.0f) {
+                if (h == 0 || h == 6 || h == 7) l = r - 1.0f;
+                else r = l + 1.0f;
             }
-            switch (h) {
-                case 2:
-                case 3:
-                case 4:
-                    r2 += dx;
-                    break;
+            if (b - t < 1.0f) {
+                if (h == 0 || h == 1 || h == 2) t = b - 1.0f;
+                else b = t + 1.0f;
             }
-            switch (h) {
-                case 0:
-                case 1:
-                case 2:
-                    t2 += dy;
-                    break;
-            }
-            switch (h) {
-                case 4:
-                case 5:
-                case 6:
-                    b3 += dy;
-                    break;
-            }
-            if (r2 - l2 < 1.0f) {
-                switch (h) {
-                    case 0:
-                    case 6:
-                    case 7:
-                        l2 = r2 - 1.0f;
-                        break;
-                    default:
-                        r2 = l2 + 1.0f;
-                        break;
-                }
-            }
-            if (b3 - t2 < 1.0f) {
-                switch (h) {
-                    case 0:
-                    case 1:
-                    case 2:
-                        t2 = b3 - 1.0f;
-                        break;
-                    default:
-                        b3 = t2 + 1.0f;
-                        break;
-                }
-            }
-            b = b3;
-            b2 = r2;
-            r = t2;
-            t = l2;
         }
-        ArrayList gl = new ArrayList();
+
+        ArrayList<float[]> gl = new ArrayList<>();
         RectF area = s.getArea();
-        if (h != -1 && h != 0 && h != 2 && h != 3 && h != 4 && h != 6) {
-            c = 0;
-            moveX = h == 7;
-            if (h == -1 && h != 0 && h != 1 && h != 2 && h != 4) {
-                c2 = 2;
-                if (h != 5 && h != 6) {
-                    c3 = c;
-                }
-                c4 = c3;
-                snappedX = false;
-                snappedY = false;
-                if (Settings.INSTANCE.getGuiSmartGuides()) {
-                    synchronized (this.studio.getLock()) {
-                        i = 0;
-                        Float[] fArr = new Float[3];
-                        fArr[c] = Float.valueOf(area.left);
-                        fArr[1] = Float.valueOf(area.centerX());
-                        fArr[c2] = Float.valueOf(area.right);
-                        arrayListArrayListOf = CollectionsKt.arrayListOf(fArr);
-                        Float[] fArr2 = new Float[3];
-                        fArr2[c] = Float.valueOf(area.top);
-                        fArr2[1] = Float.valueOf(area.centerY());
-                        fArr2[c2] = Float.valueOf(area.bottom);
-                        arrayListArrayListOf2 = CollectionsKt.arrayListOf(fArr2);
-                        for (Map.Entry<Instance, EditBox> entry : this.boxes.entrySet()) {
-                            key = entry.getKey();
-                            EditBox value = entry.getValue();
-                            if (key == s.getInst() && key.getParent() == s.getInst().getParent()) {
-                                arrayListArrayListOf.add(Float.valueOf(value.getRect().left));
-                                arrayListArrayListOf.add(Float.valueOf(value.getRect().centerX()));
-                                arrayListArrayListOf.add(Float.valueOf(value.getRect().right));
-                                arrayListArrayListOf2.add(Float.valueOf(value.getRect().top));
-                                arrayListArrayListOf2.add(Float.valueOf(value.getRect().centerY()));
-                                arrayListArrayListOf2.add(Float.valueOf(value.getRect().bottom));
-                            }
-                        }
-                        f = this.d * 6.0f;
-                        if (moveX) {
-                            switch (h) {
-                                case -1:
-                                    f2 = 2.0f;
-                                    Float[] fArr3 = new Float[3];
-                                    fArr3[c] = Float.valueOf(t);
-                                    fArr3[1] = Float.valueOf((t + b2) / 2.0f);
-                                    fArr3[c2] = Float.valueOf(b2);
-                                    listListOf2 = CollectionsKt.listOf(fArr3);
-                                    break;
-                                case 0:
-                                case 6:
-                                case 7:
-                                    listListOf2 = CollectionsKt.listOf(Float.valueOf(t));
-                                    f2 = 2.0f;
-                                    break;
-                                default:
-                                    f2 = 2.0f;
-                                    listListOf2 = CollectionsKt.listOf(Float.valueOf(b2));
-                                    break;
-                            }
-                            pairDragTo$lambda$23$best2 = dragTo$lambda$23$best(f, listListOf2, arrayListArrayListOf);
-                            if (pairDragTo$lambda$23$best2 != null) {
-                                fFloatValue2 = pairDragTo$lambda$23$best2.component1().floatValue();
-                                float fFloatValue3 = pairDragTo$lambda$23$best2.component2().floatValue();
-                                switch (h) {
-                                    case -1:
-                                        t += fFloatValue2;
-                                        b2 += fFloatValue2;
-                                        break;
-                                    case 0:
-                                    case 6:
-                                    case 7:
-                                        t += fFloatValue2;
-                                        break;
-                                    default:
-                                        b2 += fFloatValue2;
-                                        break;
-                                }
-                                float f3 = area.top;
-                                float f4 = area.bottom;
-                                float[] fArr4 = new float[4];
-                                fArr4[c] = fFloatValue3;
-                                fArr4[1] = f3;
-                                fArr4[c2] = fFloatValue3;
-                                fArr4[3] = f4;
-                                gl.add(fArr4);
-                                snappedX = true;
-                            }
-                        } else {
-                            f2 = 2.0f;
-                        }
-                        if (c4 != 0) {
-                            switch (h) {
-                                case -1:
-                                    Float[] fArr5 = new Float[3];
-                                    fArr5[c] = Float.valueOf(r);
-                                    fArr5[1] = Float.valueOf((r + b) / f2);
-                                    fArr5[c2] = Float.valueOf(b);
-                                    listListOf = CollectionsKt.listOf(fArr5);
-                                    break;
-                                case 0:
-                                case 1:
-                                case 2:
-                                    fValueOf = Float.valueOf(r);
-                                    listListOf = CollectionsKt.listOf(fValueOf);
-                                    break;
-                                default:
-                                    fValueOf = Float.valueOf(b);
-                                    listListOf = CollectionsKt.listOf(fValueOf);
-                                    break;
-                            }
-                            pairDragTo$lambda$23$best = dragTo$lambda$23$best(f, listListOf, arrayListArrayListOf2);
-                            if (pairDragTo$lambda$23$best != null) {
-                                fFloatValue = pairDragTo$lambda$23$best.component1().floatValue();
-                                float fFloatValue4 = pairDragTo$lambda$23$best.component2().floatValue();
-                                switch (h) {
-                                    case -1:
-                                        r += fFloatValue;
-                                        b += fFloatValue;
-                                        break;
-                                    case 0:
-                                    case 1:
-                                    case 2:
-                                        r += fFloatValue;
-                                        break;
-                                    default:
-                                        b += fFloatValue;
-                                        break;
-                                }
-                                float f5 = area.left;
-                                float f6 = area.right;
-                                float[] fArr6 = new float[4];
-                                fArr6[c] = f5;
-                                fArr6[1] = fFloatValue4;
-                                fArr6[c2] = f6;
-                                fArr6[3] = fFloatValue4;
-                                gl.add(fArr6);
-                                snappedY = true;
-                            }
-                        }
-                        Unit unit = Unit.INSTANCE;
-                    }
-                }
-                grid = Settings.INSTANCE.getGuiGrid();
-                if (grid > 0) {
-                    g = grid * s.getUnit();
-                    if (moveX && !snappedX) {
-                        switch (h) {
-                            case -1:
-                                float nl = dragTo$snapV(g, t, area.left);
-                                b2 += nl - t;
-                                t = nl;
-                                break;
-                            case 0:
-                            case 6:
-                            case 7:
-                                t = dragTo$snapV(g, t, area.left);
-                                break;
-                            default:
-                                b2 = dragTo$snapV(g, b2, area.left);
-                                break;
-                        }
-                    }
-                    if (c4 != 0 && !snappedY) {
-                        switch (h) {
-                            case -1:
-                                float nt = dragTo$snapV(g, r, area.top);
-                                b += nt - r;
-                                r = nt;
-                                break;
-                            case 0:
-                            case 1:
-                            case 2:
-                                r = dragTo$snapV(g, r, area.top);
-                                break;
-                            default:
-                                b = dragTo$snapV(g, b, area.top);
-                                break;
-                        }
-                    }
-                }
-                this.guides = gl;
-                w = b2 - t;
-                hh = b - r;
-                aw = area.width();
-                ah = area.height();
-                u = s.getUnit();
-                synchronized (this.studio.getLock()) {
-                    if (h != -1) {
-                        try {
-                            try {
-                                w2 = w;
-                                try {
-                                    l = t;
-                                    try {
-                                        uDim2 = new UDim2(s.getSize().getXs(), Math.round((w - (s.getSize().getXs() * aw)) / u), s.getSize().getYs(), Math.round((hh - (s.getSize().getYs() * ah)) / u));
-                                        if (!Intrinsics.areEqual(uDim2, s.getInst().get("Size"))) {
-                                            Instance.set$default(s.getInst(), "Size", uDim2, false, 4, null);
-                                        }
-                                    } catch (Throwable th) {
-                                        throw th;
-                                    }
-                                } catch (Throwable th2) {
-                                    Throwable th = th2;
-                                    throw th;
-                                }
-                            } catch (Throwable th3) {
-                                Throwable th = th3;
-                            }
-                        } catch (Throwable th4) {
-                            Throwable th = th4;
-                        }
-                    } else {
-                        w2 = w;
-                        l = t;
-                    }
-                    if (!s.getInLayout()) {
-                        uDim3 = new UDim2(s.getPos().getXs(), Math.round((((l + (s.getAnchor().getX() * w2)) - area.left) - (s.getPos().getXs() * aw)) / u), s.getPos().getYs(), Math.round(((((s.getAnchor().getY() * hh) + r) - area.top) - (s.getPos().getYs() * ah)) / u));
-                        if (!Intrinsics.areEqual(uDim3, s.getInst().get("Position"))) {
-                            Instance.set$default(s.getInst(), "Position", uDim3, false, 4, null);
-                        }
-                    }
-                    Unit unit2 = Unit.INSTANCE;
-                    postInvalidate();
-                }
-            }
-            c2 = 2;
-            c3 = 1;
-            c4 = c3;
-            snappedX = false;
-            snappedY = false;
-            if (Settings.INSTANCE.getGuiSmartGuides()) {
-                synchronized (this.studio.getLock()) {
-                    i = 0;
-                    Float[] fArr7 = new Float[3];
-                    fArr7[c] = Float.valueOf(area.left);
-                    fArr7[1] = Float.valueOf(area.centerX());
-                    fArr7[c2] = Float.valueOf(area.right);
-                    arrayListArrayListOf = CollectionsKt.arrayListOf(fArr7);
-                    Float[] fArr8 = new Float[3];
-                    fArr8[c] = Float.valueOf(area.top);
-                    fArr8[1] = Float.valueOf(area.centerY());
-                    fArr8[c2] = Float.valueOf(area.bottom);
-                    arrayListArrayListOf2 = CollectionsKt.arrayListOf(fArr8);
-                    for (Map.Entry<Instance, EditBox> entry : this.boxes.entrySet()) {
-                        key = entry.getKey();
-                        EditBox value2 = entry.getValue();
-                        if (key == s.getInst()) {
-                        }
-                    }
-                    f = this.d * 6.0f;
-                    if (moveX) {
-                        switch (h) {
-                            case -1:
-                                f2 = 2.0f;
-                                Float[] fArr9 = new Float[3];
-                                fArr9[c] = Float.valueOf(t);
-                                fArr9[1] = Float.valueOf((t + b2) / 2.0f);
-                                fArr9[c2] = Float.valueOf(b2);
-                                listListOf2 = CollectionsKt.listOf(fArr9);
-                                break;
-                            case 0:
-                            case 6:
-                            case 7:
-                                listListOf2 = CollectionsKt.listOf(Float.valueOf(t));
-                                f2 = 2.0f;
-                                break;
-                            default:
-                                f2 = 2.0f;
-                                listListOf2 = CollectionsKt.listOf(Float.valueOf(b2));
-                                break;
-                        }
-                        pairDragTo$lambda$23$best2 = dragTo$lambda$23$best(f, listListOf2, arrayListArrayListOf);
-                        if (pairDragTo$lambda$23$best2 != null) {
-                            fFloatValue2 = pairDragTo$lambda$23$best2.component1().floatValue();
-                            float fFloatValue5 = pairDragTo$lambda$23$best2.component2().floatValue();
-                            switch (h) {
-                                case -1:
-                                    t += fFloatValue2;
-                                    b2 += fFloatValue2;
-                                    break;
-                                case 0:
-                                case 6:
-                                case 7:
-                                    t += fFloatValue2;
-                                    break;
-                                default:
-                                    b2 += fFloatValue2;
-                                    break;
-                            }
-                            float f7 = area.top;
-                            float f8 = area.bottom;
-                            float[] fArr10 = new float[4];
-                            fArr10[c] = fFloatValue5;
-                            fArr10[1] = f7;
-                            fArr10[c2] = fFloatValue5;
-                            fArr10[3] = f8;
-                            gl.add(fArr10);
-                            snappedX = true;
-                        }
-                    } else {
-                        f2 = 2.0f;
-                    }
-                    if (c4 != 0) {
-                        switch (h) {
-                            case -1:
-                                Float[] fArr11 = new Float[3];
-                                fArr11[c] = Float.valueOf(r);
-                                fArr11[1] = Float.valueOf((r + b) / f2);
-                                fArr11[c2] = Float.valueOf(b);
-                                listListOf = CollectionsKt.listOf(fArr11);
-                                break;
-                            case 0:
-                            case 1:
-                            case 2:
-                                fValueOf = Float.valueOf(r);
-                                listListOf = CollectionsKt.listOf(fValueOf);
-                                break;
-                            default:
-                                fValueOf = Float.valueOf(b);
-                                listListOf = CollectionsKt.listOf(fValueOf);
-                                break;
-                        }
-                        pairDragTo$lambda$23$best = dragTo$lambda$23$best(f, listListOf, arrayListArrayListOf2);
-                        if (pairDragTo$lambda$23$best != null) {
-                            fFloatValue = pairDragTo$lambda$23$best.component1().floatValue();
-                            float fFloatValue6 = pairDragTo$lambda$23$best.component2().floatValue();
-                            switch (h) {
-                                case -1:
-                                    r += fFloatValue;
-                                    b += fFloatValue;
-                                    break;
-                                case 0:
-                                case 1:
-                                case 2:
-                                    r += fFloatValue;
-                                    break;
-                                default:
-                                    b += fFloatValue;
-                                    break;
-                            }
-                            float f9 = area.left;
-                            float f10 = area.right;
-                            float[] fArr12 = new float[4];
-                            fArr12[c] = f9;
-                            fArr12[1] = fFloatValue6;
-                            fArr12[c2] = f10;
-                            fArr12[3] = fFloatValue6;
-                            gl.add(fArr12);
-                            snappedY = true;
-                        }
-                    }
-                    Unit unit3 = Unit.INSTANCE;
-                }
-            }
-            grid = Settings.INSTANCE.getGuiGrid();
-            if (grid > 0) {
-                g = grid * s.getUnit();
-                if (moveX) {
-                    switch (h) {
-                        case -1:
-                            float nl2 = dragTo$snapV(g, t, area.left);
-                            b2 += nl2 - t;
-                            t = nl2;
-                            break;
-                        case 0:
-                        case 6:
-                        case 7:
-                            t = dragTo$snapV(g, t, area.left);
-                            break;
-                        default:
-                            b2 = dragTo$snapV(g, b2, area.left);
-                            break;
-                    }
-                }
-                if (c4 != 0) {
-                    switch (h) {
-                        case -1:
-                            float nt2 = dragTo$snapV(g, r, area.top);
-                            b += nt2 - r;
-                            r = nt2;
-                            break;
-                        case 0:
-                        case 1:
-                        case 2:
-                            r = dragTo$snapV(g, r, area.top);
-                            break;
-                        default:
-                            b = dragTo$snapV(g, b, area.top);
-                            break;
-                    }
-                }
-            }
-            this.guides = gl;
-            w = b2 - t;
-            hh = b - r;
-            aw = area.width();
-            ah = area.height();
-            u = s.getUnit();
-            synchronized (this.studio.getLock()) {
-                if (h != -1) {
-                    w2 = w;
-                    l = t;
-                    uDim2 = new UDim2(s.getSize().getXs(), Math.round((w - (s.getSize().getXs() * aw)) / u), s.getSize().getYs(), Math.round((hh - (s.getSize().getYs() * ah)) / u));
-                    if (!Intrinsics.areEqual(uDim2, s.getInst().get("Size"))) {
-                        Instance.set$default(s.getInst(), "Size", uDim2, false, 4, null);
-                    }
-                } else {
-                    w2 = w;
-                    l = t;
-                }
-                if (!s.getInLayout()) {
-                    uDim3 = new UDim2(s.getPos().getXs(), Math.round((((l + (s.getAnchor().getX() * w2)) - area.left) - (s.getPos().getXs() * aw)) / u), s.getPos().getYs(), Math.round(((((s.getAnchor().getY() * hh) + r) - area.top) - (s.getPos().getYs() * ah)) / u));
-                    if (!Intrinsics.areEqual(uDim3, s.getInst().get("Position"))) {
-                        Instance.set$default(s.getInst(), "Position", uDim3, false, 4, null);
-                    }
-                }
-                Unit unit4 = Unit.INSTANCE;
-                postInvalidate();
-            }
-        }
-        c = 0;
-        if (h == -1) {
-            c2 = 2;
-            c3 = 1;
-        } else {
-            c2 = 2;
-            c3 = 1;
-        }
-        c4 = c3;
-        snappedX = false;
-        snappedY = false;
+        boolean moveX = (h == -1 || h == 0 || h == 2 || h == 3 || h == 4 || h == 6 || h == 7);
+        boolean moveY = (h == -1 || h == 0 || h == 1 || h == 2 || h == 4 || h == 5 || h == 6);
+        boolean snappedX = false;
+        boolean snappedY = false;
+
         if (Settings.INSTANCE.getGuiSmartGuides()) {
             synchronized (this.studio.getLock()) {
-                i = 0;
-                Float[] fArr13 = new Float[3];
-                fArr13[c] = Float.valueOf(area.left);
-                fArr13[1] = Float.valueOf(area.centerX());
-                fArr13[c2] = Float.valueOf(area.right);
-                arrayListArrayListOf = CollectionsKt.arrayListOf(fArr13);
-                Float[] fArr14 = new Float[3];
-                fArr14[c] = Float.valueOf(area.top);
-                fArr14[1] = Float.valueOf(area.centerY());
-                fArr14[c2] = Float.valueOf(area.bottom);
-                arrayListArrayListOf2 = CollectionsKt.arrayListOf(fArr14);
+                ArrayList<Float> targetsX = new ArrayList<>();
+                targetsX.add(area.left);
+                targetsX.add(area.centerX());
+                targetsX.add(area.right);
+                ArrayList<Float> targetsY = new ArrayList<>();
+                targetsY.add(area.top);
+                targetsY.add(area.centerY());
+                targetsY.add(area.bottom);
                 for (Map.Entry<Instance, EditBox> entry : this.boxes.entrySet()) {
-                    key = entry.getKey();
-                    EditBox value3 = entry.getValue();
-                    if (key == s.getInst()) {
+                    Instance key = entry.getKey();
+                    EditBox value = entry.getValue();
+                    if (key != s.getInst() && key.getParent() == s.getInst().getParent()) {
+                        targetsX.add(value.getRect().left);
+                        targetsX.add(value.getRect().centerX());
+                        targetsX.add(value.getRect().right);
+                        targetsY.add(value.getRect().top);
+                        targetsY.add(value.getRect().centerY());
+                        targetsY.add(value.getRect().bottom);
                     }
                 }
-                f = this.d * 6.0f;
+                float tol = this.d * 6.0f;
                 if (moveX) {
-                    switch (h) {
-                        case -1:
-                            f2 = 2.0f;
-                            Float[] fArr15 = new Float[3];
-                            fArr15[c] = Float.valueOf(t);
-                            fArr15[1] = Float.valueOf((t + b2) / 2.0f);
-                            fArr15[c2] = Float.valueOf(b2);
-                            listListOf2 = CollectionsKt.listOf(fArr15);
-                            break;
-                        case 0:
-                        case 6:
-                        case 7:
-                            listListOf2 = CollectionsKt.listOf(Float.valueOf(t));
-                            f2 = 2.0f;
-                            break;
-                        default:
-                            f2 = 2.0f;
-                            listListOf2 = CollectionsKt.listOf(Float.valueOf(b2));
-                            break;
+                    List<Float> probesX;
+                    if (h == -1) {
+                        probesX = CollectionsKt.listOf(new Float[]{l, (l + r) * 0.5f, r});
+                    } else if (h == 0 || h == 6 || h == 7) {
+                        probesX = CollectionsKt.listOf(l);
+                    } else {
+                        probesX = CollectionsKt.listOf(r);
                     }
-                    pairDragTo$lambda$23$best2 = dragTo$lambda$23$best(f, listListOf2, arrayListArrayListOf);
-                    if (pairDragTo$lambda$23$best2 != null) {
-                        fFloatValue2 = pairDragTo$lambda$23$best2.component1().floatValue();
-                        float fFloatValue7 = pairDragTo$lambda$23$best2.component2().floatValue();
-                        switch (h) {
-                            case -1:
-                                t += fFloatValue2;
-                                b2 += fFloatValue2;
-                                break;
-                            case 0:
-                            case 6:
-                            case 7:
-                                t += fFloatValue2;
-                                break;
-                            default:
-                                b2 += fFloatValue2;
-                                break;
+                    Pair<Float, Float> bestX = dragTo$lambda$23$best(tol, probesX, targetsX);
+                    if (bestX != null) {
+                        float diff = bestX.getFirst();
+                        float guideX = bestX.getSecond();
+                        if (h == -1) {
+                            l += diff;
+                            r += diff;
+                        } else if (h == 0 || h == 6 || h == 7) {
+                            l += diff;
+                        } else {
+                            r += diff;
                         }
-                        float f11 = area.top;
-                        float f12 = area.bottom;
-                        float[] fArr16 = new float[4];
-                        fArr16[c] = fFloatValue7;
-                        fArr16[1] = f11;
-                        fArr16[c2] = fFloatValue7;
-                        fArr16[3] = f12;
-                        gl.add(fArr16);
+                        gl.add(new float[]{guideX, area.top, guideX, area.bottom});
                         snappedX = true;
                     }
-                } else {
-                    f2 = 2.0f;
                 }
-                if (c4 != 0) {
-                    switch (h) {
-                        case -1:
-                            Float[] fArr17 = new Float[3];
-                            fArr17[c] = Float.valueOf(r);
-                            fArr17[1] = Float.valueOf((r + b) / f2);
-                            fArr17[c2] = Float.valueOf(b);
-                            listListOf = CollectionsKt.listOf(fArr17);
-                            break;
-                        case 0:
-                        case 1:
-                        case 2:
-                            fValueOf = Float.valueOf(r);
-                            listListOf = CollectionsKt.listOf(fValueOf);
-                            break;
-                        default:
-                            fValueOf = Float.valueOf(b);
-                            listListOf = CollectionsKt.listOf(fValueOf);
-                            break;
+                if (moveY) {
+                    List<Float> probesY;
+                    if (h == -1) {
+                        probesY = CollectionsKt.listOf(new Float[]{t, (t + b) * 0.5f, b});
+                    } else if (h == 0 || h == 1 || h == 2) {
+                        probesY = CollectionsKt.listOf(t);
+                    } else {
+                        probesY = CollectionsKt.listOf(b);
                     }
-                    pairDragTo$lambda$23$best = dragTo$lambda$23$best(f, listListOf, arrayListArrayListOf2);
-                    if (pairDragTo$lambda$23$best != null) {
-                        fFloatValue = pairDragTo$lambda$23$best.component1().floatValue();
-                        float fFloatValue8 = pairDragTo$lambda$23$best.component2().floatValue();
-                        switch (h) {
-                            case -1:
-                                r += fFloatValue;
-                                b += fFloatValue;
-                                break;
-                            case 0:
-                            case 1:
-                            case 2:
-                                r += fFloatValue;
-                                break;
-                            default:
-                                b += fFloatValue;
-                                break;
+                    Pair<Float, Float> bestY = dragTo$lambda$23$best(tol, probesY, targetsY);
+                    if (bestY != null) {
+                        float diff = bestY.getFirst();
+                        float guideY = bestY.getSecond();
+                        if (h == -1) {
+                            t += diff;
+                            b += diff;
+                        } else if (h == 0 || h == 1 || h == 2) {
+                            t += diff;
+                        } else {
+                            b += diff;
                         }
-                        float f13 = area.left;
-                        float f14 = area.right;
-                        float[] fArr18 = new float[4];
-                        fArr18[c] = f13;
-                        fArr18[1] = fFloatValue8;
-                        fArr18[c2] = f14;
-                        fArr18[3] = fFloatValue8;
-                        gl.add(fArr18);
+                        gl.add(new float[]{area.left, guideY, area.right, guideY});
                         snappedY = true;
                     }
                 }
-                Unit unit5 = Unit.INSTANCE;
             }
         }
-        grid = Settings.INSTANCE.getGuiGrid();
+
+        int grid = Settings.INSTANCE.getGuiGrid();
         if (grid > 0) {
-            g = grid * s.getUnit();
-            if (moveX) {
-                switch (h) {
-                    case -1:
-                        float nl3 = dragTo$snapV(g, t, area.left);
-                        b2 += nl3 - t;
-                        t = nl3;
-                        break;
-                    case 0:
-                    case 6:
-                    case 7:
-                        t = dragTo$snapV(g, t, area.left);
-                        break;
-                    default:
-                        b2 = dragTo$snapV(g, b2, area.left);
-                        break;
+            float g = grid * s.getUnit();
+            if (moveX && !snappedX) {
+                if (h == -1) {
+                    float nl = dragTo$snapV(g, l, area.left);
+                    r += nl - l;
+                    l = nl;
+                } else if (h == 0 || h == 6 || h == 7) {
+                    l = dragTo$snapV(g, l, area.left);
+                } else {
+                    r = dragTo$snapV(g, r, area.left);
                 }
             }
-            if (c4 != 0) {
-                switch (h) {
-                    case -1:
-                        float nt3 = dragTo$snapV(g, r, area.top);
-                        b += nt3 - r;
-                        r = nt3;
-                        break;
-                    case 0:
-                    case 1:
-                    case 2:
-                        r = dragTo$snapV(g, r, area.top);
-                        break;
-                    default:
-                        b = dragTo$snapV(g, b, area.top);
-                        break;
+            if (moveY && !snappedY) {
+                if (h == -1) {
+                    float nt = dragTo$snapV(g, t, area.top);
+                    b += nt - t;
+                    t = nt;
+                } else if (h == 0 || h == 1 || h == 2) {
+                    t = dragTo$snapV(g, t, area.top);
+                } else {
+                    b = dragTo$snapV(g, b, area.top);
                 }
             }
         }
+
         this.guides = gl;
-        w = b2 - t;
-        hh = b - r;
-        aw = area.width();
-        ah = area.height();
-        u = s.getUnit();
+        float w = r - l;
+        float hh = b - t;
+        float aw = area.width();
+        float ah = area.height();
+        float u = s.getUnit();
         synchronized (this.studio.getLock()) {
             if (h != -1) {
-                w2 = w;
-                l = t;
-                uDim2 = new UDim2(s.getSize().getXs(), Math.round((w - (s.getSize().getXs() * aw)) / u), s.getSize().getYs(), Math.round((hh - (s.getSize().getYs() * ah)) / u));
-                if (!Intrinsics.areEqual(uDim2, s.getInst().get("Size"))) {
-                    Instance.set$default(s.getInst(), "Size", uDim2, false, 4, null);
+                UDim2 newSize = new UDim2(
+                        s.getSize().getXs(),
+                        Math.round((w - (s.getSize().getXs() * aw)) / u),
+                        s.getSize().getYs(),
+                        Math.round((hh - (s.getSize().getYs() * ah)) / u)
+                );
+                if (!Intrinsics.areEqual(newSize, s.getInst().get("Size"))) {
+                    Instance.set$default(s.getInst(), "Size", newSize, false, 4, null);
                 }
-            } else {
-                w2 = w;
-                l = t;
             }
             if (!s.getInLayout()) {
-                uDim3 = new UDim2(s.getPos().getXs(), Math.round((((l + (s.getAnchor().getX() * w2)) - area.left) - (s.getPos().getXs() * aw)) / u), s.getPos().getYs(), Math.round(((((s.getAnchor().getY() * hh) + r) - area.top) - (s.getPos().getYs() * ah)) / u));
-                if (!Intrinsics.areEqual(uDim3, s.getInst().get("Position"))) {
-                    Instance.set$default(s.getInst(), "Position", uDim3, false, 4, null);
+                UDim2 newPos = new UDim2(
+                        s.getPos().getXs(),
+                        Math.round((((l + (s.getAnchor().getX() * w)) - area.left) - (s.getPos().getXs() * aw)) / u),
+                        s.getPos().getYs(),
+                        Math.round((((t + (s.getAnchor().getY() * hh)) - area.top) - (s.getPos().getYs() * ah)) / u)
+                );
+                if (!Intrinsics.areEqual(newPos, s.getInst().get("Position"))) {
+                    Instance.set$default(s.getInst(), "Position", newPos, false, 4, null);
                 }
             }
-            Unit unit6 = Unit.INSTANCE;
             postInvalidate();
-        }
-    }
-        catch (Throwable _ktEx) {
-            throw com.goydevv.studrblx.util.KtCompat.sneakyThrow(_ktEx);
         }
     }
 
@@ -2310,216 +1564,147 @@ public final class GuiOverlay extends View {
     }
 
     private final boolean drawBillboards(Canvas canvas, boolean playing) {
-        char c;
-        boolean z;
-        Vector3 vector3Plus = null;
-        float f = 0.0f;
-        PlaySession play;
-        Instance player;
-        Instance instanceFindFirstChild$default;
-        List<Instance> listDescendants$default;
-        List<Instance> listDescendants$default2;
-        GuiOverlay guiOverlay = this;
-        long jCurrentTimeMillis = System.currentTimeMillis();
-        char c2 = 2;
-        boolean z2 = false;
-        Instance instance = null;
-        if (jCurrentTimeMillis - guiOverlay.billboardScan > 500) {
-            guiOverlay.billboardScan = jCurrentTimeMillis;
-            ArrayList arrayList = new ArrayList();
-            Instance instanceFindService = guiOverlay.studio.getModel().findService("Workspace");
-            if (instanceFindService != null && (listDescendants$default2 = Instance.descendants$default(instanceFindService, null, 1, null)) != null) {
-                for (Instance instance2 : listDescendants$default2) {
-                    if (Intrinsics.areEqual(instance2.getClassName(), "BillboardGui")) {
-                        arrayList.add(instance2);
+        long now = System.currentTimeMillis();
+        if (now - this.billboardScan > 500) {
+            this.billboardScan = now;
+            ArrayList<Instance> found = new ArrayList<>();
+            Instance ws = this.studio.getModel().findService("Workspace");
+            if (ws != null) {
+                for (Instance inst : Instance.descendants$default(ws, null, 1, null)) {
+                    if ("BillboardGui".equals(inst.getClassName())) {
+                        found.add(inst);
                     }
                 }
             }
-            if (playing && (play = guiOverlay.studio.getPlay()) != null && (player = play.getPlayer()) != null && (instanceFindFirstChild$default = Instance.findFirstChild$default(player, "PlayerGui", false, 2, null)) != null && (listDescendants$default = Instance.descendants$default(instanceFindFirstChild$default, null, 1, null)) != null) {
-                for (Instance instance3 : listDescendants$default) {
-                    if (Intrinsics.areEqual(instance3.getClassName(), "BillboardGui") && (instance3.get("Adornee") instanceof Instance)) {
-                        arrayList.add(instance3);
+            PlaySession play = playing ? this.studio.getPlay() : null;
+            Instance player = play != null ? play.getPlayer() : null;
+            Instance pg = player != null ? Instance.findFirstChild$default(player, "PlayerGui", false, 2, null) : null;
+            if (pg != null) {
+                for (Instance inst : Instance.descendants$default(pg, null, 1, null)) {
+                    if ("BillboardGui".equals(inst.getClassName()) && (inst.get("Adornee") instanceof Instance)) {
+                        found.add(inst);
                     }
                 }
             }
-            guiOverlay.billboards = arrayList;
+            this.billboards = found;
         }
-        if (guiOverlay.billboards.isEmpty()) {
+        if (this.billboards.isEmpty()) {
             return false;
         }
-        ViewState view = guiOverlay.studio.getView();
-        FlyCamera camera = guiOverlay.studio.getCamera();
+        ViewState view = this.studio.getView();
+        FlyCamera camera = this.studio.getCamera();
         float fTan = (float) Math.tan(Math.toRadians(((double) camera.getFov()) / 2.0d));
-        ArrayList arrayList2 = new ArrayList();
-        Iterator<? extends Instance> it = guiOverlay.billboards.iterator();
-        while (it.hasNext()) {
-            Instance next = it.next();
-            if (next.getParent() == null) {
-                instance = null;
-            } else if (!Intrinsics.areEqual(next.get("Enabled"), Boolean.valueOf(z2))) {
-                Object obj = next.get("Adornee");
-                Instance parent = obj instanceof Instance ? (Instance) obj : instance;
-                if (parent != null || (parent = next.getParent()) != null) {
-                    if (parent.isA("BasePart")) {
-                        Vector3 position = PartData.INSTANCE.cframe(parent).getPosition();
-                        c = c2;
-                        CFrame cFrameRotationOnly = PartData.INSTANCE.cframe(parent).rotationOnly();
-                        z = z2;
-                        Object obj2 = next.get("ExtentsOffset");
-                        Vector3 zero = obj2 instanceof Vector3 ? (Vector3) obj2 : null;
-                        if (zero == null) {
-                            zero = Vector3.INSTANCE.getZERO();
-                        }
-                        vector3Plus = position.plus(cFrameRotationOnly.times(zero));
-                        f = 1.0f;
-                    } else {
-                        c = c2;
-                        z = z2;
-                        if (Intrinsics.areEqual(parent.getClassName(), "Attachment")) {
-                            Instance parent2 = parent.getParent();
-                            if (parent2 != null) {
-                                if (!parent2.isA("BasePart")) {
-                                    parent2 = null;
-                                }
-                                if (parent2 != null) {
-                                    CFrame cframe = PartData.INSTANCE.cframe(parent2);
-                                    Object obj3 = parent.get("CFrame");
-                                    f = 1.0f;
-                                    CFrame identity = obj3 instanceof CFrame ? (CFrame) obj3 : null;
-                                    if (identity == null) {
-                                        identity = CFrame.INSTANCE.getIDENTITY();
-                                    }
-                                    vector3Plus = cframe.times(identity.getPosition());
-                                    if (vector3Plus != null) {
-                                    }
-                                }
-                            }
-                            c2 = c;
-                            z2 = z;
-                            instance = null;
-                        } else {
-                            f = 1.0f;
-                            if (parent.isA("Model")) {
-                                Object obj4 = parent.get("PrimaryPart");
-                                Instance instanceFindFirstChildWhichIsA = obj4 instanceof Instance ? (Instance) obj4 : null;
-                                if (instanceFindFirstChildWhichIsA == null) {
-                                    instanceFindFirstChildWhichIsA = parent.findFirstChildWhichIsA("BasePart", true);
-                                }
-                                if (instanceFindFirstChildWhichIsA == null || (vector3Plus = PartData.INSTANCE.cframe(instanceFindFirstChildWhichIsA).getPosition()) == null) {
-                                    c2 = c;
-                                    z2 = z;
-                                    instance = null;
-                                }
-                            } else {
-                                c2 = c;
-                                z2 = z;
-                                instance = null;
-                            }
-                        }
-                    }
-                    Object obj5 = next.get("StudsOffset");
-                    Vector3 zero2 = obj5 instanceof Vector3 ? (Vector3) obj5 : null;
-                    if (zero2 == null) {
-                        zero2 = Vector3.INSTANCE.getZERO();
-                    }
-                    Object obj6 = next.get("StudsOffsetWorldSpace");
-                    Vector3 zero3 = obj6 instanceof Vector3 ? (Vector3) obj6 : null;
-                    if (zero3 == null) {
-                        zero3 = Vector3.INSTANCE.getZERO();
-                    }
-                    Vector3 vector3Minus = vector3Plus.plus(zero3).plus(camera.getRight().times(zero2.getX())).plus(camera.getUp().times(zero2.getY())).minus(camera.getForward().times(zero2.getZ()));
-                    float fDistTo = view.distTo(vector3Minus);
-                    Object obj7 = next.get("MaxDistance");
-                    Iterator<? extends Instance> it2 = it;
-                    Number number = obj7 instanceof Number ? (Number) obj7 : null;
-                    if (fDistTo > (number != null ? number.floatValue() : Float.POSITIVE_INFINITY)) {
-                        c2 = c;
-                        z2 = z;
-                        it = it2;
-                        instance = null;
-                    } else if (fDistTo < 0.1f) {
-                        c2 = c;
-                        z2 = z;
-                        it = it2;
-                        instance = null;
-                    } else {
-                        float[] fArrProject = view.project(vector3Minus);
-                        if (fArrProject == null) {
-                            c2 = c;
-                            z2 = z;
-                            it = it2;
-                            instance = null;
-                        } else if (fArrProject[c] <= f) {
-                            arrayList2.add(new Triple(next, fArrProject, Float.valueOf(fDistTo)));
-                            c2 = c;
-                            z2 = z;
-                            it = it2;
-                            instance = null;
-                        } else {
-                            c2 = c;
-                            z2 = z;
-                            it = it2;
-                            instance = null;
-                        }
-                    }
+        ArrayList<Triple<Instance, float[], Float>> visibleBillboards = new ArrayList<>();
+        for (Instance bb : this.billboards) {
+            if (bb.getParent() == null || Boolean.FALSE.equals(bb.get("Enabled"))) {
+                continue;
+            }
+            Object adorneeObj = bb.get("Adornee");
+            Instance target = adorneeObj instanceof Instance ? (Instance) adorneeObj : bb.getParent();
+            if (target == null) {
+                continue;
+            }
+            Vector3 anchorPos = null;
+            if (target.isA("BasePart")) {
+                CFrame cf = PartData.INSTANCE.cframe(target);
+                Vector3 sz = PartData.INSTANCE.size(target);
+                Object eoObj = bb.get("ExtentsOffset");
+                Vector3 eo = eoObj instanceof Vector3 ? (Vector3) eoObj : Vector3.INSTANCE.getZERO();
+                Object eowObj = bb.get("ExtentsOffsetWorldSpace");
+                Vector3 eow = eowObj instanceof Vector3 ? (Vector3) eowObj : Vector3.INSTANCE.getZERO();
+                Vector3 localExt = new Vector3(eo.getX() * sz.getX() * 0.5f, eo.getY() * sz.getY() * 0.5f, eo.getZ() * sz.getZ() * 0.5f);
+                Vector3 worldExt = new Vector3(eow.getX() * sz.getX() * 0.5f, eow.getY() * sz.getY() * 0.5f, eow.getZ() * sz.getZ() * 0.5f);
+                anchorPos = cf.getPosition().plus(cf.rotationOnly().times(localExt)).plus(worldExt);
+            } else if ("Attachment".equals(target.getClassName())) {
+                Instance part = target.getParent();
+                if (part != null && part.isA("BasePart")) {
+                    CFrame cf = PartData.INSTANCE.cframe(part);
+                    Object acfObj = target.get("CFrame");
+                    CFrame acf = acfObj instanceof CFrame ? (CFrame) acfObj : CFrame.INSTANCE.getIDENTITY();
+                    anchorPos = cf.times(acf.getPosition());
+                }
+            } else if (target.isA("Model")) {
+                Object ppObj = target.get("PrimaryPart");
+                Instance part = ppObj instanceof Instance ? (Instance) ppObj : target.findFirstChildWhichIsA("BasePart", true);
+                if (part != null) {
+                    anchorPos = PartData.INSTANCE.cframe(part).getPosition();
                 }
             }
+            if (anchorPos == null) {
+                continue;
+            }
+            Object soObj = bb.get("StudsOffset");
+            Vector3 so = soObj instanceof Vector3 ? (Vector3) soObj : Vector3.INSTANCE.getZERO();
+            Object sowObj = bb.get("StudsOffsetWorldSpace");
+            Vector3 sow = sowObj instanceof Vector3 ? (Vector3) sowObj : Vector3.INSTANCE.getZERO();
+            Vector3 worldPos = anchorPos.plus(sow)
+                    .plus(camera.getRight().times(so.getX()))
+                    .plus(camera.getUp().times(so.getY()))
+                    .minus(camera.getForward().times(so.getZ()));
+            float dist = view.distTo(worldPos);
+            Object mdObj = bb.get("MaxDistance");
+            float maxDist = (mdObj instanceof Number) ? ((Number) mdObj).floatValue() : Float.POSITIVE_INFINITY;
+            if (maxDist <= 0.0f) {
+                maxDist = Float.POSITIVE_INFINITY;
+            }
+            if (dist > maxDist || dist < 0.1f) {
+                continue;
+            }
+            float[] proj = view.project(worldPos);
+            if (proj == null || proj[2] > 1.0f) {
+                continue;
+            }
+            visibleBillboards.add(new Triple<>(bb, proj, Float.valueOf(dist)));
         }
-        boolean z3 = z2;
-        if (arrayList2.isEmpty()) {
-            return z3;
+        if (visibleBillboards.isEmpty()) {
+            return false;
         }
-        ArrayList arrayList3 = arrayList2;
-        if (arrayList3.size() > 1) {
-            CollectionsKt.sortWith(arrayList3, new Comparator() { // from class: com.goydevv.studrblx.ui.GuiOverlay$drawBillboards$$inlined$sortByDescending$1
-                /* JADX WARN: Multi-variable type inference failed */
-                @Override // java.util.Comparator
-                public final int compare(Object t, Object t2) {
-                    return ComparisonsKt.compareValues((Float) ((Triple) t2).getThird(), (Float) ((Triple) t).getThird());
+        if (visibleBillboards.size() > 1) {
+            java.util.Collections.sort(visibleBillboards, new Comparator<Triple<Instance, float[], Float>>() {
+                @Override
+                public int compare(Triple<Instance, float[], Float> a, Triple<Instance, float[], Float> b) {
+                    boolean aTop = Boolean.TRUE.equals(a.getFirst().get("AlwaysOnTop"));
+                    boolean bTop = Boolean.TRUE.equals(b.getFirst().get("AlwaysOnTop"));
+                    if (aTop != bTop) {
+                        return aTop ? 1 : -1;
+                    }
+                    return Float.compare(b.getThird(), a.getThird());
                 }
             });
         }
-        Iterator it3 = arrayList2.iterator();
-        Intrinsics.checkNotNullExpressionValue(it3, "iterator(...)");
-        while (it3.hasNext()) {
-            Object next2 = it3.next();
-            Intrinsics.checkNotNullExpressionValue(next2, "next(...)");
-            Triple triple = (Triple) next2;
-            Instance instance4 = (Instance) triple.component1();
-            float[] fArr = (float[]) triple.component2();
-            float height = guiOverlay.getHeight() / ((((Number) triple.component3()).floatValue() * 2.0f) * fTan);
-            UDim2 uDim2Udim = guiOverlay.udim(instance4.get("Size"));
-            float xs = (uDim2Udim.getXs() * height) + (uDim2Udim.getXo() * guiOverlay.d);
-            float ys = (uDim2Udim.getYs() * height) + (uDim2Udim.getYo() * guiOverlay.d);
-            if (xs < 1.0f) {
-                guiOverlay = this;
-            } else if (ys >= 1.0f) {
-                Object obj8 = instance4.get("SizeOffset");
-                Vector2 vector2 = obj8 instanceof Vector2 ? (Vector2) obj8 : null;
-                if (vector2 == null) {
-                    vector2 = new Vector2(0.0f, 0.0f);
-                }
-                Vector2 vector3 = vector2;
-                float x = (fArr[z3 ? 1 : 0] - (xs / 2.0f)) + (vector3.getX() * xs);
-                float y = (fArr[1] - (ys / 2.0f)) - (vector3.getY() * ys);
-                RectF rectF = new RectF(x, y, x + xs, y + ys);
-                if (RectF.intersects(rectF, new RectF(0.0f, 0.0f, getWidth(), getHeight()))) {
-                    boolean zAreEqual = Intrinsics.areEqual(instance4.get("ClipsDescendants"), (Object) true);
-                    if (zAreEqual) {
-                        canvas.save();
-                        canvas.clipRect(rectF);
-                    }
-                    drawChildren(canvas, instance4, rectF, 1.0f, zAreEqual ? rectF : new RectF(0.0f, 0.0f, getWidth(), getHeight()));
-                    if (zAreEqual) {
-                        canvas.restore();
-                        guiOverlay = this;
-                    } else {
-                        guiOverlay = this;
-                    }
-                } else {
-                    guiOverlay = this;
-                }
+        RectF screenRect = new RectF(0.0f, 0.0f, getWidth(), getHeight());
+        for (Triple<Instance, float[], Float> item : visibleBillboards) {
+            Instance bb = item.getFirst();
+            float[] proj = item.getSecond();
+            float dist = item.getThird();
+            float pxPerStud = getHeight() / ((dist * 2.0f) * fTan);
+            UDim2 sz = udim(bb.get("Size"));
+            float xs = (sz.getXs() * pxPerStud) + (sz.getXo() * this.d);
+            float ys = (sz.getYs() * pxPerStud) + (sz.getYo() * this.d);
+            if (xs < 1.0f || ys < 1.0f) {
+                continue;
             }
+            Object offObj = bb.get("SizeOffset");
+            Vector2 sizeOff = offObj instanceof Vector2 ? (Vector2) offObj : new Vector2(0.0f, 0.0f);
+            float x = (proj[0] - (xs * 0.5f)) + (sizeOff.getX() * xs);
+            float y = (proj[1] - (ys * 0.5f)) - (sizeOff.getY() * ys);
+            RectF rectF = new RectF(x, y, x + xs, y + ys);
+            if (!RectF.intersects(rectF, screenRect)) {
+                continue;
+            }
+            boolean clips = Boolean.TRUE.equals(bb.get("ClipsDescendants"));
+            boolean savedRegHits = this.registerHits;
+            this.registerHits = Boolean.TRUE.equals(bb.get("Active"));
+            if (clips) {
+                canvas.save();
+                canvas.clipRect(rectF);
+            }
+            setAbs(bb, rectF);
+            drawLayerCollector(canvas, bb, rectF, 1.0f, clips ? rectF : screenRect);
+            if (clips) {
+                canvas.restore();
+            }
+            this.registerHits = savedRegHits;
         }
         return true;
     }
@@ -2656,58 +1841,10 @@ public final class GuiOverlay extends View {
     }
 
     private final float[] constrain(Instance c, float w0, float h0, float scale) {
-        float fCoerceIn = w0;
-        float fCoerceIn2 = h0;
-        Iterator<Instance> it = c.getChildren().iterator();
-        Intrinsics.checkNotNullExpressionValue(it, "iterator(...)");
-        while (true) {
-            if (it.hasNext()) {
-                Instance next = it.next();
-                Intrinsics.checkNotNullExpressionValue(next, "next(...)");
-                Instance instance = next;
-                String className = instance.getClassName();
-                if (Intrinsics.areEqual(className, "UIAspectRatioConstraint")) {
-                    Float fValueOf = Float.valueOf(num(instance, "AspectRatio", 1.0f));
-                    Float f = fValueOf.floatValue() > 0.0f ? fValueOf : null;
-                    float fFloatValue = f != null ? f.floatValue() : 1.0f;
-                    if (enumOf(instance, "AspectType", 0) == 0) {
-                        if (fCoerceIn2 <= 0.0f || fCoerceIn / fCoerceIn2 <= fFloatValue) {
-                            fCoerceIn2 = fCoerceIn / fFloatValue;
-                        } else {
-                            fCoerceIn = fCoerceIn2 * fFloatValue;
-                        }
-                    } else if (enumOf(instance, "DominantAxis", 0) == 0) {
-                        fCoerceIn2 = fCoerceIn / fFloatValue;
-                    } else {
-                        fCoerceIn = fCoerceIn2 * fFloatValue;
-                    }
-                } else if (Intrinsics.areEqual(className, "UISizeConstraint")) {
-                    Object obj = instance.get("MinSize");
-                    Vector2 vector2 = obj instanceof Vector2 ? (Vector2) obj : null;
-                    if (vector2 == null) {
-                        vector2 = new Vector2(0.0f, 0.0f);
-                    }
-                    Object obj2 = instance.get("MaxSize");
-                    Vector2 vector3 = obj2 instanceof Vector2 ? (Vector2) obj2 : null;
-                    if (vector3 == null) {
-                        vector3 = new Vector2(Float.POSITIVE_INFINITY, Float.POSITIVE_INFINITY);
-                    }
-                    fCoerceIn = RangesKt.coerceIn(fCoerceIn, vector2.getX() * this.d * scale, Math.max(vector2.getX(), vector3.getX()) * this.d * scale);
-                    fCoerceIn2 = RangesKt.coerceIn(fCoerceIn2, vector2.getY() * this.d * scale, Math.max(vector2.getY(), vector3.getY()) * this.d * scale);
-                }
-            } else {
-                return new float[]{fCoerceIn, fCoerceIn2};
-            }
-        }
+        return GuiMath.applyConstraints(c, w0, h0, this.d, scale);
     }
 
     private final float[] sizeOf(Instance c, RectF area, float scale) {
-        char c2;
-        char c3;
-        char c4;
-        RectF tmp;
-        float fMax;
-        float fMax2;
         UDim2 s = udim(c.get("Size"));
         float aw = area.width();
         float ah = area.height();
@@ -2723,128 +1860,90 @@ public final class GuiOverlay extends View {
         }
         int auto = enumOf(c, "AutomaticSize", 0);
         if (auto != 0 && isText(c)) {
-            String strTextOf = textOf(c);
-            if (strTextOf == null) {
-                strTextOf = "";
+            String rawText = textOf(c);
+            if (rawText == null) {
+                rawText = "";
             }
-            String text = strTextOf;
+            boolean rich = Boolean.TRUE.equals(c.get("RichText"));
+            String plainText = rich ? RichText.INSTANCE.parse(rawText).toString() : rawText;
             Fonts.Face face = Fonts.INSTANCE.of(c);
             this.textPaint.setTypeface(face.getTypeface());
-            c2 = 0;
+            this.textPaint.setFakeBoldText(face.getFakeBold());
             this.textPaint.setTextSize(num(c, "TextSize", 14.0f) * this.d * scale);
-            List lines = StringsKt.split((CharSequence) text, new char[]{'\n'}, false, 0);
-            Iterator it = lines.iterator();
-            if (!it.hasNext()) {
-                throw new NoSuchElementException();
+            List<String> lines = StringsKt.split((CharSequence) plainText, new char[]{'\n'}, false, 0);
+            float maxLine = 0.0f;
+            for (String line : lines) {
+                maxLine = Math.max(maxLine, this.textPaint.measureText(line));
             }
-            c3 = 1;
-            float fMeasureText = this.textPaint.measureText((String) it.next());
-            while (it.hasNext()) {
-                fMeasureText = Math.max(fMeasureText, this.textPaint.measureText((String) it.next()));
+            float padH = 0.0f;
+            float padV = 0.0f;
+            Instance padInst = child(c, "UIPadding");
+            if (padInst != null) {
+                float[] pad = GuiMath.computePadding(c, Math.max(w, 0.0f), Math.max(h, 0.0f), this.d, scale);
+                padH = pad[0] + pad[2];
+                padV = pad[1] + pad[3];
             }
-            float tw = fMeasureText + (this.d * 2.0f);
-            float th = lines.size() * this.textPaint.getFontSpacing();
-            switch (auto) {
-                case 1:
-                case 3:
-                    w = Math.max(w, tw);
-                    break;
+            float tw = maxLine + (this.d * 2.0f) + padH;
+            float th = (lines.size() * this.textPaint.getFontSpacing()) + padV;
+            if (auto == 1 || auto == 3) {
+                w = Math.max(w, tw);
             }
-            switch (auto) {
-                case 2:
-                case 3:
-                    int wrapW = (int) Math.max(w, 1.0f);
-                    StaticLayout l = layoutFor(new TKey(text, Intrinsics.areEqual(c.get("RichText"), (Object) true), face.getTypeface(), face.getFakeBold(), this.textPaint.getTextSize(), wrapW, Layout.Alignment.ALIGN_NORMAL, 1.0f, false));
-                    h = Math.max(h, Intrinsics.areEqual(c.get("TextWrapped"), (Object) true) ? l.getHeight() : th);
-                    break;
+            if (auto == 2 || auto == 3) {
+                int wrapW = (int) Math.max(w - padH, 1.0f);
+                StaticLayout l = layoutFor(new TKey(rawText, rich, face.getTypeface(), face.getFakeBold(), this.textPaint.getTextSize(), wrapW, Layout.Alignment.ALIGN_NORMAL, 1.0f, false));
+                float measuredH = Boolean.TRUE.equals(c.get("TextWrapped")) ? (l.getHeight() + padV) : th;
+                h = Math.max(h, measuredH);
             }
-        } else {
-            c2 = 0;
-            c3 = 1;
         }
         float[] cs = constrain(c, w, h, scale);
-        float w2 = cs[c2];
-        float h2 = cs[c3];
-        Instance instanceChild = child(c, "UIScale");
-        if (instanceChild != null) {
-            float fNum = num(instanceChild, "Scale", 1.0f);
-            w2 *= fNum;
-            h2 *= fNum;
-        }
-        if (auto != 0 && !Intrinsics.areEqual(c.getClassName(), "ScrollingFrame")) {
-            Iterable children = c.getChildren();
-            if ((children instanceof Collection) && ((Collection) children).isEmpty()) {
-                c4 = c2;
-            } else {
-                c4 = c2;
-                Iterator it2 = children.iterator();
-                while (it2.hasNext()) {
-                    Instance instance = (Instance) it2.next();
-                    String cn = instance.getClassName();
-                    if (Intrinsics.areEqual(cn, "UIListLayout") || Intrinsics.areEqual(cn, "UIGridLayout") || Intrinsics.areEqual(cn, "UITableLayout") || Intrinsics.areEqual(cn, "UIPageLayout")) {
-                        c4 = c3;
-                        break;
-                    }
+        float w2 = cs[0];
+        float h2 = cs[1];
+        float ownScale = GuiMath.ownScaleOf(c);
+        w2 *= ownScale;
+        h2 *= ownScale;
+        float effScale = scale * ownScale;
+        if (auto != 0 && !"ScrollingFrame".equals(c.getClassName())) {
+            boolean hasLayout = false;
+            for (Instance ch : c.getChildren()) {
+                String cn = ch.getClassName();
+                if ("UIListLayout".equals(cn) || "UIGridLayout".equals(cn) || "UITableLayout".equals(cn) || "UIPageLayout".equals(cn)) {
+                    hasLayout = true;
+                    break;
                 }
             }
-            if (c4 != 0) {
+            RectF tmp;
+            if (hasLayout) {
                 tmp = new RectF(0.0f, 0.0f, w2, h2);
             } else {
-                switch (auto) {
-                    case 1:
-                    case 3:
-                        fMax = Math.max(w2, aw);
-                        break;
-                    case 2:
-                    default:
-                        fMax = w2;
-                        break;
-                }
-                switch (auto) {
-                    case 2:
-                    case 3:
-                        fMax2 = Math.max(h2, ah);
-                        break;
-                    default:
-                        fMax2 = h2;
-                        break;
-                }
-                tmp = new RectF(0.0f, 0.0f, fMax, fMax2);
+                float tw = (auto == 1 || auto == 3) ? Math.max(w2, aw) : w2;
+                float th = (auto == 2 || auto == 3) ? Math.max(h2, ah) : h2;
+                tmp = new RectF(0.0f, 0.0f, tw, th);
             }
             float mx = w2;
             float my = h2;
-            for (Node n : layoutChildren(c, padded(c, tmp, scale), scaleFor(c, scale))) {
+            for (Node n : layoutChildren(c, padded(c, tmp, effScale), effScale)) {
                 mx = Math.max(mx, n.getRect().right);
                 my = Math.max(my, n.getRect().bottom);
             }
-            Instance instanceChild2 = child(c, "UIPadding");
-            if (instanceChild2 != null) {
-                Object obj = instanceChild2.get("PaddingRight");
-                UDim uDim = obj instanceof UDim ? (UDim) obj : null;
-                mx += uDim != null ? uDim.getOffset() * this.d * scale : 0.0f;
-                Object obj2 = instanceChild2.get("PaddingBottom");
-                UDim uDim2 = obj2 instanceof UDim ? (UDim) obj2 : null;
-                my += uDim2 != null ? uDim2.getOffset() * this.d * scale : 0.0f;
+            Instance padInst = child(c, "UIPadding");
+            if (padInst != null) {
+                Object prObj = padInst.get("PaddingRight");
+                if (prObj instanceof UDim) {
+                    mx += ((UDim) prObj).getOffset() * this.d * effScale;
+                }
+                Object pbObj = padInst.get("PaddingBottom");
+                if (pbObj instanceof UDim) {
+                    my += ((UDim) pbObj).getOffset() * this.d * effScale;
+                }
             }
-            switch (auto) {
-                case 1:
-                case 3:
-                    w2 = mx;
-                    break;
+            if (auto == 1 || auto == 3) {
+                w2 = mx;
             }
-            switch (auto) {
-                case 2:
-                case 3:
-                    h2 = my;
-                    break;
+            if (auto == 2 || auto == 3) {
+                h2 = my;
             }
         }
-        float fMax3 = Math.max(w2, 0.0f);
-        float fMax4 = Math.max(h2, 0.0f);
-        float[] fArr = new float[2];
-        fArr[c2] = fMax3;
-        fArr[c3] = fMax4;
-        return fArr;
+        return new float[]{Math.max(w2, 0.0f), Math.max(h2, 0.0f)};
     }
 
     private final float scaleFor(Instance c, float parentScale) {
@@ -2886,325 +1985,185 @@ public final class GuiOverlay extends View {
         }
     }
 
-    /* JADX WARN: Code duplicated, block: B:199:0x0545  */
-    /* JADX WARN: Code duplicated, block: B:203:0x0551  */
-    /* JADX WARN: Code duplicated, block: B:205:0x0598  */
-    /* JADX WARN: Code duplicated, block: B:206:0x059b  */
-    /* JADX WARN: Code duplicated, block: B:208:0x059e  */
-    /* JADX WARN: Code duplicated, block: B:209:0x05a5  */
-    /* JADX WARN: Code restructure failed: missing block: B:42:0x00e7, code lost:
-    
-        if (r2.equals("UITableLayout") == false) goto L49;
-     */
-    /* JADX WARN: Code restructure failed: missing block: B:45:0x00ee, code lost:
-    
-        if (r2.equals("UIPageLayout") != false) goto L46;
-     */
-    /* JADX WARN: Failed to restore switch over string. Please report as a decompilation issue */
-    /*
-        Code decompiled incorrectly, please refer to instructions dump.
-        To view partially-correct add '--show-bad-code' argument
-    */
-    private final java.util.List<com.goydevv.studrblx.ui.GuiOverlay.Node> layoutChildren(com.goydevv.studrblx.model.Instance parent, android.graphics.RectF area, float scale) {
-        ArrayList<Instance> kids = new ArrayList<>();
-        Instance listLayout = null;
-        Instance gridLayout = null;
-        Instance pageLayout = null;
-        Instance tableLayout = null;
-        float childScale = scale;
-        for (Instance ch : parent.getChildren()) {
-            String cn = ch.getClassName();
-            if ("UIScale".equals(cn)) {
-                float sc = num(ch, "Scale", 1.0f);
-                if (sc > 0.01f) {
-                    childScale *= sc;
-                }
-            } else if ("UIListLayout".equals(cn)) {
-                listLayout = ch;
-            } else if ("UIGridLayout".equals(cn)) {
-                gridLayout = ch;
-            } else if ("UIPageLayout".equals(cn)) {
-                pageLayout = ch;
-            } else if ("UITableLayout".equals(cn)) {
-                tableLayout = ch;
-            } else if (ch.isA("GuiObject") && !Intrinsics.areEqual(ch.get("Visible"), Boolean.FALSE)) {
-                kids.add(ch);
+    private final List<Node> layoutChildren(Instance parent, RectF area, float scale) {
+        boolean isLayerCollector = !parent.isA("GuiObject");
+        float childScale = isLayerCollector ? (scale * GuiMath.ownScaleOf(parent)) : scale;
+        GuiMath.TextMeasurer measurer = new GuiMath.TextMeasurer() {
+            @Override
+            public float[] measureTextSize(Instance inst, float baseW, float baseH, float sc) {
+                return GuiOverlay.this.sizeOf(inst, new RectF(0.0f, 0.0f, baseW, baseH), sc);
             }
-        }
-        if (kids.isEmpty()) {
-            if (listLayout != null) {
-                setContentSize(listLayout, 0.0f, 0.0f);
-            }
-            if (gridLayout != null) {
-                setContentSize(gridLayout, 0.0f, 0.0f);
-                gridLayout.getAttributes().put("__absCellCount", new Vector2(0.0f, 0.0f));
-            }
-            return java.util.Collections.emptyList();
-        }
-        final Instance activeLayout = listLayout != null ? listLayout : (gridLayout != null ? gridLayout : (pageLayout != null ? pageLayout : tableLayout));
-        if (activeLayout != null) {
-            final int sortOrder = enumOf(activeLayout, "SortOrder", 2);
-            java.util.Collections.sort(kids, new Comparator<Instance>() {
-                @Override
-                public int compare(Instance a, Instance b) {
-                    if (sortOrder == 0) {
-                        return a.getName().compareToIgnoreCase(b.getName());
-                    }
-                    int la = (int) num(a, "LayoutOrder", 0.0f);
-                    int lb = (int) num(b, "LayoutOrder", 0.0f);
-                    return Integer.compare(la, lb);
-                }
-            });
-        } else {
-            java.util.Collections.sort(kids, new Comparator<Instance>() {
-                @Override
-                public int compare(Instance a, Instance b) {
-                    int za = (int) num(a, "ZIndex", 1.0f);
-                    int zb = (int) num(b, "ZIndex", 1.0f);
-                    return Integer.compare(za, zb);
-                }
-            });
-        }
-
-        ArrayList<Node> out = new ArrayList<>(kids.size());
-        float aw = area.width();
-        float ah = area.height();
-
-        if (listLayout != null) {
-            boolean horiz = enumOf(listLayout, "FillDirection", 1) == 0;
-            int hAlign = enumOf(listLayout, "HorizontalAlignment", 1);
-            int vAlign = enumOf(listLayout, "VerticalAlignment", 1);
-            Object padObj = listLayout.get("Padding");
-            float padPx = 0.0f;
-            if (padObj instanceof UDim) {
-                UDim pu = (UDim) padObj;
-                padPx = (pu.getScale() * (horiz ? aw : ah)) + (pu.getOffset() * this.d * childScale);
-            }
-            float[][] sizes = new float[kids.size()][];
-            float[] flexGrow = new float[kids.size()];
-            float totalGrow = 0.0f;
-            float totalPrimary = 0.0f;
-            for (int i = 0; i < kids.size(); i++) {
-                Instance kid = kids.get(i);
-                sizes[i] = sizeOf(kid, area, childScale);
-                for (Instance fc : kid.getChildren()) {
-                    if ("UIFlexItem".equals(fc.getClassName())) {
-                        int fm = enumOf(fc, "FlexMode", 0);
-                        float gr = fm == 1 ? 1.0f : (fm == 2 ? 1.0f : num(fc, "GrowRatio", 0.0f));
-                        if (gr > 0.0f) {
-                            flexGrow[i] = gr;
-                            totalGrow += gr;
-                        }
-                        break;
+        };
+        GuiMath.LayoutResult res = GuiMath.computeLayout(
+                parent, area.left, area.top, area.right, area.bottom,
+                this.d, childScale,
+                new GuiMath.SizeResolver() {
+                    @Override
+                    public float[] resolveSize(Instance child, float aw, float ah, float sc) {
+                        return GuiOverlay.this.sizeOf(child, new RectF(0.0f, 0.0f, aw, ah), sc);
                     }
                 }
-                totalPrimary += horiz ? sizes[i][0] : sizes[i][1];
-                if (i > 0) totalPrimary += padPx;
-            }
-            float availPrimary = horiz ? aw : ah;
-            if (totalGrow > 0.0f && availPrimary > totalPrimary) {
-                float extra = availPrimary - totalPrimary;
-                for (int i = 0; i < kids.size(); i++) {
-                    if (flexGrow[i] > 0.0f) {
-                        float add = extra * (flexGrow[i] / totalGrow);
-                        if (horiz) sizes[i][0] += add;
-                        else sizes[i][1] += add;
-                    }
+        );
+        if (res.layoutInstance != null) {
+            setContentSize(res.layoutInstance, res.contentW, res.contentH);
+            if ("UIGridLayout".equals(res.layoutInstance.getClassName())) {
+                float au = this.absUnit > 0.0f ? this.absUnit : (this.d > 0.0f ? this.d : 1.0f);
+                if (res.cellW > 0.0f || res.cellH > 0.0f) {
+                    res.layoutInstance.getAttributes().put("__absCellSize", new Vector2(res.cellW / au, res.cellH / au));
                 }
-                totalPrimary = availPrimary;
+                res.layoutInstance.getAttributes().put("__absCellCount", new Vector2((float) res.usedCols, (float) res.usedRows));
             }
-            float cursor;
-            if (horiz) {
-                if (hAlign == 0) cursor = area.left + ((aw - totalPrimary) * 0.5f);
-                else if (hAlign == 2) cursor = area.right - totalPrimary;
-                else cursor = area.left;
-            } else {
-                if (vAlign == 0) cursor = area.top + ((ah - totalPrimary) * 0.5f);
-                else if (vAlign == 2) cursor = area.bottom - totalPrimary;
-                else cursor = area.top;
-            }
-            boolean wraps = Intrinsics.areEqual(listLayout.get("Wraps"), Boolean.TRUE);
-            float lineOffset = 0.0f;
-            float lineMaxCross = 0.0f;
-            for (int i = 0; i < kids.size(); i++) {
-                Instance c = kids.get(i);
-                float cw = sizes[i][0];
-                float chh = sizes[i][1];
-                float x;
-                float y;
-                if (horiz) {
-                    if (wraps && i > 0 && (cursor + cw) > area.right + 0.5f) {
-                        cursor = area.left;
-                        lineOffset += lineMaxCross + padPx;
-                        lineMaxCross = 0.0f;
-                    }
-                    x = cursor;
-                    if (wraps) {
-                        y = area.top + lineOffset;
-                        if (chh > lineMaxCross) lineMaxCross = chh;
-                    } else if (vAlign == 0) y = area.top + ((ah - chh) * 0.5f);
-                    else if (vAlign == 2) y = area.bottom - chh;
-                    else y = area.top;
-                    cursor += cw + padPx;
-                } else {
-                    if (wraps && i > 0 && (cursor + chh) > area.bottom + 0.5f) {
-                        cursor = area.top;
-                        lineOffset += lineMaxCross + padPx;
-                        lineMaxCross = 0.0f;
-                    }
-                    if (wraps) {
-                        x = area.left + lineOffset;
-                        if (cw > lineMaxCross) lineMaxCross = cw;
-                    } else if (hAlign == 0) x = area.left + ((aw - cw) * 0.5f);
-                    else if (hAlign == 2) x = area.right - cw;
-                    else x = area.left;
-                    y = cursor;
-                    cursor += chh + padPx;
-                }
-                out.add(new Node(c, new RectF(x, y, x + cw, y + chh), childScale, area, true));
-            }
-            if (!out.isEmpty()) {
-                float minX = Float.MAX_VALUE;
-                float minY = Float.MAX_VALUE;
-                float maxX = -Float.MAX_VALUE;
-                float maxY = -Float.MAX_VALUE;
-                for (Node nd : out) {
-                    RectF nr = nd.getRect();
-                    if (nr.left < minX) minX = nr.left;
-                    if (nr.top < minY) minY = nr.top;
-                    if (nr.right > maxX) maxX = nr.right;
-                    if (nr.bottom > maxY) maxY = nr.bottom;
-                }
-                setContentSize(listLayout, Math.max(0.0f, maxX - minX), Math.max(0.0f, maxY - minY));
-            } else {
-                setContentSize(listLayout, 0.0f, 0.0f);
-            }
-            return out;
         }
-
-        if (gridLayout != null) {
-            UDim2 cs = udim(gridLayout.get("CellSize"));
-            UDim2 cp = udim(gridLayout.get("CellPadding"));
-            float cw = Math.max(1.0f, (cs.getXs() * aw) + (cs.getXo() * this.d * childScale));
-            float chh = Math.max(1.0f, (cs.getYs() * ah) + (cs.getYo() * this.d * childScale));
-            float px = (cp.getXs() * aw) + (cp.getXo() * this.d * childScale);
-            float py = (cp.getYs() * ah) + (cp.getYo() * this.d * childScale);
-            boolean horiz = enumOf(gridLayout, "FillDirection", 0) == 0;
-            int maxCells = (int) num(gridLayout, "FillDirectionMaxCells", 0.0f);
-            int hAlign = enumOf(gridLayout, "HorizontalAlignment", 1);
-            int vAlign = enumOf(gridLayout, "VerticalAlignment", 1);
-            int startCorner = enumOf(gridLayout, "StartCorner", 0);
-            int nKids = kids.size();
-            int cols;
-            int rows;
-            if (horiz) {
-                int fitCols = Math.max(1, (int) Math.floor((aw + px) / Math.max(cw + px, 1.0f)));
-                if (maxCells > 0) fitCols = Math.min(fitCols, maxCells);
-                cols = Math.max(1, fitCols);
-                rows = (nKids + cols - 1) / cols;
-            } else {
-                int fitRows = Math.max(1, (int) Math.floor((ah + py) / Math.max(chh + py, 1.0f)));
-                if (maxCells > 0) fitRows = Math.min(fitRows, maxCells);
-                rows = Math.max(1, fitRows);
-                cols = (nKids + rows - 1) / rows;
-            }
-            int usedCols = horiz ? Math.min(nKids, cols) : cols;
-            int usedRows = horiz ? rows : Math.min(nKids, rows);
-            float contentW = usedCols > 0 ? (usedCols * cw) + (Math.max(0, usedCols - 1) * px) : 0.0f;
-            float contentH = usedRows > 0 ? (usedRows * chh) + (Math.max(0, usedRows - 1) * py) : 0.0f;
-            float originX;
-            if (hAlign == 0) originX = area.left + ((aw - contentW) * 0.5f);
-            else if (hAlign == 2) originX = area.right - contentW;
-            else originX = area.left;
-            float originY;
-            if (vAlign == 0) originY = area.top + ((ah - contentH) * 0.5f);
-            else if (vAlign == 2) originY = area.bottom - contentH;
-            else originY = area.top;
-            boolean flipX = (startCorner == 1 || startCorner == 3);
-            boolean flipY = (startCorner == 2 || startCorner == 3);
-            for (int i = 0; i < nKids; i++) {
-                int col = horiz ? (i % cols) : (i / rows);
-                int row = horiz ? (i / cols) : (i % rows);
-                if (flipX) col = (usedCols - 1) - col;
-                if (flipY) row = (usedRows - 1) - row;
-                float x = originX + (col * (cw + px));
-                float y = originY + (row * (chh + py));
-                out.add(new Node(kids.get(i), new RectF(x, y, x + cw, y + chh), childScale, area, true));
-            }
-            setContentSize(gridLayout, contentW, contentH);
-            float au = this.absUnit > 0.0f ? this.absUnit : (this.d > 0.0f ? this.d : 1.0f);
-            gridLayout.getAttributes().put("__absCellSize", new Vector2(cw / au, chh / au));
-            gridLayout.getAttributes().put("__absCellCount", new Vector2((float) usedCols, (float) usedRows));
-            return out;
-        }
-
-        if (pageLayout != null) {
-            boolean horiz = enumOf(pageLayout, "FillDirection", 0) == 0;
-            Object padObj = pageLayout.get("Padding");
-            float padPx = 0.0f;
-            if (padObj instanceof UDim) {
-                UDim pu = (UDim) padObj;
-                padPx = (pu.getScale() * (horiz ? aw : ah)) + (pu.getOffset() * this.d * childScale);
-            }
-            Object curPageObj = pageLayout.get("CurrentPage");
-            int curIdx = 0;
-            if (curPageObj instanceof Instance) {
-                int found = kids.indexOf(curPageObj);
-                if (found >= 0) curIdx = found;
-            }
-            for (int i = 0; i < kids.size(); i++) {
-                int rel = i - curIdx;
-                float x = horiz ? (area.left + rel * (aw + padPx)) : area.left;
-                float y = horiz ? area.top : (area.top + rel * (ah + padPx));
-                out.add(new Node(kids.get(i), new RectF(x, y, x + aw, y + ah), childScale, area, true));
-            }
-            return out;
-        }
-
-        if (tableLayout != null) {
-            boolean horiz = enumOf(tableLayout, "FillDirection", 1) == 0;
-            UDim2 pad = udim(tableLayout.get("Padding"));
-            float px = (pad.getXs() * aw) + (pad.getXo() * this.d * childScale);
-            float py = (pad.getYs() * ah) + (pad.getYo() * this.d * childScale);
-            int nKids = kids.size();
-            float cellW = horiz ? Math.max(1.0f, (aw - px * Math.max(0, nKids - 1)) / Math.max(1, nKids)) : aw;
-            float cellH = horiz ? ah : Math.max(1.0f, (ah - py * Math.max(0, nKids - 1)) / Math.max(1, nKids));
-            for (int i = 0; i < nKids; i++) {
-                float x = horiz ? (area.left + i * (cellW + px)) : area.left;
-                float y = horiz ? area.top : (area.top + i * (cellH + py));
-                out.add(new Node(kids.get(i), new RectF(x, y, x + cellW, y + cellH), childScale, area, true));
-            }
-            return out;
-        }
-
-        for (Instance c : kids) {
-            float[] sz = sizeOf(c, area, childScale);
-            float cw = sz[0];
-            float chh = sz[1];
-            UDim2 pos = udim(c.get("Position"));
-            Object apObj = c.get("AnchorPoint");
-            Vector2 ap = apObj instanceof Vector2 ? (Vector2) apObj : new Vector2(0.0f, 0.0f);
-            float px = area.left + (pos.getXs() * aw) + (pos.getXo() * this.d * childScale) - (ap.getX() * cw);
-            float py = area.top + (pos.getYs() * ah) + (pos.getYo() * this.d * childScale) - (ap.getY() * chh);
-            out.add(new Node(c, new RectF(px, py, px + cw, py + chh), childScale, area, false));
+        ArrayList<Node> out = new ArrayList<>(res.items.size());
+        for (GuiMath.LayoutBox box : res.items) {
+            float nodeScale = childScale * GuiMath.ownScaleOf(box.inst);
+            out.add(new Node(box.inst, new RectF(box.left, box.top, box.right, box.bottom), nodeScale, area, box.inLayout));
         }
         return out;
     }
 
+    private static final class GlobalDrawItem {
+        final Node node;
+        final RectF clip;
+        final int zIndex;
+        final int order;
+
+        GlobalDrawItem(Node node, RectF clip, int zIndex, int order) {
+            this.node = node;
+            this.clip = clip;
+            this.zIndex = zIndex;
+            this.order = order;
+        }
+    }
+
+    private final void drawLayerCollector(Canvas canvas, Instance collector, RectF area, float scale, RectF clip) {
+        if (GuiMath.isZIndexGlobal(collector)) {
+            ArrayList<GlobalDrawItem> items = new ArrayList<>();
+            collectGlobalNodes(collector, area, scale, clip, items);
+            java.util.Collections.sort(items, new Comparator<GlobalDrawItem>() {
+                @Override
+                public int compare(GlobalDrawItem a, GlobalDrawItem b) {
+                    int c = Integer.compare(a.zIndex, b.zIndex);
+                    return c != 0 ? c : Integer.compare(a.order, b.order);
+                }
+            });
+            for (GlobalDrawItem item : items) {
+                drawSingleNodeVisual(canvas, item.node, item.clip);
+            }
+        } else {
+            drawChildren(canvas, collector, area, scale, clip);
+        }
+    }
+
+    private final void collectGlobalNodes(Instance parent, RectF area, float scale, RectF clip, List<GlobalDrawItem> out) {
+        RectF content = padded(parent, area, scale);
+        List<Node> nodes = layoutChildren(parent, content, scale);
+        for (Node n : nodes) {
+            Instance c = n.getInst();
+            RectF r = n.getRect();
+            setAbs(c, r);
+            if ((r.width() <= 0.0f || r.height() <= 0.0f) && !"ScrollingFrame".equals(c.getClassName()) && Boolean.TRUE.equals(c.get("ClipsDescendants"))) {
+                continue;
+            }
+            float groupT = "CanvasGroup".equals(c.getClassName()) ? num(c, "GroupTransparency", 0.0f) : 0.0f;
+            if (groupT >= 0.999f) {
+                continue;
+            }
+            int zIdx = (int) num(c, "ZIndex", 1.0f);
+            out.add(new GlobalDrawItem(n, new RectF(clip), zIdx, out.size()));
+            if ("ScrollingFrame".equals(c.getClassName())) {
+                // ScrollingFrame manages its own clipped canvas children
+                continue;
+            }
+            boolean clips = Boolean.TRUE.equals(c.get("ClipsDescendants")) || "CanvasGroup".equals(c.getClassName());
+            RectF childClip;
+            if (clips) {
+                childClip = new RectF(r);
+                if (!childClip.intersect(clip)) {
+                    childClip.setEmpty();
+                }
+            } else {
+                childClip = clip;
+            }
+            collectGlobalNodes(c, r, n.getScale(), childClip, out);
+        }
+    }
+
+    private final void drawSingleNodeVisual(Canvas canvas, Node n, RectF clip) {
+        Instance c = n.getInst();
+        RectF r = n.getRect();
+        float rot = num(c, "Rotation", 0.0f);
+        float parentAbsRot = 0.0f;
+        Instance parInst = c.getParent();
+        if (parInst != null) {
+            Object prObj = parInst.getAttributes().get("__absRotation");
+            if (prObj instanceof Number) {
+                parentAbsRot = ((Number) prObj).floatValue();
+            }
+        }
+        c.getAttributes().put("__absRotation", Float.valueOf(parentAbsRot + rot));
+        int saveCount = canvas.save();
+        canvas.clipRect(clip);
+        if (rot != 0.0f) {
+            canvas.rotate(rot, r.centerX(), r.centerY());
+        }
+        drawObject(canvas, c, r, n.getScale());
+        recordNodeInteraction(n, clip);
+        if ("ScrollingFrame".equals(c.getClassName())) {
+            drawScrolling(canvas, c, r, n.getScale(), clip);
+        }
+        canvas.restoreToCount(saveCount);
+    }
+
+    private final void recordNodeInteraction(Node n, RectF clip) {
+        Instance c = n.getInst();
+        RectF r = n.getRect();
+        RectF rectF = new RectF(r);
+        if (!rectF.intersect(clip)) {
+            rectF.setEmpty();
+        }
+        if (n.getArea() != null && !this.studio.isPlaying()) {
+            this.newBoxes.put(c, new EditBox(new RectF(r), new RectF(n.getArea()), n.getScale(), n.getInLayout()));
+        }
+        if (!rectF.isEmpty()) {
+            this.newPicks.add(TuplesKt.to(c, new RectF(r)));
+            if (this.registerHits && isInteractable(c)) {
+                if ("TextBox".equals(c.getClassName())) {
+                    this.newHits.add(new Hit(c, rectF, this.rt, 1));
+                } else if (c.isA("GuiButton")) {
+                    this.newHits.add(new Hit(c, rectF, this.rt, 0));
+                } else if (Boolean.TRUE.equals(c.get("Active"))) {
+                    this.newHits.add(new Hit(c, rectF, this.rt, 2));
+                }
+            }
+        }
+    }
+
     private final void drawChildren(Canvas canvas, Instance parent, RectF area, float scale, RectF clip) {
         RectF content = padded(parent, area, scale);
-        for (Node n : layoutChildren(parent, content, scale)) {
+        List<Node> nodes = layoutChildren(parent, content, scale);
+        if (nodes.size() > 1) {
+            ArrayList<Node> drawOrder = new ArrayList<>(nodes);
+            java.util.Collections.sort(drawOrder, new Comparator<Node>() {
+                @Override
+                public int compare(Node a, Node b) {
+                    int za = (int) num(a.getInst(), "ZIndex", 1.0f);
+                    int zb = (int) num(b.getInst(), "ZIndex", 1.0f);
+                    return Integer.compare(za, zb);
+                }
+            });
+            nodes = drawOrder;
+        }
+        for (Node n : nodes) {
             drawNode(canvas, n, clip);
         }
     }
 
     private final void drawNode(Canvas canvas, Node n, RectF clip) {
-        Canvas canvas2;
-        RectF childClip;
         Instance c = n.getInst();
         RectF r = n.getRect();
         setAbs(c, r);
-        if ((r.width() <= 0.0f || r.height() <= 0.0f) && !Intrinsics.areEqual(c.getClassName(), "ScrollingFrame") && Intrinsics.areEqual(c.get("ClipsDescendants"), (Object) true)) {
+        if ((r.width() <= 0.0f || r.height() <= 0.0f) && !"ScrollingFrame".equals(c.getClassName()) && Boolean.TRUE.equals(c.get("ClipsDescendants"))) {
             return;
         }
         float rot = num(c, "Rotation", 0.0f);
@@ -3217,15 +2176,15 @@ public final class GuiOverlay extends View {
             }
         }
         c.getAttributes().put("__absRotation", Float.valueOf(parentAbsRot + rot));
-        float groupT = Intrinsics.areEqual(c.getClassName(), "CanvasGroup") ? num(c, "GroupTransparency", 0.0f) : 0.0f;
+        float groupT = "CanvasGroup".equals(c.getClassName()) ? num(c, "GroupTransparency", 0.0f) : 0.0f;
         if (groupT >= 0.999f) {
             return;
         }
         int saveCount = canvas.save();
-        if (!(rot == 0.0f)) {
+        if (rot != 0.0f) {
             canvas.rotate(rot, r.centerX(), r.centerY());
         }
-        if (Intrinsics.areEqual(c.getClassName(), "CanvasGroup")) {
+        if ("CanvasGroup".equals(c.getClassName())) {
             Object gcObj = c.get("GroupColor3");
             Color3 gc = gcObj instanceof Color3 ? (Color3) gcObj : null;
             boolean hasTint = gc != null && (gc.getR() < 0.995f || gc.getG() < 0.995f || gc.getB() < 0.995f);
@@ -3240,46 +2199,24 @@ public final class GuiOverlay extends View {
             canvas.clipRect(r);
         }
         drawObject(canvas, c, r, n.getScale());
-        RectF visible = new RectF(r);
-        RectF rectF = new RectF(r);
-        if (!rectF.intersect(clip)) {
-            rectF.setEmpty();
-        }
-        if (n.getArea() != null && !this.studio.isPlaying()) {
-            this.newBoxes.put(c, new EditBox(new RectF(r), new RectF(n.getArea()), n.getScale(), n.getInLayout()));
-        }
-        if (!rectF.isEmpty()) {
-            this.newPicks.add(TuplesKt.to(c, new RectF(r)));
-            if (isInteractable(c)) {
-                if (Intrinsics.areEqual(c.getClassName(), "TextBox")) {
-                    this.newHits.add(new Hit(c, rectF, this.rt, 1));
-                } else if (c.isA("GuiButton")) {
-                    this.newHits.add(new Hit(c, rectF, this.rt, 0));
-                } else if (Intrinsics.areEqual(c.get("Active"), (Object) true)) {
-                    this.newHits.add(new Hit(c, rectF, this.rt, 2));
-                }
-            }
-        }
-        if (Intrinsics.areEqual(c.getClassName(), "ScrollingFrame")) {
-            canvas2 = canvas;
-            drawScrolling(canvas2, c, r, n.getScale(), clip);
+        recordNodeInteraction(n, clip);
+        if ("ScrollingFrame".equals(c.getClassName())) {
+            drawScrolling(canvas, c, r, n.getScale(), clip);
         } else {
-            canvas2 = canvas;
-            boolean clips = Intrinsics.areEqual(c.get("ClipsDescendants"), (Object) true);
+            boolean clips = Boolean.TRUE.equals(c.get("ClipsDescendants")) || "CanvasGroup".equals(c.getClassName());
+            RectF childClip;
             if (clips) {
-                childClip = new RectF(visible);
+                childClip = new RectF(r);
                 if (!childClip.intersect(clip)) {
                     childClip.setEmpty();
                 }
+                canvas.clipRect(r);
             } else {
                 childClip = clip;
             }
-            if (clips) {
-                canvas2.clipRect(r);
-            }
-            drawChildren(canvas2, c, r, n.getScale(), childClip);
+            drawChildren(canvas, c, r, n.getScale(), childClip);
         }
-        canvas2.restoreToCount(saveCount);
+        canvas.restoreToCount(saveCount);
     }
 
     /* JADX WARN: Code duplicated, block: B:36:0x0118  */
@@ -3362,27 +2299,44 @@ public final class GuiOverlay extends View {
         c.getAttributes().put("__absWindowSize", new Vector2(r.width() / au, r.height() / au));
         float maxX = Math.max(0.0f, cw.element - r.width());
         float maxY = Math.max(0.0f, ch.element - r.height());
+        float clampedPosX = RangesKt.coerceIn(pos1.getX(), 0.0f, maxX / Math.max(unit, 0.001f));
+        float clampedPosY = RangesKt.coerceIn(pos1.getY(), 0.0f, maxY / Math.max(unit, 0.001f));
+        if (Math.abs(clampedPosX - pos1.getX()) > 0.5f || Math.abs(clampedPosY - pos1.getY()) > 0.5f) {
+            pos1 = new Vector2(clampedPosX, clampedPosY);
+            nodes = layoutChildren(c, padded(c, drawScrolling$canvasRect(r, pos1, unit, cw, ch), scale), scale);
+        }
+        boolean clips = !Boolean.FALSE.equals(c.get("ClipsDescendants"));
         RectF vis = new RectF(r);
         if (!vis.intersect(clip)) {
             vis.setEmpty();
         }
-        if (!vis.isEmpty() && !Intrinsics.areEqual(c.get("ScrollingEnabled"), (Object) false) && (maxX > 0.0f || maxY > 0.0f)) {
+        if (!vis.isEmpty() && !Boolean.FALSE.equals(c.get("ScrollingEnabled")) && (maxX > 0.0f || maxY > 0.0f)) {
             this.newScrolls.add(new Scroll(c, vis, maxX / unit, maxY / unit, unit));
         }
         canvas.save();
-        canvas.clipRect(r);
+        if (clips) {
+            canvas.clipRect(r);
+        }
+        RectF childClip = clips ? vis : clip;
         for (Node n : nodes) {
-            drawNode(canvas, n, vis);
+            drawNode(canvas, n, childClip);
         }
         canvas.restore();
         float th = num(c, "ScrollBarThickness", 12.0f) * unit * 0.5f;
         float bt = num(c, "ScrollBarImageTransparency", 0.0f);
-        if (maxY > 0.0f && th > 0.0f && bt < 1.0f) {
-            float barH = r.height() * (r.height() / ch.element);
-            float y = r.top + ((r.height() - barH) * RangesKt.coerceIn((pos1.getY() * unit) / maxY, 0.0f, 1.0f));
+        if (th > 0.0f && bt < 1.0f) {
             this.fill.setShader(null);
             this.fill.setColor(alpha(colorOf(c.get("ScrollBarImageColor3"), ViewCompat.MEASURED_STATE_MASK), (0.7f * bt) + 0.3f));
-            canvas.drawRoundRect((r.right - th) - (this.d * 2.0f), y, r.right - (this.d * 2.0f), y + barH, th / 2.0f, th / 2.0f, this.fill);
+            if (maxY > 0.0f) {
+                float barH = Math.max(th, r.height() * (r.height() / ch.element));
+                float y = r.top + ((r.height() - barH) * RangesKt.coerceIn((pos1.getY() * unit) / maxY, 0.0f, 1.0f));
+                canvas.drawRoundRect((r.right - th) - (this.d * 2.0f), y, r.right - (this.d * 2.0f), y + barH, th / 2.0f, th / 2.0f, this.fill);
+            }
+            if (maxX > 0.0f) {
+                float barW = Math.max(th, r.width() * (r.width() / cw.element));
+                float x = r.left + ((r.width() - barW) * RangesKt.coerceIn((pos1.getX() * unit) / maxX, 0.0f, 1.0f));
+                canvas.drawRoundRect(x, (r.bottom - th) - (this.d * 2.0f), x + barW, r.bottom - (this.d * 2.0f), th / 2.0f, th / 2.0f, this.fill);
+            }
         }
     }
 
@@ -3411,6 +2365,13 @@ public final class GuiOverlay extends View {
     }
 
     private final Shader gradientShader(Instance g, RectF r, float baseTransparency) {
+        return gradientShader(g, r, baseTransparency, 0xFFFFFFFF);
+    }
+
+    private final Shader gradientShader(Instance g, RectF r, float baseTransparency, int baseColorArgb) {
+        float baseR = ((baseColorArgb >>> 16) & 255) / 255.0f;
+        float baseG = ((baseColorArgb >>> 8) & 255) / 255.0f;
+        float baseB = (baseColorArgb & 255) / 255.0f;
         List listEmptyList;
         List listEmptyList2;
         Iterable keys;
@@ -3450,9 +2411,10 @@ public final class GuiOverlay extends View {
         Iterator it3 = iterable3.iterator();
         while (it3.hasNext()) {
             float fFloatValue = ((Number) it3.next()).floatValue();
-            float f2 = f;
-            arrayList3.add(Integer.valueOf(alpha(gradientShader$colorAt(cseq, fFloatValue).toArgb(), f2 - ((f2 - baseTransparency) * (f2 - gradientShader$transAt(tseq, fFloatValue))))));
-            f = f2;
+            Color3 gc = gradientShader$colorAt(cseq, fFloatValue);
+            Color3 mul = new Color3(gc.getR() * baseR, gc.getG() * baseG, gc.getB() * baseB);
+            float combinedT = 1.0f - ((1.0f - baseTransparency) * (1.0f - gradientShader$transAt(tseq, fFloatValue)));
+            arrayList3.add(Integer.valueOf(alpha(mul.toArgb(), combinedT)));
         }
         int[] colors = CollectionsKt.toIntArray((List) arrayList3);
         double rot = Math.toRadians(num(g, "Rotation", 0.0f));
@@ -3562,7 +2524,7 @@ public final class GuiOverlay extends View {
         boolean z3 = instance5 != null && isText(c) && enumOf(instance5, "ApplyStrokeMode", z2 ? 1 : 0) == 0;
         if (fNum < 1.0f) {
             this.fill.setColor(alpha(colorOf(c.get("BackgroundColor3"), -6053211), fNum));
-            this.fill.setShader(instance3 != null ? gradientShader(instance3, r, fNum) : null);
+            this.fill.setShader(instance3 != null ? gradientShader(instance3, r, fNum, colorOf(c.get("BackgroundColor3"), -6053211)) : null);
             if (fCornerOf > f) {
                 canvas.drawRoundRect(r, fCornerOf, fCornerOf, this.fill);
             } else {
@@ -3603,9 +2565,14 @@ public final class GuiOverlay extends View {
             }
         }
         if (instance5 != null && !z3) {
+            float strokeT = num(instance5, "Transparency", 0.0f);
             float fNum3 = num(instance5, "Thickness", 1.0f) * this.d * scale;
-            this.stroke.setShader(null);
-            this.stroke.setColor(alpha(colorOf(instance5.get("Color"), ViewCompat.MEASURED_STATE_MASK), num(instance5, "Transparency", 0.0f)));
+            Instance strokeGrad = child(instance5, "UIGradient");
+            if (strokeGrad != null && Boolean.FALSE.equals(strokeGrad.get("Enabled"))) {
+                strokeGrad = null;
+            }
+            this.stroke.setColor(alpha(colorOf(instance5.get("Color"), ViewCompat.MEASURED_STATE_MASK), strokeT));
+            this.stroke.setShader(strokeGrad != null ? gradientShader(strokeGrad, r, strokeT, colorOf(instance5.get("Color"), ViewCompat.MEASURED_STATE_MASK)) : null);
             this.stroke.setStrokeWidth(fNum3);
             this.stroke.setStrokeJoin(Paint.Join.ROUND);
             f2 = 1.0f;
@@ -3615,6 +2582,7 @@ public final class GuiOverlay extends View {
             } else {
                 canvas.drawRect(rectF, this.stroke);
             }
+            this.stroke.setShader(null);
         } else {
             f2 = 1.0f;
         }
@@ -3966,7 +2934,7 @@ public final class GuiOverlay extends View {
             p.setStyle(Paint.Style.FILL);
         }
         p.setColor(color);
-        if (gradient == null || (shaderGradientShader = gradientShader(gradient, r, tt)) == null) {
+        if (gradient == null || (shaderGradientShader = gradientShader(gradient, r, tt, color)) == null) {
             shader = null;
         } else {
             Matrix matrix = new Matrix();
@@ -3986,18 +2954,36 @@ public final class GuiOverlay extends View {
     }
 
     public final Hit buttonAt(float x, float y) {
-        Object objPrevious;
-        List list = this.hits;
-        ListIterator<Hit> listIterator = list.listIterator(list.size());
-        while (listIterator.hasPrevious()) {
-            objPrevious = listIterator.previous();
-            Hit hit = (Hit) objPrevious;
-            if (hit.getKind() != 2 && hit.getRect().contains(x, y)) {
-                return (Hit) objPrevious;
+        List<Hit> list = this.hits;
+        for (int idx = list.size() - 1; idx >= 0; idx--) {
+            Hit hit = list.get(idx);
+            if (!hit.getRect().contains(x, y)) {
+                continue;
+            }
+            if (hit.getKind() != 2) {
+                return hit;
+            }
+            if (!seeThrough(hit.getInst())) {
+                return null;
             }
         }
-        objPrevious = null;
-        return (Hit) objPrevious;
+        return null;
+    }
+
+    public final void hoverAt(float x, float y) {
+        Hit cur = buttonAt(x, y);
+        Hit prev = this.hoveredHit;
+        if (prev != null && (cur == null || prev.getInst() != cur.getInst())) {
+            synchronized (this.studio.getLock()) {
+                hover(prev, x, y, false);
+            }
+        }
+        if (cur != null && (prev == null || prev.getInst() != cur.getInst())) {
+            synchronized (this.studio.getLock()) {
+                hover(cur, x, y, true);
+            }
+        }
+        this.hoveredHit = cur;
     }
 
     public final boolean isPluginUi(Instance i) {
@@ -4146,8 +3132,6 @@ public final class GuiOverlay extends View {
     }
 
     public final void press(Hit h, float x, float y) {
-        try {
-        GuiOverlay guiOverlay;
         Intrinsics.checkNotNullParameter(h, "h");
         if (h.getKind() != 0 && h.getKind() != 2) {
             return;
@@ -4161,73 +3145,36 @@ public final class GuiOverlay extends View {
         }
         boolean mouse = mouseFor(h.getInst());
         synchronized (this.studio.getLock()) {
-            int i = 0;
-            try {
-                List<Hit> listExtrasFor = mouse ? extrasFor(h, x, y) : CollectionsKt.emptyList();
-                if (listExtrasFor.isEmpty()) {
-                    this.pressExtras.remove(h);
-                } else {
-                    this.pressExtras.put(h, listExtrasFor);
-                }
-                int i2 = 1;
-                if (mouse) {
-                    for (Hit hit : listExtrasFor) {
-                        Intrinsics.checkNotNullExpressionValue(hit, "next(...)");
-                        hover(hit, x, y, true);
-                    }
-                    hover(h, x, y, true);
-                }
-                for (Hit hit2 : listExtrasFor) {
-                    Intrinsics.checkNotNullExpressionValue(hit2, "next(...)");
-                    Hit hit3 = hit2;
-                    LuaRuntime rt = hit3.getRt();
-                    if (rt != null) {
-                        Instance inst = hit3.getInst();
-                        LuaValue[] luaValueArr = new LuaValue[i2];
-                        luaValueArr[0] = touchInput$default(this, x, y, 0, true, false, 16, null);
-                        rt.fire(inst, "InputBegan", luaValueArr);
-                    }
-                }
-                int i3 = i2;
-                if (h.getKind() == 0) {
-                    Vector2 vector2GuiPoint = guiPoint(x, y);
-                    Instance inst2 = h.getInst();
-                    LuaValue[] luaValueArr2 = new LuaValue[2];
-                    LuaNumber luaNumberValueOf = LuaValue.valueOf(vector2GuiPoint.getX());
-                    Intrinsics.checkNotNullExpressionValue(luaNumberValueOf, "valueOf(...)");
-                    luaValueArr2[0] = luaNumberValueOf;
-                    LuaNumber luaNumberValueOf2 = LuaValue.valueOf(vector2GuiPoint.getY());
-                    Intrinsics.checkNotNullExpressionValue(luaNumberValueOf2, "valueOf(...)");
-                    luaValueArr2[i3] = luaNumberValueOf2;
-                    r.fire(inst2, "MouseButton1Down", luaValueArr2);
-                }
-                Instance inst3 = h.getInst();
-                LuaValue[] luaValueArr3 = new LuaValue[i3];
-                try {
-                    try {
-                        luaValueArr3[0] = touchInput$default(this, x, y, 0, mouse, false, 16, null);
-                        r.fire(inst3, "InputBegan", luaValueArr3);
-                        if (mouse) {
-                            guiOverlay = this;
-                            guiOverlay.uisFire("InputBegan", touchInput$default(guiOverlay, x, y, 0, true, false, 16, null));
-                        } else {
-                            guiOverlay = this;
-                        }
-                        Unit unit = Unit.INSTANCE;
-                        guiOverlay.invalidate();
-                    } catch (Throwable th) {
-                        throw th;
-                    }
-                } catch (Throwable th2) {
-                    Throwable th = th2;
-                }
-            } catch (Throwable th3) {
-                Throwable th = th3;
+            List<Hit> extras = mouse ? extrasFor(h, x, y) : CollectionsKt.emptyList();
+            if (extras.isEmpty()) {
+                this.pressExtras.remove(h);
+            } else {
+                this.pressExtras.put(h, extras);
             }
-        }
-    }
-        catch (Throwable _ktEx) {
-            throw com.goydevv.studrblx.util.KtCompat.sneakyThrow(_ktEx);
+            if (mouse) {
+                for (Hit extra : extras) {
+                    hover(extra, x, y, true);
+                }
+            }
+            if (this.hoveredHit == null || this.hoveredHit.getInst() != h.getInst()) {
+                hover(h, x, y, true);
+                this.hoveredHit = h;
+            }
+            for (Hit extra : extras) {
+                LuaRuntime ert = extra.getRt();
+                if (ert != null) {
+                    ert.fire(extra.getInst(), "InputBegan", touchInput(x, y, 0, true, false));
+                }
+            }
+            if (h.getKind() == 0) {
+                Vector2 gp = guiPoint(x, y);
+                r.fire(h.getInst(), "MouseButton1Down", LuaValue.valueOf(gp.getX()), LuaValue.valueOf(gp.getY()));
+            }
+            r.fire(h.getInst(), "InputBegan", touchInput(x, y, 0, mouse, false));
+            if (mouse) {
+                uisFire("InputBegan", touchInput(x, y, 0, true, false));
+            }
+            invalidate();
         }
     }
 
@@ -4267,86 +3214,32 @@ public final class GuiOverlay extends View {
         r.fire(inst2, str2, luaValueArr);
     }
 
-    /* JADX WARN: Code duplicated, block: B:37:0x0093  */
     public final boolean canWheel(Hit h, float x, float y) {
-        try {
-        LuaRuntime r;
-        boolean z;
-        boolean z2;
         Intrinsics.checkNotNullParameter(h, "h");
-        boolean z3 = false;
-        if (this.studio.getPlay() != null || !isPluginUi(h.getInst()) || (r = h.getRt()) == null) {
+        LuaRuntime r = h.getRt();
+        if (this.studio.getPlay() != null || !isPluginUi(h.getInst()) || r == null) {
             return false;
         }
         synchronized (this.studio.getLock()) {
-            try {
-                if (!r.hasConn(h.getInst(), "InputChanged")) {
-                    Iterable iterable = (List) this.pressExtras.get(h);
-                    if (iterable != null) {
-                        Iterable iterable2 = iterable;
-                        if (!(iterable2 instanceof Collection) || !((Collection) iterable2).isEmpty()) {
-                            Iterator it = iterable2.iterator();
-                            while (true) {
-                                if (it.hasNext()) {
-                                    Hit hit = (Hit) it.next();
-                                    LuaRuntime rt = hit.getRt();
-                                    if (rt != null && rt.hasConn(hit.getInst(), "InputChanged")) {
-                                        z2 = true;
-                                        break;
-                                    }
-                                } else {
-                                    z2 = false;
-                                    break;
-                                }
-                            }
-                        } else {
-                            z2 = false;
-                        }
-                        if (z2) {
-                            z = true;
-                        } else {
-                            z = false;
-                        }
-                    } else {
-                        z = false;
-                    }
-                    if (!z) {
-                        try {
-                            Instance instancePluginObjectAt = pluginObjectAt(x, y);
-                            if (instancePluginObjectAt != null) {
-                                Iterator it2 = SequencesKt.takeWhile(SequencesKt.generateSequence(instancePluginObjectAt, (Function1<? super Instance, ? extends Instance>) new Function1() { // from class: com.goydevv.studrblx.ui.GuiOverlay$$ExternalSyntheticLambda3
-                                    @Override // kotlin.jvm.functions.Function1
-                                    public final Object invoke(Object obj) {
-                                        return GuiOverlay.canWheel$lambda$92$lambda$89((Instance) obj);
-                                    }
-                                }), new Function1() { // from class: com.goydevv.studrblx.ui.GuiOverlay$$ExternalSyntheticLambda4
-                                    @Override // kotlin.jvm.functions.Function1
-                                    public final Object invoke(Object obj) {
-                                        return Boolean.valueOf(GuiOverlay.canWheel$lambda$92$lambda$90((Instance) obj));
-                                    }
-                                }).iterator();
-                                while (it2.hasNext()) {
-                                    boolean z4 = z3;
-                                    if (r.hasConn((Instance) it2.next(), "InputChanged")) {
-                                        z3 = true;
-                                        break;
-                                    }
-                                    z3 = z4;
-                                }
-                            }
-                        } catch (Throwable th) {
-                            throw th;
-                        }
+            if (r.hasConn(h.getInst(), "InputChanged")) {
+                return true;
+            }
+            List<Hit> extras = this.pressExtras.get(h);
+            if (extras != null) {
+                for (Hit hit : extras) {
+                    LuaRuntime ert = hit.getRt();
+                    if (ert != null && ert.hasConn(hit.getInst(), "InputChanged")) {
+                        return true;
                     }
                 }
-                return z3;
-            } catch (Throwable th2) {
-                throw th2;
             }
-        }
-    }
-        catch (Throwable _ktEx) {
-            throw com.goydevv.studrblx.util.KtCompat.sneakyThrow(_ktEx);
+            Instance top = pluginObjectAt(x, y);
+            for (Instance cur = top; cur != null && !"CoreGui".equals(cur.getClassName()); cur = cur.getParent()) {
+                if (r.hasConn(cur, "InputChanged")) {
+                    return true;
+                }
+            }
+            return false;
         }
     }
 
@@ -4488,157 +3381,80 @@ public final class GuiOverlay extends View {
     }
 
     public final void release(Hit h, float x, float y, boolean click) {
-        try {
-        GuiOverlay guiOverlay;
-        float f;
-        float f2;
-        GuiOverlay guiOverlay2;
-        float f3;
-        float f4;
-        Function2<? super Float, ? super Float, Unit> function2;
         Intrinsics.checkNotNullParameter(h, "h");
         if (this.pressed == h.getInst()) {
             this.pressed = null;
         }
         invalidate();
         switch (h.getKind()) {
-            case 0:
+            case 0: {
                 LuaRuntime r = h.getRt();
                 if (r == null) {
                     return;
                 }
                 boolean mouse = mouseFor(h.getInst());
                 synchronized (this.studio.getLock()) {
-                    try {
-                        releaseExtras(h, x, y);
-                        Vector2 vector2GuiPoint = guiPoint(x, y);
-                        Instance inst = h.getInst();
-                        LuaNumber luaNumberValueOf = LuaValue.valueOf(vector2GuiPoint.getX());
-                        Intrinsics.checkNotNullExpressionValue(luaNumberValueOf, "valueOf(...)");
-                        LuaNumber luaNumberValueOf2 = LuaValue.valueOf(vector2GuiPoint.getY());
-                        Intrinsics.checkNotNullExpressionValue(luaNumberValueOf2, "valueOf(...)");
-                        r.fire(inst, "MouseButton1Up", luaNumberValueOf, luaNumberValueOf2);
-                        Instance inst2 = h.getInst();
-                        LuaValue[] luaValueArr = new LuaValue[1];
-                        try {
-                            luaValueArr[0] = touchInput$default(this, x, y, 2, mouse, false, 16, null);
-                            r.fire(inst2, "InputEnded", luaValueArr);
-                            if (mouse) {
-                                guiOverlay = this;
-                                try {
-                                    guiOverlay.uisFire("InputEnded", touchInput$default(guiOverlay, x, y, 2, true, false, 16, null));
-                                } catch (Throwable th) {
-                                    throw th;
-                                }
-                            } else {
-                                guiOverlay = this;
-                            }
-                            if (!click) {
-                                f = x;
-                                f2 = y;
-                            } else {
-                                r.fire(h.getInst(), "MouseButton1Click", new LuaValue[0]);
-                                Instance inst3 = h.getInst();
-                                LuaValue[] luaValueArr2 = new LuaValue[2];
-                                f = x;
-                                f2 = y;
-                                try {
-                                    luaValueArr2[0] = touchInput$default(guiOverlay, f, f2, 2, false, false, 24, null);
-                                    LuaInteger luaIntegerValueOf = LuaValue.valueOf(0);
-                                    Intrinsics.checkNotNullExpressionValue(luaIntegerValueOf, "valueOf(...)");
-                                    luaValueArr2[1] = luaIntegerValueOf;
-                                    r.fire(inst3, "Activated", luaValueArr2);
-                                } catch (Throwable th2) {
-                                    Throwable th = th2;
-                                    throw th;
-                                }
-                            }
-                            if (mouse) {
-                                guiOverlay.hover(h, f, f2, false);
-                            }
-                            Unit unit = Unit.INSTANCE;
-                            return;
-                        } catch (Throwable th3) {
-                            Throwable th = th3;
-                        }
-                    } catch (Throwable th4) {
-                        Throwable th = th4;
+                    releaseExtras(h, x, y);
+                    Vector2 gp = guiPoint(x, y);
+                    r.fire(h.getInst(), "MouseButton1Up", LuaValue.valueOf(gp.getX()), LuaValue.valueOf(gp.getY()));
+                    r.fire(h.getInst(), "InputEnded", touchInput(x, y, 2, mouse, false));
+                    if (mouse) {
+                        uisFire("InputEnded", touchInput(x, y, 2, true, false));
+                    }
+                    if (click) {
+                        r.fire(h.getInst(), "MouseButton1Click");
+                        r.fire(h.getInst(), "Activated", touchInput(x, y, 2, mouse, false), LuaValue.valueOf(mouse ? 1 : 0));
+                    }
+                    if (this.hoveredHit != null && this.hoveredHit.getInst() == h.getInst()) {
+                        hover(h, x, y, false);
+                        this.hoveredHit = null;
+                    } else if (mouse) {
+                        hover(h, x, y, false);
                     }
                 }
-                break;
+                return;
+            }
             case 1:
                 if (click) {
                     editTextBox(h);
-                    return;
                 }
                 return;
-            case 2:
+            case 2: {
                 LuaRuntime r2 = h.getRt();
                 if (r2 == null) {
                     return;
                 }
                 boolean mouse2 = mouseFor(h.getInst());
                 synchronized (this.studio.getLock()) {
-                    try {
-                        releaseExtras(h, x, y);
-                        Instance inst4 = h.getInst();
-                        LuaValue[] luaValueArr3 = new LuaValue[1];
-                        try {
-                            try {
-                                luaValueArr3[0] = touchInput$default(this, x, y, 2, mouse2, false, 16, null);
-                                r2.fire(inst4, "InputEnded", luaValueArr3);
-                                if (mouse2) {
-                                    guiOverlay2 = this;
-                                    f3 = x;
-                                    f4 = y;
-                                    try {
-                                        guiOverlay2.uisFire("InputEnded", touchInput$default(guiOverlay2, f3, f4, 2, true, false, 16, null));
-                                    } catch (Throwable th5) {
-                                        Throwable th = th5;
-                                        throw th;
-                                    }
-                                } else {
-                                    guiOverlay2 = this;
-                                    f3 = x;
-                                    f4 = y;
-                                }
-                                if (mouse2) {
-                                    guiOverlay2.hover(h, f3, f4, false);
-                                }
-                                Unit unit2 = Unit.INSTANCE;
-                                return;
-                            } catch (Throwable th6) {
-                                Throwable th = th6;
-                            }
-                        } catch (Throwable th7) {
-                            Throwable th = th7;
-                            throw th;
-                        }
-                    } catch (Throwable th8) {
-                        Throwable th = th8;
+                    releaseExtras(h, x, y);
+                    r2.fire(h.getInst(), "InputEnded", touchInput(x, y, 2, mouse2, false));
+                    if (mouse2) {
+                        uisFire("InputEnded", touchInput(x, y, 2, true, false));
+                    }
+                    if (this.hoveredHit != null && this.hoveredHit.getInst() == h.getInst()) {
+                        hover(h, x, y, false);
+                        this.hoveredHit = null;
+                    } else if (mouse2) {
+                        hover(h, x, y, false);
                     }
                 }
-                break;
+                return;
+            }
             case 3:
-                if (click && (function2 = this.onCoreMenu) != null) {
-                    function2.invoke(Float.valueOf(x), Float.valueOf(y));
+                if (click && this.onCoreMenu != null) {
+                    this.onCoreMenu.invoke(Float.valueOf(x), Float.valueOf(y));
                 }
                 return;
             case 4:
                 if (click) {
                     synchronized (this.studio.getLock()) {
                         Instance.set$default(h.getInst(), "Enabled", false, false, 4, null);
-                        Unit unit3 = Unit.INSTANCE;
                     }
                     postInvalidate();
                 }
                 return;
             default:
                 return;
-        }
-    }
-        catch (Throwable _ktEx) {
-            throw com.goydevv.studrblx.util.KtCompat.sneakyThrow(_ktEx);
         }
     }
 
@@ -4853,5 +3669,603 @@ public final class GuiOverlay extends View {
             return pair2.getFirst();
         }
         return null;
+    }
+
+    /**
+     * Pure-Java Roblox GUI layout, inset, constraint, ZIndexBehavior, and hit-testing math.
+     * Shared by GuiOverlay at runtime and verified directly by the JVM test suite.
+     */
+    public static final class GuiMath {
+        public interface TextMeasurer {
+            float[] measureTextSize(Instance inst, float baseW, float baseH, float scale);
+        }
+
+        public interface SizeResolver {
+            float[] resolveSize(Instance child, float aw, float ah, float scale);
+        }
+
+        public static final class LayoutBox {
+            public final Instance inst;
+            public final float left, top, right, bottom;
+            public final boolean inLayout;
+
+            public LayoutBox(Instance inst, float left, float top, float right, float bottom, boolean inLayout) {
+                this.inst = inst;
+                this.left = left;
+                this.top = top;
+                this.right = right;
+                this.bottom = bottom;
+                this.inLayout = inLayout;
+            }
+
+            public float width() { return this.right - this.left; }
+            public float height() { return this.bottom - this.top; }
+        }
+
+        public static final class LayoutResult {
+            public final List<LayoutBox> items;
+            public final Instance layoutInstance;
+            public final float contentW;
+            public final float contentH;
+            public final float cellW;
+            public final float cellH;
+            public final int usedCols;
+            public final int usedRows;
+
+            public LayoutResult(List<LayoutBox> items, Instance layoutInstance, float contentW, float contentH, float cellW, float cellH, int usedCols, int usedRows) {
+                this.items = items;
+                this.layoutInstance = layoutInstance;
+                this.contentW = contentW;
+                this.contentH = contentH;
+                this.cellW = cellW;
+                this.cellH = cellH;
+                this.usedCols = usedCols;
+                this.usedRows = usedRows;
+            }
+        }
+
+        public static final class HitBox {
+            public final Instance inst;
+            public final float left, top, right, bottom;
+            public final int kind;
+            public final boolean seeThrough;
+
+            public HitBox(Instance inst, float left, float top, float right, float bottom, int kind, boolean seeThrough) {
+                this.inst = inst;
+                this.left = left;
+                this.top = top;
+                this.right = right;
+                this.bottom = bottom;
+                this.kind = kind;
+                this.seeThrough = seeThrough;
+            }
+
+            public boolean contains(float x, float y) {
+                return x >= this.left && x < this.right && y >= this.top && y < this.bottom;
+            }
+        }
+
+        public static UDim2 udimOf(Object v, UDim2 def) {
+            return v instanceof UDim2 ? (UDim2) v : def;
+        }
+
+        public static int enumVal(Instance i, String prop, int def) {
+            Object obj = i != null ? i.get(prop) : null;
+            return obj instanceof EnumValue ? ((EnumValue) obj).getValue() : def;
+        }
+
+        public static float numVal(Instance i, String prop, float def) {
+            Object obj = i != null ? i.get(prop) : null;
+            return obj instanceof Number ? ((Number) obj).floatValue() : def;
+        }
+
+        public static Instance findChildByClass(Instance p, String cls) {
+            if (p == null) return null;
+            for (Instance ch : p.getChildren()) {
+                if (cls.equals(ch.getClassName())) return ch;
+            }
+            return null;
+        }
+
+        public static float ownScaleOf(Instance c) {
+            Instance sc = findChildByClass(c, "UIScale");
+            if (sc == null) return 1.0f;
+            float v = numVal(sc, "Scale", 1.0f);
+            return v > 0.001f ? v : 1.0f;
+        }
+
+        public static boolean isScreenGuiEnabled(Instance inst) {
+            return inst != null
+                    && "ScreenGui".equals(inst.getClassName())
+                    && !Boolean.FALSE.equals(inst.get("Enabled"));
+        }
+
+        public static List<Instance> filterAndSortScreenGuis(List<Instance> primary, List<Instance> core) {
+            ArrayList<Instance> pList = new ArrayList<>();
+            if (primary != null) {
+                for (Instance inst : primary) {
+                    if (isScreenGuiEnabled(inst)) pList.add(inst);
+                }
+            }
+            Comparator<Instance> byOrder = new Comparator<Instance>() {
+                @Override
+                public int compare(Instance a, Instance b) {
+                    int da = (int) numVal(a, "DisplayOrder", 0.0f);
+                    int db = (int) numVal(b, "DisplayOrder", 0.0f);
+                    return Integer.compare(da, db);
+                }
+            };
+            java.util.Collections.sort(pList, byOrder);
+
+            ArrayList<Instance> cList = new ArrayList<>();
+            if (core != null) {
+                for (Instance inst : core) {
+                    if (isScreenGuiEnabled(inst)) cList.add(inst);
+                }
+            }
+            java.util.Collections.sort(cList, byOrder);
+
+            ArrayList<Instance> combined = new ArrayList<>(pList.size() + cList.size());
+            combined.addAll(pList);
+            combined.addAll(cList);
+            return combined;
+        }
+
+        public static boolean isZIndexGlobal(Instance layerCollector) {
+            return enumVal(layerCollector, "ZIndexBehavior", 1) == 0;
+        }
+
+        /**
+         * Computes ScreenGui content bounds [left, top, right, bottom] in pixels.
+         * ScreenInsets: 0 = None, 1 = DeviceSafeInsets, 2 = CoreUISafeInsets, 3 = TopbarSafeInsets.
+         */
+        public static float[] computeScreenGuiRect(
+                Instance sg, float width, float height, float density,
+                float safeL, float safeT, float safeR, float safeB,
+                boolean isCoreGui, boolean playing
+        ) {
+            boolean ignoreInset = Boolean.TRUE.equals(sg.get("IgnoreGuiInset"));
+            Object siObj = sg.get("ScreenInsets");
+            Integer screenInsets = (siObj instanceof EnumValue) ? Integer.valueOf(((EnumValue) siObj).getValue()) : null;
+            float topBarPx = density * TOPBAR_INSET;
+
+            if (isCoreGui && !playing) {
+                return new float[]{0.0f, 0.0f, width, height};
+            }
+            if (ignoreInset || (screenInsets != null && screenInsets.intValue() == 0)) {
+                return new float[]{0.0f, 0.0f, width, height};
+            }
+            if (screenInsets != null && screenInsets.intValue() == 1) {
+                // DeviceSafeInsets: respect hardware display cutout only, no topbar inset
+                return new float[]{safeL, safeT, Math.max(safeL, width - safeR), Math.max(safeT, height - safeB)};
+            }
+            // CoreUISafeInsets (2), TopbarSafeInsets (3), or unset default: apply topbar inset
+            float top = Math.max(topBarPx, safeT);
+            return new float[]{safeL, top, Math.max(safeL, width - safeR), Math.max(top, height - safeB)};
+        }
+
+        public static float[] computePadding(Instance parent, float areaW, float areaH, float density, float scale) {
+            Instance pad = findChildByClass(parent, "UIPadding");
+            if (pad == null) {
+                return new float[]{0.0f, 0.0f, 0.0f, 0.0f};
+            }
+            float l = udim1D(pad.get("PaddingLeft"), areaW, density, scale);
+            float t = udim1D(pad.get("PaddingTop"), areaH, density, scale);
+            float r = udim1D(pad.get("PaddingRight"), areaW, density, scale);
+            float b = udim1D(pad.get("PaddingBottom"), areaH, density, scale);
+            return new float[]{l, t, r, b};
+        }
+
+        public static float udim1D(Object udimObj, float parentSize, float density, float scale) {
+            if (!(udimObj instanceof UDim)) return 0.0f;
+            UDim u = (UDim) udimObj;
+            return (u.getScale() * parentSize) + (u.getOffset() * density * scale);
+        }
+
+        public static float[] applyConstraints(Instance c, float w0, float h0, float density, float scale) {
+            float w = w0;
+            float h = h0;
+            for (Instance ch : c.getChildren()) {
+                String cn = ch.getClassName();
+                if ("UIAspectRatioConstraint".equals(cn)) {
+                    float aspect = numVal(ch, "AspectRatio", 1.0f);
+                    if (aspect <= 0.0f) aspect = 1.0f;
+                    int aspectType = enumVal(ch, "AspectType", 0);
+                    if (aspectType == 0) {
+                        // FitWithinMaxSize
+                        if (w <= 0.0f && h > 0.0f) {
+                            w = h * aspect;
+                        } else if (h <= 0.0f || (w / h) <= aspect) {
+                            h = w / aspect;
+                        } else {
+                            w = h * aspect;
+                        }
+                    } else {
+                        // ScaleWithParentSize
+                        if (enumVal(ch, "DominantAxis", 0) == 0) {
+                            h = w / aspect;
+                        } else {
+                            w = h * aspect;
+                        }
+                    }
+                } else if ("UISizeConstraint".equals(cn)) {
+                    Object minObj = ch.get("MinSize");
+                    Vector2 minV = minObj instanceof Vector2 ? (Vector2) minObj : new Vector2(0.0f, 0.0f);
+                    Object maxObj = ch.get("MaxSize");
+                    Vector2 maxV = maxObj instanceof Vector2 ? (Vector2) maxObj : new Vector2(Float.POSITIVE_INFINITY, Float.POSITIVE_INFINITY);
+                    float minW = minV.getX() * density * scale;
+                    float maxW = Math.max(minV.getX(), maxV.getX()) * density * scale;
+                    float minH = minV.getY() * density * scale;
+                    float maxH = Math.max(minV.getY(), maxV.getY()) * density * scale;
+                    w = Math.max(minW, Math.min(w, maxW));
+                    h = Math.max(minH, Math.min(h, maxH));
+                }
+            }
+            return new float[]{w, h};
+        }
+
+        /**
+         * Pure-Java size calculation (for JVM tests without Android TextPaint).
+         */
+        public static float[] resolveSizePure(Instance c, float aw, float ah, float density, float scale) {
+            UDim2 s = udimOf(c.get("Size"), new UDim2(0.0f, 0, 0.0f, 0));
+            float w = (s.getXs() * aw) + (s.getXo() * density * scale);
+            float h = (s.getYs() * ah) + (s.getYo() * density * scale);
+            int sc = enumVal(c, "SizeConstraint", 0);
+            if (sc == 1) {
+                h = (s.getYs() * aw) + (s.getYo() * density * scale);
+            } else if (sc == 2) {
+                w = (s.getXs() * ah) + (s.getXo() * density * scale);
+            }
+            float[] cs = applyConstraints(c, w, h, density, scale);
+            float own = ownScaleOf(c);
+            float w2 = cs[0] * own;
+            float h2 = cs[1] * own;
+            float effScale = scale * own;
+            int auto = enumVal(c, "AutomaticSize", 0);
+            if (auto != 0 && !"ScrollingFrame".equals(c.getClassName())) {
+                float[] pad = computePadding(c, Math.max(w2, aw), Math.max(h2, ah), density, effScale);
+                LayoutResult lr = computeLayout(
+                        c, pad[0], pad[1], Math.max(pad[0], Math.max(w2, aw) - pad[2]), Math.max(pad[1], Math.max(h2, ah) - pad[3]),
+                        density, effScale,
+                        new SizeResolver() {
+                            @Override
+                            public float[] resolveSize(Instance child, float caw, float cah, float csc) {
+                                return resolveSizePure(child, caw, cah, density, csc);
+                            }
+                        }
+                );
+                float mx = w2;
+                float my = h2;
+                for (LayoutBox b : lr.items) {
+                    mx = Math.max(mx, b.right);
+                    my = Math.max(my, b.bottom);
+                }
+                mx += pad[2];
+                my += pad[3];
+                if (auto == 1 || auto == 3) w2 = mx;
+                if (auto == 2 || auto == 3) h2 = my;
+            }
+            return new float[]{Math.max(w2, 0.0f), Math.max(h2, 0.0f)};
+        }
+
+        public static LayoutResult computeLayout(
+                Instance parent,
+                float areaL, float areaT, float areaR, float areaB,
+                float density, float childScale,
+                SizeResolver sizeResolver
+        ) {
+            ArrayList<Instance> kids = new ArrayList<>();
+            Instance listLayout = null;
+            Instance gridLayout = null;
+            Instance pageLayout = null;
+            Instance tableLayout = null;
+            for (Instance ch : parent.getChildren()) {
+                String cn = ch.getClassName();
+                if ("UIListLayout".equals(cn)) {
+                    listLayout = ch;
+                } else if ("UIGridLayout".equals(cn)) {
+                    gridLayout = ch;
+                } else if ("UIPageLayout".equals(cn)) {
+                    pageLayout = ch;
+                } else if ("UITableLayout".equals(cn)) {
+                    tableLayout = ch;
+                } else if (ch.isA("GuiObject") && !Boolean.FALSE.equals(ch.get("Visible"))) {
+                    kids.add(ch);
+                }
+            }
+            Instance activeLayout = listLayout != null ? listLayout : (gridLayout != null ? gridLayout : (pageLayout != null ? pageLayout : tableLayout));
+            if (kids.isEmpty()) {
+                return new LayoutResult(java.util.Collections.<LayoutBox>emptyList(), activeLayout, 0.0f, 0.0f, 0.0f, 0.0f, 0, 0);
+            }
+            if (activeLayout != null) {
+                final int sortOrder = enumVal(activeLayout, "SortOrder", 2);
+                if (sortOrder == 0) {
+                    java.util.Collections.sort(kids, new Comparator<Instance>() {
+                        @Override
+                        public int compare(Instance a, Instance b) {
+                            return a.getName().compareTo(b.getName());
+                        }
+                    });
+                } else if (sortOrder == 2) {
+                    java.util.Collections.sort(kids, new Comparator<Instance>() {
+                        @Override
+                        public int compare(Instance a, Instance b) {
+                            int la = (int) numVal(a, "LayoutOrder", 0.0f);
+                            int lb = (int) numVal(b, "LayoutOrder", 0.0f);
+                            return Integer.compare(la, lb);
+                        }
+                    });
+                }
+            } else {
+                java.util.Collections.sort(kids, new Comparator<Instance>() {
+                    @Override
+                    public int compare(Instance a, Instance b) {
+                        int za = (int) numVal(a, "ZIndex", 1.0f);
+                        int zb = (int) numVal(b, "ZIndex", 1.0f);
+                        return Integer.compare(za, zb);
+                    }
+                });
+            }
+
+            ArrayList<LayoutBox> out = new ArrayList<>(kids.size());
+            float aw = areaR - areaL;
+            float ah = areaB - areaT;
+
+            if (listLayout != null) {
+                boolean horiz = enumVal(listLayout, "FillDirection", 1) == 0;
+                int hAlign = enumVal(listLayout, "HorizontalAlignment", 1);
+                int vAlign = enumVal(listLayout, "VerticalAlignment", 1);
+                float padPx = udim1D(listLayout.get("Padding"), horiz ? aw : ah, density, childScale);
+                int nKids = kids.size();
+                float[][] sizes = new float[nKids][];
+                float[] flexGrow = new float[nKids];
+                float totalGrow = 0.0f;
+                float totalPrimary = 0.0f;
+                for (int i = 0; i < nKids; i++) {
+                    Instance kid = kids.get(i);
+                    sizes[i] = sizeResolver.resolveSize(kid, aw, ah, childScale);
+                    Instance flex = findChildByClass(kid, "UIFlexItem");
+                    if (flex != null) {
+                        int fm = enumVal(flex, "FlexMode", 0);
+                        float gr = (fm == 1 || fm == 2) ? 1.0f : numVal(flex, "GrowRatio", 0.0f);
+                        if (gr > 0.0f) {
+                            flexGrow[i] = gr;
+                            totalGrow += gr;
+                        }
+                    }
+                    totalPrimary += horiz ? sizes[i][0] : sizes[i][1];
+                    if (i > 0) totalPrimary += padPx;
+                }
+                boolean wraps = Boolean.TRUE.equals(listLayout.get("Wraps"));
+                float availPrimary = horiz ? aw : ah;
+                if (!wraps && totalGrow > 0.0f && availPrimary > totalPrimary) {
+                    float extra = availPrimary - totalPrimary;
+                    for (int i = 0; i < nKids; i++) {
+                        if (flexGrow[i] > 0.0f) {
+                            float add = extra * (flexGrow[i] / totalGrow);
+                            if (horiz) sizes[i][0] += add;
+                            else sizes[i][1] += add;
+                        }
+                    }
+                    totalPrimary = availPrimary;
+                }
+
+                if (wraps) {
+                    // Break into wrapped lines first so per-line alignment works accurately
+                    ArrayList<int[]> lines = new ArrayList<>();
+                    ArrayList<Float> linePrim = new ArrayList<>();
+                    ArrayList<Float> lineCross = new ArrayList<>();
+                    int lineStart = 0;
+                    float curP = 0.0f;
+                    float curC = 0.0f;
+                    for (int i = 0; i < nKids; i++) {
+                        float pSz = horiz ? sizes[i][0] : sizes[i][1];
+                        float cSz = horiz ? sizes[i][1] : sizes[i][0];
+                        if (i > lineStart && (curP + padPx + pSz) > availPrimary + 0.5f) {
+                            lines.add(new int[]{lineStart, i});
+                            linePrim.add(curP);
+                            lineCross.add(curC);
+                            lineStart = i;
+                            curP = pSz;
+                            curC = cSz;
+                        } else {
+                            curP = (i == lineStart) ? pSz : (curP + padPx + pSz);
+                            if (cSz > curC) curC = cSz;
+                        }
+                    }
+                    lines.add(new int[]{lineStart, nKids});
+                    linePrim.add(curP);
+                    lineCross.add(curC);
+
+                    float totalCross = 0.0f;
+                    for (int li = 0; li < lineCross.size(); li++) {
+                        totalCross += lineCross.get(li);
+                        if (li > 0) totalCross += padPx;
+                    }
+                    float crossCursor;
+                    if (horiz) {
+                        if (vAlign == 0) crossCursor = areaT + ((ah - totalCross) * 0.5f);
+                        else if (vAlign == 2) crossCursor = areaB - totalCross;
+                        else crossCursor = areaT;
+                    } else {
+                        if (hAlign == 0) crossCursor = areaL + ((aw - totalCross) * 0.5f);
+                        else if (hAlign == 2) crossCursor = areaR - totalCross;
+                        else crossCursor = areaL;
+                    }
+
+                    for (int li = 0; li < lines.size(); li++) {
+                        int sIdx = lines.get(li)[0];
+                        int eIdx = lines.get(li)[1];
+                        float lp = linePrim.get(li);
+                        float lc = lineCross.get(li);
+                        float pCursor;
+                        if (horiz) {
+                            if (hAlign == 0) pCursor = areaL + ((aw - lp) * 0.5f);
+                            else if (hAlign == 2) pCursor = areaR - lp;
+                            else pCursor = areaL;
+                        } else {
+                            if (vAlign == 0) pCursor = areaT + ((ah - lp) * 0.5f);
+                            else if (vAlign == 2) pCursor = areaB - lp;
+                            else pCursor = areaT;
+                        }
+                        for (int i = sIdx; i < eIdx; i++) {
+                            float cw = sizes[i][0];
+                            float chh = sizes[i][1];
+                            float x = horiz ? pCursor : crossCursor;
+                            float y = horiz ? crossCursor : pCursor;
+                            out.add(new LayoutBox(kids.get(i), x, y, x + cw, y + chh, true));
+                            pCursor += (horiz ? cw : chh) + padPx;
+                        }
+                        crossCursor += lc + padPx;
+                    }
+                } else {
+                    float cursor;
+                    if (horiz) {
+                        if (hAlign == 0) cursor = areaL + ((aw - totalPrimary) * 0.5f);
+                        else if (hAlign == 2) cursor = areaR - totalPrimary;
+                        else cursor = areaL;
+                    } else {
+                        if (vAlign == 0) cursor = areaT + ((ah - totalPrimary) * 0.5f);
+                        else if (vAlign == 2) cursor = areaB - totalPrimary;
+                        else cursor = areaT;
+                    }
+                    for (int i = 0; i < nKids; i++) {
+                        float cw = sizes[i][0];
+                        float chh = sizes[i][1];
+                        float x, y;
+                        if (horiz) {
+                            x = cursor;
+                            if (vAlign == 0) y = areaT + ((ah - chh) * 0.5f);
+                            else if (vAlign == 2) y = areaB - chh;
+                            else y = areaT;
+                            cursor += cw + padPx;
+                        } else {
+                            if (hAlign == 0) x = areaL + ((aw - cw) * 0.5f);
+                            else if (hAlign == 2) x = areaR - cw;
+                            else x = areaL;
+                            y = cursor;
+                            cursor += chh + padPx;
+                        }
+                        out.add(new LayoutBox(kids.get(i), x, y, x + cw, y + chh, true));
+                    }
+                }
+
+                float minX = Float.MAX_VALUE, minY = Float.MAX_VALUE;
+                float maxX = -Float.MAX_VALUE, maxY = -Float.MAX_VALUE;
+                for (LayoutBox b : out) {
+                    if (b.left < minX) minX = b.left;
+                    if (b.top < minY) minY = b.top;
+                    if (b.right > maxX) maxX = b.right;
+                    if (b.bottom > maxY) maxY = b.bottom;
+                }
+                return new LayoutResult(out, listLayout, Math.max(0.0f, maxX - minX), Math.max(0.0f, maxY - minY), 0.0f, 0.0f, 0, 0);
+            }
+
+            if (gridLayout != null) {
+                UDim2 cs = udimOf(gridLayout.get("CellSize"), new UDim2(0.0f, 100, 0.0f, 100));
+                UDim2 cp = udimOf(gridLayout.get("CellPadding"), new UDim2(0.0f, 5, 0.0f, 5));
+                float cw = Math.max(1.0f, (cs.getXs() * aw) + (cs.getXo() * density * childScale));
+                float chh = Math.max(1.0f, (cs.getYs() * ah) + (cs.getYo() * density * childScale));
+                float[] constrainedCell = applyConstraints(gridLayout, cw, chh, density, childScale);
+                cw = Math.max(1.0f, constrainedCell[0]);
+                chh = Math.max(1.0f, constrainedCell[1]);
+                float px = (cp.getXs() * aw) + (cp.getXo() * density * childScale);
+                float py = (cp.getYs() * ah) + (cp.getYo() * density * childScale);
+                boolean horiz = enumVal(gridLayout, "FillDirection", 0) == 0;
+                int maxCells = (int) numVal(gridLayout, "FillDirectionMaxCells", 0.0f);
+                int hAlign = enumVal(gridLayout, "HorizontalAlignment", 1);
+                int vAlign = enumVal(gridLayout, "VerticalAlignment", 1);
+                int startCorner = enumVal(gridLayout, "StartCorner", 0);
+                int nKids = kids.size();
+                int cols, rows;
+                if (horiz) {
+                    int fitCols = Math.max(1, (int) Math.floor((aw + px) / Math.max(cw + px, 1.0f)));
+                    if (maxCells > 0) fitCols = Math.min(fitCols, maxCells);
+                    cols = Math.max(1, fitCols);
+                    rows = (nKids + cols - 1) / cols;
+                } else {
+                    int fitRows = Math.max(1, (int) Math.floor((ah + py) / Math.max(chh + py, 1.0f)));
+                    if (maxCells > 0) fitRows = Math.min(fitRows, maxCells);
+                    rows = Math.max(1, fitRows);
+                    cols = (nKids + rows - 1) / rows;
+                }
+                int usedCols = horiz ? Math.min(nKids, cols) : cols;
+                int usedRows = horiz ? rows : Math.min(nKids, rows);
+                float contentW = usedCols > 0 ? (usedCols * cw) + (Math.max(0, usedCols - 1) * px) : 0.0f;
+                float contentH = usedRows > 0 ? (usedRows * chh) + (Math.max(0, usedRows - 1) * py) : 0.0f;
+                float originX = (hAlign == 0) ? (areaL + ((aw - contentW) * 0.5f)) : (hAlign == 2 ? (areaR - contentW) : areaL);
+                float originY = (vAlign == 0) ? (areaT + ((ah - contentH) * 0.5f)) : (vAlign == 2 ? (areaB - contentH) : areaT);
+                boolean flipX = (startCorner == 1 || startCorner == 3);
+                boolean flipY = (startCorner == 2 || startCorner == 3);
+                for (int i = 0; i < nKids; i++) {
+                    int col = horiz ? (i % cols) : (i / rows);
+                    int row = horiz ? (i / cols) : (i % rows);
+                    if (flipX) col = (usedCols - 1) - col;
+                    if (flipY) row = (usedRows - 1) - row;
+                    float x = originX + (col * (cw + px));
+                    float y = originY + (row * (chh + py));
+                    out.add(new LayoutBox(kids.get(i), x, y, x + cw, y + chh, true));
+                }
+                return new LayoutResult(out, gridLayout, contentW, contentH, cw, chh, usedCols, usedRows);
+            }
+
+            if (pageLayout != null) {
+                boolean horiz = enumVal(pageLayout, "FillDirection", 0) == 0;
+                float padPx = udim1D(pageLayout.get("Padding"), horiz ? aw : ah, density, childScale);
+                Object curPageObj = pageLayout.get("CurrentPage");
+                int curIdx = 0;
+                if (curPageObj instanceof Instance) {
+                    int found = kids.indexOf(curPageObj);
+                    if (found >= 0) curIdx = found;
+                }
+                for (int i = 0; i < kids.size(); i++) {
+                    int rel = i - curIdx;
+                    float x = horiz ? (areaL + rel * (aw + padPx)) : areaL;
+                    float y = horiz ? areaT : (areaT + rel * (ah + padPx));
+                    out.add(new LayoutBox(kids.get(i), x, y, x + aw, y + ah, true));
+                }
+                return new LayoutResult(out, pageLayout, aw, ah, 0.0f, 0.0f, 0, 0);
+            }
+
+            if (tableLayout != null) {
+                boolean horiz = enumVal(tableLayout, "FillDirection", 1) == 0;
+                UDim2 pad = udimOf(tableLayout.get("Padding"), new UDim2(0.0f, 0, 0.0f, 0));
+                float px = (pad.getXs() * aw) + (pad.getXo() * density * childScale);
+                float py = (pad.getYs() * ah) + (pad.getYo() * density * childScale);
+                int nKids = kids.size();
+                float cellW = horiz ? Math.max(1.0f, (aw - px * Math.max(0, nKids - 1)) / Math.max(1, nKids)) : aw;
+                float cellH = horiz ? ah : Math.max(1.0f, (ah - py * Math.max(0, nKids - 1)) / Math.max(1, nKids));
+                for (int i = 0; i < nKids; i++) {
+                    float x = horiz ? (areaL + i * (cellW + px)) : areaL;
+                    float y = horiz ? areaT : (areaT + i * (cellH + py));
+                    out.add(new LayoutBox(kids.get(i), x, y, x + cellW, y + cellH, true));
+                }
+                return new LayoutResult(out, tableLayout, aw, ah, 0.0f, 0.0f, 0, 0);
+            }
+
+            for (Instance c : kids) {
+                float[] sz = sizeResolver.resolveSize(c, aw, ah, childScale);
+                float cw = sz[0];
+                float chh = sz[1];
+                UDim2 pos = udimOf(c.get("Position"), new UDim2(0.0f, 0, 0.0f, 0));
+                Object apObj = c.get("AnchorPoint");
+                Vector2 ap = apObj instanceof Vector2 ? (Vector2) apObj : new Vector2(0.0f, 0.0f);
+                float px = areaL + (pos.getXs() * aw) + (pos.getXo() * density * childScale) - (ap.getX() * cw);
+                float py = areaT + (pos.getYs() * ah) + (pos.getYo() * density * childScale) - (ap.getY() * chh);
+                out.add(new LayoutBox(c, px, py, px + cw, py + chh, false));
+            }
+            return new LayoutResult(out, null, 0.0f, 0.0f, 0.0f, 0.0f, 0, 0);
+        }
+
+        public static HitBox hitTestButton(List<HitBox> hits, float x, float y) {
+            for (int idx = hits.size() - 1; idx >= 0; idx--) {
+                HitBox h = hits.get(idx);
+                if (!h.contains(x, y)) continue;
+                if (h.kind != SINK) return h;
+                if (!h.seeThrough) return null;
+            }
+            return null;
+        }
     }
 }

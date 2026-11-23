@@ -53,8 +53,10 @@ public final class LuaTypesKt {
     }
 
     public static final float optNum(LuaValue $this$optNum, float d) {
-        Intrinsics.checkNotNullParameter($this$optNum, "<this>");
-        return $this$optNum.isnil() ? d : (float) $this$optNum.checkdouble();
+        if ($this$optNum == null || $this$optNum.isnil()) {
+            return d;
+        }
+        return (float) $this$optNum.checkdouble();
     }
 
     public static final /* synthetic */ <T> T ud(LuaValue luaValue, String what) {

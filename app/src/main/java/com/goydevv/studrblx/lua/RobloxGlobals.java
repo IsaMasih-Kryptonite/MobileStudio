@@ -69,126 +69,54 @@ public final class RobloxGlobals {
     /* JADX WARN: Code duplicated, block: B:80:0x00c1 A[SYNTHETIC] */
     /* JADX WARN: Failed to restore switch over string. Please report as a decompilation issue */
     public final Instance resolveRequirePath(Instance caller, String path) {
-        Instance parent;
-        String clean = "";
-        String strFullName;
-        Instance instanceFindFirstChild$default;
         Intrinsics.checkNotNullParameter(caller, "caller");
         Intrinsics.checkNotNullParameter(path, "path");
-        Instance cur = caller;
-        Iterable iterableSplit$default = StringsKt.split((CharSequence) path, new char[]{'/'}, false, 0);
-        Collection arrayList = new ArrayList();
-        for (Object obj : iterableSplit$default) {
-            if (((String) obj).length() > 0) {
-                arrayList.add(obj);
+        Iterable iterableSplit = StringsKt.split((CharSequence) path, new char[]{'/'}, false, 0);
+        ArrayList<String> parts = new ArrayList<>();
+        for (Object obj : iterableSplit) {
+            String s = (String) obj;
+            if (s.length() > 0) {
+                parts.add(s);
             }
         }
-        List<String> parts = CollectionsKt.toMutableList(arrayList);
         if (parts.isEmpty()) {
             throw new LuaError("require path \"" + path + "\" is empty");
         }
-        String str = (String) parts.get(0);
-        switch (str.hashCode()) {
-            case 46:
-                if (str.equals(".")) {
-                    cur = caller.getParent();
-                    parts.remove(0);
-                    for (String name : parts) {
-                        if (!Intrinsics.areEqual(name, ".")) {
-                            if (Intrinsics.areEqual(name, "..")) {
-                                if (cur != null) {
-                                    parent = cur.getParent();
-                                } else {
-                                    parent = null;
-                                }
-                                cur = parent;
-                            } else {
-                                clean = StringsKt.removeSuffix(StringsKt.removeSuffix(name, (CharSequence) ".luau"), (CharSequence) ".lua");
-                                if (cur != null || (instanceFindFirstChild$default = Instance.findFirstChild$default(cur, clean, false, 2, null)) == null) {
-                                    if (cur != null || (strFullName = cur.fullName()) == null) {
-                                        strFullName = "nil";
-                                    }
-                                    throw new LuaError("require(\"" + path + "\"): " + clean + " is not a child of " + strFullName);
-                                }
-                                cur = instanceFindFirstChild$default;
-                            }
-                        }
-                    }
-                    if (cur != null) {
-                        return cur;
-                    }
-                    throw new LuaError("require(\"" + path + "\") went above the game");
-                }
-                throw new LuaError("require path \"" + path + "\" must start with ./, ../ or @self (aliases aren't supported)");
-            case 1472:
-                if (str.equals("..")) {
-                    Instance parent2 = caller.getParent();
-                    Instance cur2 = parent2 != null ? parent2.getParent() : null;
-                    parts.remove(0);
-                    cur = cur2;
-                    while (Intrinsics.areEqual(CollectionsKt.firstOrNull(parts), "..")) {
-                        cur = cur != null ? cur.getParent() : null;
-                        parts.remove(0);
-                    }
-                    Unit unit = Unit.INSTANCE;
-                    while (true) {
-                        String name = parts.isEmpty() ? "" : (String) parts.get(0);
-                        if (!Intrinsics.areEqual(name, ".")) {
-                            if (Intrinsics.areEqual(name, "..")) {
-                                if (cur != null) {
-                                    parent = cur.getParent();
-                                } else {
-                                    parent = null;
-                                }
-                                cur = parent;
-                            } else {
-                                clean = StringsKt.removeSuffix(StringsKt.removeSuffix(name, (CharSequence) ".luau"), (CharSequence) ".lua");
-                                if (cur != null) {
-                                }
-                            }
-                        }
-                        break;
-                    }
-                    if (cur != null) {
-                        strFullName = "nil";
-                    } else {
-                        strFullName = "nil";
-                    }
-                    throw new LuaError("require(\"" + path + "\"): " + clean + " is not a child of " + strFullName);
-                }
-                throw new LuaError("require path \"" + path + "\" must start with ./, ../ or @self (aliases aren't supported)");
-            case 62631820:
-                if (str.equals("@self")) {
-                    parts.remove(0);
-                    while (true) {
-                        String name = parts.isEmpty() ? "" : (String) parts.get(0);
-                        if (!Intrinsics.areEqual(name, ".")) {
-                            if (Intrinsics.areEqual(name, "..")) {
-                                if (cur != null) {
-                                    parent = cur.getParent();
-                                } else {
-                                    parent = null;
-                                }
-                                cur = parent;
-                            } else {
-                                clean = StringsKt.removeSuffix(StringsKt.removeSuffix(name, (CharSequence) ".luau"), (CharSequence) ".lua");
-                                if (cur != null) {
-                                }
-                            }
-                        }
-                        break;
-                    }
-                    if (cur != null) {
-                        strFullName = "nil";
-                    } else {
-                        strFullName = "nil";
-                    }
-                    throw new LuaError("require(\"" + path + "\"): " + clean + " is not a child of " + strFullName);
-                }
-                throw new LuaError("require path \"" + path + "\" must start with ./, ../ or @self (aliases aren't supported)");
-            default:
-                throw new LuaError("require path \"" + path + "\" must start with ./, ../ or @self (aliases aren't supported)");
+        String first = parts.get(0);
+        Instance cur;
+        if (".".equals(first)) {
+            cur = caller.getParent();
+            parts.remove(0);
+        } else if ("..".equals(first)) {
+            Instance p = caller.getParent();
+            cur = p != null ? p.getParent() : null;
+            parts.remove(0);
+        } else if ("@self".equals(first)) {
+            cur = caller;
+            parts.remove(0);
+        } else {
+            throw new LuaError("require path \"" + path + "\" must start with ./, ../ or @self (aliases aren't supported)");
         }
+        for (String name : parts) {
+            if (".".equals(name)) {
+                continue;
+            }
+            if ("..".equals(name)) {
+                cur = cur != null ? cur.getParent() : null;
+                continue;
+            }
+            String clean = StringsKt.removeSuffix(StringsKt.removeSuffix(name, (CharSequence) ".luau"), (CharSequence) ".lua");
+            Instance child = cur != null ? Instance.findFirstChild$default(cur, clean, false, 2, null) : null;
+            if (child == null) {
+                String parentName = (cur != null && cur.fullName() != null) ? cur.fullName() : "nil";
+                throw new LuaError("require(\"" + path + "\"): " + clean + " is not a child of " + parentName);
+            }
+            cur = child;
+        }
+        if (cur == null) {
+            throw new LuaError("require(\"" + path + "\") went above the game");
+        }
+        return cur;
     }
 
     public final void install(final LuaRuntime rt) {
@@ -346,6 +274,10 @@ public final class RobloxGlobals {
                 return RobloxGlobals.install$lambda$27((Varargs) obj);
             }
         }));
+        g.set("Version", g.get("version"));
+        g.set("Delay", g.get("delay"));
+        g.set("Spawn", g.get("spawn"));
+        g.set("ElapsedTime", g.get("elapsedTime"));
         g.set("printidentity", LuaTypesKt.fnv(new Function1() { // from class: com.goydevv.studrblx.lua.RobloxGlobals$$ExternalSyntheticLambda15
             @Override // kotlin.jvm.functions.Function1
             public final Object invoke(Object obj) {
@@ -624,7 +556,24 @@ public final class RobloxGlobals {
                 return RobloxGlobals.install$lambda$74((LuaValue) obj);
             }
         }));
-        utf8.set("charpattern", "[\u0000-\u007fÂ-ý][\u0080-¿]*");
+        utf8.set("charpattern", LuaString.valueOf(new byte[]{
+            '[', 0x00, '-', 0x7F, (byte) 0xC2, '-', (byte) 0xFD, ']',
+            '[', (byte) 0x80, '-', (byte) 0xBF, ']', '*'
+        }));
+        utf8.set("nfdnormalize", LuaTypesKt.fn1(new Function1() {
+            @Override
+            public final Object invoke(Object obj) {
+                String s = ((LuaValue) obj).checkjstring();
+                return LuaValue.valueOf(java.text.Normalizer.normalize(s, java.text.Normalizer.Form.NFD));
+            }
+        }));
+        utf8.set("nfcnormalize", LuaTypesKt.fn1(new Function1() {
+            @Override
+            public final Object invoke(Object obj) {
+                String s = ((LuaValue) obj).checkjstring();
+                return LuaValue.valueOf(java.text.Normalizer.normalize(s, java.text.Normalizer.Form.NFC));
+            }
+        }));
         utf8.set("codepoint", LuaTypesKt.fnv(new Function1() {
             @Override
             public final Object invoke(Object obj) {
@@ -767,6 +716,90 @@ public final class RobloxGlobals {
                 return LuaValue.valueOf(Double.isInfinite(((LuaValue) obj).checkdouble()));
             }
         }));
+        math.set("log10", LuaTypesKt.fn1(new Function1() {
+            @Override
+            public final Object invoke(Object obj) {
+                return LuaValue.valueOf(Math.log10(((LuaValue) obj).checkdouble()));
+            }
+        }));
+        table.set("foreach", LuaTypesKt.fnv(new Function1() {
+            @Override
+            public final Object invoke(Object obj) {
+                Varargs a = (Varargs) obj;
+                LuaTable t = a.arg(1).checktable();
+                LuaFunction f = a.arg(2).checkfunction();
+                LuaValue k = LuaValue.NIL;
+                while (true) {
+                    Varargs n = t.next(k);
+                    k = n.arg1();
+                    if (k.isnil()) {
+                        return LuaValue.NIL;
+                    }
+                    LuaValue r = f.call(k, n.arg(2));
+                    if (!r.isnil()) {
+                        return r;
+                    }
+                }
+            }
+        }));
+        table.set("foreachi", LuaTypesKt.fnv(new Function1() {
+            @Override
+            public final Object invoke(Object obj) {
+                Varargs a = (Varargs) obj;
+                LuaTable t = a.arg(1).checktable();
+                LuaFunction f = a.arg(2).checkfunction();
+                int len = t.length();
+                for (int i = 1; i <= len; i++) {
+                    LuaValue r = f.call(LuaValue.valueOf(i), t.get(i));
+                    if (!r.isnil()) {
+                        return r;
+                    }
+                }
+                return LuaValue.NIL;
+            }
+        }));
+        table.set("maxn", LuaTypesKt.fn1(new Function1() {
+            @Override
+            public final Object invoke(Object obj) {
+                LuaTable t = ((LuaValue) obj).checktable();
+                double max = 0.0d;
+                LuaValue k = LuaValue.NIL;
+                while (true) {
+                    Varargs n = t.next(k);
+                    k = n.arg1();
+                    if (k.isnil()) {
+                        return LuaValue.valueOf(max);
+                    }
+                    if (k.isnumber()) {
+                        double d = k.todouble();
+                        if (d > max) {
+                            max = d;
+                        }
+                    }
+                }
+            }
+        }));
+        LuaValue coroVal = g.get("coroutine");
+        if (coroVal.istable()) {
+            coroVal.set("isyieldable", LuaTypesKt.fnv(new Function1() {
+                @Override
+                public final Object invoke(Object obj) {
+                    LuaThread running = g.running;
+                    return LuaValue.valueOf(running != null && !running.isMainThread());
+                }
+            }));
+            coroVal.set("close", LuaTypesKt.fnv(new Function1() {
+                @Override
+                public final Object invoke(Object obj) {
+                    Varargs a = (Varargs) obj;
+                    LuaValue th = a.arg(1);
+                    if (th instanceof LuaThread) {
+                        rt.cancel((LuaThread) th);
+                    }
+                    return LuaValue.TRUE;
+                }
+            }));
+        }
         installBuffer(g);
         installDateTime(g);
         installDebugAndOs(g, table, string);
@@ -1193,7 +1226,8 @@ public final class RobloxGlobals {
                 return t;
             }
         }));
-        LuaTable dbg = new LuaTable();
+        LuaValue existingDbg = g.get("debug");
+        LuaTable dbg = existingDbg.istable() ? existingDbg.checktable() : new LuaTable();
         dbg.set("profilebegin", LuaTypesKt.fnv(new Function1() {
             @Override
             public final Object invoke(Object obj) { return LuaValue.NONE; }
@@ -1210,14 +1244,16 @@ public final class RobloxGlobals {
             @Override
             public final Object invoke(Object obj) { return LuaValue.NONE; }
         }));
-        dbg.set("traceback", LuaTypesKt.fnv(new Function1() {
-            @Override
-            public final Object invoke(Object obj) {
-                Varargs a = (Varargs) obj;
-                String msg = a.arg(1).isstring() ? a.arg(1).tojstring() : "";
-                return LuaValue.valueOf(msg.length() > 0 ? msg + "\nstack traceback:" : "stack traceback:");
-            }
-        }));
+        if (!dbg.get("traceback").isfunction()) {
+            dbg.set("traceback", LuaTypesKt.fnv(new Function1() {
+                @Override
+                public final Object invoke(Object obj) {
+                    Varargs a = (Varargs) obj;
+                    String msg = a.arg(1).isstring() ? a.arg(1).tojstring() : "";
+                    return LuaValue.valueOf(msg.length() > 0 ? msg + "\nstack traceback:" : "stack traceback:");
+                }
+            }));
+        }
         dbg.set("info", LuaTypesKt.fnv(new Function1() {
             @Override
             public final Object invoke(Object obj) {
@@ -1522,6 +1558,11 @@ public final class RobloxGlobals {
                 return LuaValue.varargsOf(out.toArray(new LuaValue[0]));
             }
         }));
+        if (LuaString.s_metatable == null) {
+            LuaString.s_metatable = LuaValue.tableOf(new LuaValue[]{LuaValue.INDEX, string});
+        } else {
+            LuaString.s_metatable.set(LuaValue.INDEX, string);
+        }
     }
 
     private final void installDateTime(Globals g) {
@@ -1834,7 +1875,9 @@ public final class RobloxGlobals {
                         inst = robloxGlobals.resolveRequirePath(caller, str);
                     }
                 }
-                throw new LuaError("require(\"" + m.tojstring() + "\") needs to be called from a script");
+                if (inst == null) {
+                    throw new LuaError("require(\"" + m.tojstring() + "\") needs to be called from a script");
+                }
             }
             throw new LuaError("Attempted to call require with invalid argument(s).");
         }

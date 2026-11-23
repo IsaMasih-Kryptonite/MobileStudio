@@ -124,7 +124,9 @@ public final class MeshLoader {
                     ((Function1) it.next()).invoke(Long.valueOf($id));
                 }
             } catch (Exception e2) {
-                bad.add(Long.valueOf($id));
+                if (!(e2 instanceof java.io.IOException)) {
+                    bad.add(Long.valueOf($id));
+                }
                 if (e2 instanceof RbxMesh.UnsupportedMesh) {
                     String message2 = e2.getMessage();
                     if (message2 == null) {

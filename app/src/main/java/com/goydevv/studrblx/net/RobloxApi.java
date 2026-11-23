@@ -38,6 +38,26 @@ import org.json.JSONObject;
 /* JADX INFO: loaded from: classes6.dex */
 public final class RobloxApi {
     public static final RobloxApi INSTANCE = new RobloxApi();
+    private static volatile long activePlaceId = 0L;
+
+    public final long getActivePlaceId() {
+        return activePlaceId;
+    }
+
+    public final void setActivePlaceId(long placeId) {
+        activePlaceId = placeId > 0L ? placeId : 0L;
+    }
+
+    public static boolean isJsonErrorPayload(byte[] b) {
+        if (b == null || b.length < 10) return false;
+        int i = 0;
+        while (i < b.length && i < 16 && (b[i] == ' ' || b[i] == '\n' || b[i] == '\r' || b[i] == '\t')) i++;
+        if (i < b.length && b[i] == '{') {
+            String head = new String(b, i, Math.min(b.length - i, 128), java.nio.charset.StandardCharsets.UTF_8);
+            return head.contains("\"errors\"") || head.contains("\"errorMessage\"");
+        }
+        return false;
+    }
     private static final String PREFS = "roblox_auth";
 
     /* JADX INFO: compiled from: RobloxApi.kt */
@@ -1306,6 +1326,9 @@ public final class RobloxApi {
             headers.put("Cookie", ".ROBLOSECURITY=" + cookie);
             headers.put("Roblox-Browser-Asset-Request", "true");
             headers.put("User-Agent", "Roblox/WinInet");
+            if (activePlaceId > 0L) {
+                headers.put("Roblox-Place-Id", String.valueOf(activePlaceId));
+            }
             try {
                 JSONObject j2 = Http.INSTANCE.json("https://assetdelivery.roblox.com/v2/assetId/" + id + vPath, headers);
                 JSONArray locs = j2.optJSONArray("locations");
@@ -1328,7 +1351,12 @@ public final class RobloxApi {
 
         // 3. Public / unauthenticated Roblox AssetDelivery v2 -> v1 fallback (for public textures, baseplate, animations, meshes)
         try {
-            Map<String, String> pubHeaders = MapsKt.mapOf(TuplesKt.to("Roblox-Browser-Asset-Request", "true"), TuplesKt.to("User-Agent", "Roblox/WinInet"));
+            Map<String, String> pubHeaders = new java.util.LinkedHashMap<>();
+            pubHeaders.put("Roblox-Browser-Asset-Request", "true");
+            pubHeaders.put("User-Agent", "Roblox/WinInet");
+            if (activePlaceId > 0L) {
+                pubHeaders.put("Roblox-Place-Id", String.valueOf(activePlaceId));
+            }
             JSONObject jPub = Http.INSTANCE.json("https://assetdelivery.roblox.com/v2/assetId/" + id + vPath, pubHeaders);
             JSONArray locsPub = jPub.optJSONArray("locations");
             if (locsPub != null && locsPub.length() > 0) {
@@ -1342,7 +1370,11 @@ public final class RobloxApi {
             if (lastError == null) lastError = e;
         }
         try {
-            return ungzip(Http.get$default(Http.INSTANCE, "https://assetdelivery.roblox.com/v1/asset/?id=" + id + vQuery, null, 0, 6, null));
+            byte[] pubV1 = ungzip(Http.get$default(Http.INSTANCE, "https://assetdelivery.roblox.com/v1/asset/?id=" + id + vQuery, null, 0, 6, null));
+            if (isJsonErrorPayload(pubV1)) {
+                throw new IOException("AssetDelivery returned JSON error for asset " + id);
+            }
+            return pubV1;
         } catch (HttpException e6) {
             if (cookie.length() == 0 && key.length() == 0 && (e6.getCode() == 401 || e6.getCode() == 403)) {
                 throw new AuthRequiredException("Roblox requires sign-in to download this asset.");

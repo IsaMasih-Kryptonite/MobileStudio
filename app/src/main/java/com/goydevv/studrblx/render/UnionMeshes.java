@@ -332,12 +332,23 @@ public final class UnionMeshes {
         Map groups = new LinkedHashMap();
         ArrayList all = new ArrayList();
         int t = 0;
+        int numVerts = p.length / 3;
+        int[] colors = m.getColors();
         while (t + 2 < m.getIndices().length) {
             int a = m.getIndices()[t];
             int b = m.getIndices()[t + 1];
             int c2 = m.getIndices()[t + 2];
             t += 3;
-            int color = m.getColors()[a] | ViewCompat.MEASURED_STATE_MASK;
+            if (a < 0 || a >= numVerts || b < 0 || b >= numVerts || c2 < 0 || c2 >= numVerts) {
+                continue;
+            }
+            float fnx = 0.0f, fny = 1.0f, fnz = 0.0f;
+            float ux = p[b * 3] - p[a * 3], uy = p[(b * 3) + 1] - p[(a * 3) + 1], uz = p[(b * 3) + 2] - p[(a * 3) + 2];
+            float vx = p[c2 * 3] - p[a * 3], vy = p[(c2 * 3) + 1] - p[(a * 3) + 1], vz = p[(c2 * 3) + 2] - p[(a * 3) + 2];
+            float fcx = (uy * vz) - (uz * vy), fcy = (uz * vx) - (ux * vz), fcz = (ux * vy) - (uy * vx);
+            float fcl = (float) Math.sqrt((fcx * fcx) + (fcy * fcy) + (fcz * fcz));
+            if (fcl > 1.0E-7f) { fnx = fcx / fcl; fny = fcy / fcl; fnz = fcz / fcl; }
+            int color = (a < colors.length ? colors[a] : 0xA3A2A5) | ViewCompat.MEASURED_STATE_MASK;
             Map map = groups;
             Integer numValueOf = Integer.valueOf(color);
             Object obj = map.get(numValueOf);
@@ -374,9 +385,9 @@ public final class UnionMeshes {
                     ny = ny2 / l;
                     nz = nz2 / l;
                 } else {
-                    nx = 0.0f;
-                    ny = 1.0f;
-                    nz = 0.0f;
+                    nx = fnx;
+                    ny = fny;
+                    nz = fnz;
                 }
                 list.add(Float.valueOf(nx));
                 list.add(Float.valueOf(ny));

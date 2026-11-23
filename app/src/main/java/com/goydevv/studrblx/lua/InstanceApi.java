@@ -74,8 +74,8 @@ public final class InstanceApi {
         char c = 6;
         char c2 = 21;
         this.commonMethods = SetsKt.setOf(new String[]{"FindFirstChild", "FindFirstChildOfClass", "FindFirstChildWhichIsA", "FindFirstAncestor", "FindFirstAncestorOfClass", "FindFirstAncestorWhichIsA", "FindFirstDescendant", "WaitForChild", "GetChildren", "GetDescendants", "IsA", "IsDescendantOf", "IsAncestorOf", "Destroy", "Remove", "Clone", "ClearAllChildren", "GetFullName", "GetAttribute", "SetAttribute", "GetAttributes", "GetAttributeChangedSignal", "GetPropertyChangedSignal", "GetService", "FindService", "GetTags", "HasTag", "AddTag", "RemoveTag", "GetActor", "GetDebugId", "IsPropertyModified", "ResetPropertyToDefault"});
-        this.classMethods = MapsKt.mapOf(TuplesKt.to("BasePart", SetsKt.setOf(new String[]{"GetMass", "ApplyImpulse", "ApplyAngularImpulse", "GetConnectedParts", "GetTouchingParts", "GetRootPart", "SetNetworkOwner", "GetNetworkOwner", "CanSetNetworkOwnership", "BreakJoints", "MakeJoints", "Resize", "GetVelocityAtPosition", "GetPivot", "PivotTo", "IsGrounded", "GetJoints"})), TuplesKt.to("Model", SetsKt.setOf(new String[]{"GetPivot", "PivotTo", "MoveTo", "SetPrimaryPartCFrame", "GetPrimaryPartCFrame", "GetBoundingBox", "GetExtentsSize", "BreakJoints", "MakeJoints", "TranslateBy", "GetModelCFrame", "GetModelSize", "ScaleTo", "GetScale"})), TuplesKt.to("Humanoid", SetsKt.setOf(new String[]{"TakeDamage", "MoveTo", "ChangeState", "GetState", "LoadAnimation", "EquipTool", "UnequipTools", "GetPlayingAnimationTracks", "SetStateEnabled", "GetStateEnabled", "Move", "ApplyDescription", "GetAppliedDescription", "AddAccessory", "GetAccessories"})), TuplesKt.to("Animator", SetsKt.setOf(new String[]{"LoadAnimation", "GetPlayingAnimationTracks"})), TuplesKt.to("AnimationController", SetsKt.setOf(new String[]{"LoadAnimation", "GetPlayingAnimationTracks"})), TuplesKt.to("Workspace", SetsKt.setOf(new String[]{"Raycast", "FindPartOnRay", "FindPartOnRayWithIgnoreList", "FindPartOnRayWithWhitelist", "GetPartBoundsInBox", "GetPartBoundsInRadius", "GetPartsInPart", "GetServerTimeNow", "GetRealPhysicsFPS", "Spherecast", "Blockcast", "FindPartsInRegion3", "FindPartsInRegion3WithIgnoreList", "FindPartsInRegion3WithWhiteList", "IsRegion3Empty", "IsRegion3EmptyWithIgnoreList", "JoinToOutsiders", "UnjoinFromOutsiders", "BulkMoveTo", "ArePartsTouchingOthers", "GetNumAwakeParts", "PGSIsEnabled", "SetInsertPoint", "ZoomToExtents", "CalculateJumpPower", "CalculateJumpHeight", "GetPhysicsThrottling", "Shapecast"})), TuplesKt.to("Players", SetsKt.setOf(new String[]{"GetPlayers", "GetPlayerFromCharacter", "GetPlayerByUserId", "GetUserIdFromNameAsync", "GetNameFromUserIdAsync", "GetUserThumbnailAsync", "GetHumanoidDescriptionFromUserId"})), TuplesKt.to("Player", SetsKt.setOf(new String[]{"Kick", "LoadCharacter", "GetMouse", "IsInGroup", "GetRankInGroup", "GetRoleInGroup", "DistanceFromCharacter", "IsFriendsWith", "HasAppearanceLoaded", "GetJoinData", "ClearCharacterAppearance", "GetNetworkPing"})), TuplesKt.to("RunService", SetsKt.setOf(new String[]{"IsStudio", "IsRunning", "IsServer", "IsClient", "IsEdit", "IsRunMode", "BindToRenderStep", "UnbindFromRenderStep"})), TuplesKt.to("TweenService", SetsKt.setOf(new String[]{"Create", "GetValue", "SmoothDamp"})), TuplesKt.to("Debris", SetsKt.setOf(new String[]{"AddItem", "addItem"})), TuplesKt.to("HttpService", SetsKt.setOf(new String[]{"JSONEncode", "JSONDecode", "GenerateGUID", "UrlEncode", "GetAsync", "PostAsync", "RequestAsync"})), TuplesKt.to("CollectionService", SetsKt.setOf(new String[]{"GetTagged", "AddTag", "RemoveTag", "HasTag", "GetTags", "GetInstanceAddedSignal", "GetInstanceRemovedSignal", "GetAllTags"})), TuplesKt.to("Selection", SetsKt.setOf(new String[]{"Get", "Set", "Add", "Remove"})), TuplesKt.to("ChangeHistoryService", SetsKt.setOf(new String[]{"SetWaypoint", "TryBeginRecording", "FinishRecording", "Undo", "Redo", "ResetWaypoints", "SetEnabled", "GetCanUndo", "GetCanRedo"})), TuplesKt.to("DataStoreService", SetsKt.setOf(new String[]{"GetDataStore", "GetGlobalDataStore", "GetOrderedDataStore"})), TuplesKt.to("MarketplaceService", SetsKt.setOf(new String[]{"PromptPurchase", "PromptGamePassPurchase", "PromptProductPurchase", "UserOwnsGamePassAsync", "GetProductInfo", "PlayerOwnsAsset"})), TuplesKt.to("UserInputService", SetsKt.setOf(new String[]{"GetMouseLocation", "IsKeyDown", "GetFocusedTextBox", "IsMouseButtonPressed", "GetKeysPressed", "GetLastInputType", "GetConnectedGamepads"})), TuplesKt.to("ContextActionService", SetsKt.setOf(new String[]{"BindAction", "UnbindAction", "BindActionAtPriority", "SetTitle", "SetImage", "SetPosition", "SetDescription", "GetButton", "UnbindAllActions", "GetBoundActionInfo", "GetAllBoundActionInfo"})), TuplesKt.to("StarterGui", SetsKt.setOf(new String[]{"SetCore", "GetCore", "SetCoreGuiEnabled", "GetCoreGuiEnabled"})), TuplesKt.to("BindableEvent", SetsKt.setOf("Fire")), TuplesKt.to("BindableFunction", SetsKt.setOf("Invoke")), TuplesKt.to("RemoteEvent", SetsKt.setOf(new String[]{"FireServer", "FireClient", "FireAllClients"})), TuplesKt.to("UnreliableRemoteEvent", SetsKt.setOf(new String[]{"FireServer", "FireClient", "FireAllClients"})), TuplesKt.to("RemoteFunction", SetsKt.setOf(new String[]{"InvokeServer", "InvokeClient"})), TuplesKt.to("Sound", SetsKt.setOf(new String[]{"Play", "Stop", "Pause", "Resume"})), TuplesKt.to("GuiObject", SetsKt.setOf(new String[]{"TweenPosition", "TweenSize", "TweenSizeAndPosition"})), TuplesKt.to("TextBox", SetsKt.setOf(new String[]{"CaptureFocus", "ReleaseFocus", "IsFocused"})), TuplesKt.to("TextService", SetsKt.setOf(new String[]{"GetTextSize", "FilterStringAsync"})), TuplesKt.to("Plugin", SetsKt.setOf(new String[]{"CreateToolbar", "GetSetting", "SetSetting", "CreateDockWidgetPluginGui", "CreateDockWidgetPluginGuiAsync", "CreateQWidgetPluginGui", "OpenScript", "GetMouse", "Activate", "Deactivate", "IsActivated", "IsActivatedWithExclusiveMouse", "GetStudioUserId", "CreatePluginAction", "CreatePluginMenu", "SelectRibbonTool", "GetSelectedRibbonTool", "Union", "Negate", "Separate", "Intersect", "StartDrag", "OpenWikiPage", "SaveSelectedToRoblox", "GetJoinMode", "PromptForExistingAssetId", "ImportFbxRig", "GetItem", "SetItem", "GetGridSize", "IsLoaded", "PromptSaveSelection"})), TuplesKt.to("PluginGui", SetsKt.setOf(new String[]{"BindToClose", "GetRelativeMousePosition"})), TuplesKt.to("PluginToolbar", SetsKt.setOf("CreateButton")), TuplesKt.to("PluginToolbarButton", SetsKt.setOf("SetActive")), TuplesKt.to("ParticleEmitter", SetsKt.setOf(new String[]{"Emit", "Clear"})), TuplesKt.to("Camera", SetsKt.setOf(new String[]{"WorldToScreenPoint", "WorldToViewportPoint", "ScreenPointToRay", "ViewportPointToRay", "GetPartsObscuringTarget"})), TuplesKt.to("Lighting", SetsKt.setOf(new String[]{"GetMinutesAfterMidnight", "SetMinutesAfterMidnight", "GetSunDirection", "GetMoonDirection"})), TuplesKt.to("SoundService", SetsKt.setOf(new String[]{"PlayLocalSound", "SetListener", "GetListener"})), TuplesKt.to("PathfindingService", SetsKt.setOf(new String[]{"CreatePath", "FindPathAsync"})), TuplesKt.to("BadgeService", SetsKt.setOf(new String[]{"AwardBadge", "UserHasBadgeAsync", "GetBadgeInfoAsync"})), TuplesKt.to("TeleportService", SetsKt.setOf(new String[]{"Teleport", "TeleportAsync", "TeleportToPlaceInstance"})), TuplesKt.to("InsertService", SetsKt.setOf("LoadAsset")), TuplesKt.to("Teams", SetsKt.setOf("GetTeams")), TuplesKt.to("Team", SetsKt.setOf("GetPlayers")), TuplesKt.to("PhysicsService", SetsKt.setOf(new String[]{"RegisterCollisionGroup", "CollisionGroupSetCollidable", "SetPartCollisionGroup", "CreateCollisionGroup", "CollisionGroupsAreCollidable", "GetRegisteredCollisionGroups"})), TuplesKt.to("Tool", SetsKt.setOf(new String[]{"Activate", "Deactivate"})), TuplesKt.to("ProximityPrompt", SetsKt.setOf(new String[]{"InputHoldBegin", "InputHoldEnd"})), TuplesKt.to("PlayerGui", SetsKt.setOf(new String[]{"SetTopbarTransparency", "GetGuiObjectsAtPosition"})), TuplesKt.to("MessagingService", SetsKt.setOf(new String[]{"PublishAsync", "SubscribeAsync"})), TuplesKt.to("Chat", SetsKt.setOf(new String[]{"Chat", "FilterStringForBroadcast"})), TuplesKt.to("TextChannel", SetsKt.setOf(new String[]{"SendAsync", "DisplaySystemMessage"})), TuplesKt.to("GuiService", SetsKt.setOf(new String[]{"GetGuiInset", "IsTenFootInterface"})), TuplesKt.to("LocalizationService", SetsKt.setOf(new String[]{"GetTranslatorForPlayerAsync", "GetCountryRegionForPlayerAsync"})), TuplesKt.to("PolicyService", SetsKt.setOf("GetPolicyInfoForPlayerAsync")), TuplesKt.to("StudioService", SetsKt.setOf(new String[]{"GetUserId", "PromptImportFile"})), TuplesKt.to("RbxAnalyticsService", SetsKt.setOf(new String[]{"GetSessionId", "GetClientId", "GetPlaySessionId", "ReportStats", "SendEventDeferred", "SendEventImmediately", "ReportCounter", "ReportInfluxSeries", "TrackEvent", "FireLogEvent", "SetRBXEvent"})), TuplesKt.to("DataModel", SetsKt.setOf(new String[]{"BindToClose", "IsLoaded", "GetJobsInfo", "SetPlaceId", "GetObjects"})));
-        this.events = SetsKt.setOf(new String[]{"Touched", "TouchEnded", "ChildAdded", "ChildRemoved", "DescendantAdded", "DescendantRemoving", "Changed", "AncestryChanged", "Destroying", "AttributeChanged", "Heartbeat", "RenderStepped", "Stepped", "PreSimulation", "PostSimulation", "PreRender", "PlayerAdded", "PlayerRemoving", "CharacterAdded", "CharacterRemoving", "CharacterAppearanceLoaded", "Died", "HealthChanged", "Running", "Jumping", "StateChanged", "MoveToFinished", "FreeFalling", "Seated", "MouseButton1Click", "MouseButton1Down", "MouseButton1Up", "MouseButton2Click", "Activated", "MouseEnter", "MouseLeave", "FocusLost", "Focused", "Event", "OnServerEvent", "OnClientEvent", "MouseClick", "RightMouseClick", "MouseHoverEnter", "MouseHoverLeave", "Triggered", "TriggerEnded", "PromptShown", "PromptHidden", "PromptTriggered", "Completed", "Click", "SelectionChanged", "InputBegan", "InputEnded", "InputChanged", "TouchTapInWorld", "TouchTap", "TouchStarted", "TouchEnded", "TouchMoved", "Equipped", "Unequipped", "Deactivated", "Played", "Ended", "Paused", "Resumed", "Loaded", "Chatted", "Idled", "Button1Down", "Button1Up", "Move", "Blocked", "PromptPurchaseFinished", "PromptGamePassPurchaseFinished", "ServerScriptServiceChanged", "WindowFocused", "WindowFocusReleased", "Unloading", "Close", "BindToClose", "Deactivation", "ChildAddedToCharacter", "ReturnPressedFromOnScreenKeyboard", "TextChanged", "MessageReceived", "OnIncomingMessage", "LastInputTypeChanged", "JumpRequest", "MouseDrag", "Unloading", "Deactivation", "Loaded", "PromptProductPurchaseFinished", "PromptPurchaseFinished", "PromptGamePassPurchaseFinished", "PromptBundlePurchaseFinished", "Loaded", "GraphicsQualityChangeRequest", "OnTeleport", "ChildRemoving", "ClockTimeChanged", "PlaybackStateChanged", "DidLoop", "Stopped", "KeyframeReached", "OnUndo", "OnRedo", "OnRecordingStarted", "OnRecordingFinished", "WaypointSet", "Activated", "PromptDismissed", "DragBegin", "DragContinue", "DragEnd", "MouseButton2Down", "MouseButton2Up", "MouseWheelForward", "MouseWheelBackward", "WheelBackward", "WheelForward", "Button2Down", "Button2Up", "KeyDown", "KeyUp", "SelectionGained", "SelectionLost"});
+        this.classMethods = MapsKt.mapOf(TuplesKt.to("BasePart", SetsKt.setOf(new String[]{"GetMass", "ApplyImpulse", "ApplyAngularImpulse", "GetConnectedParts", "GetTouchingParts", "GetRootPart", "SetNetworkOwner", "GetNetworkOwner", "CanSetNetworkOwnership", "BreakJoints", "MakeJoints", "Resize", "GetVelocityAtPosition", "GetPivot", "PivotTo", "IsGrounded", "GetJoints"})), TuplesKt.to("Model", SetsKt.setOf(new String[]{"GetPivot", "PivotTo", "MoveTo", "SetPrimaryPartCFrame", "GetPrimaryPartCFrame", "GetBoundingBox", "GetExtentsSize", "BreakJoints", "MakeJoints", "TranslateBy", "GetModelCFrame", "GetModelSize", "ScaleTo", "GetScale"})), TuplesKt.to("Humanoid", SetsKt.setOf(new String[]{"TakeDamage", "MoveTo", "ChangeState", "GetState", "LoadAnimation", "EquipTool", "UnequipTools", "GetPlayingAnimationTracks", "SetStateEnabled", "GetStateEnabled", "Move", "ApplyDescription", "GetAppliedDescription", "AddAccessory", "GetAccessories"})), TuplesKt.to("Animator", SetsKt.setOf(new String[]{"LoadAnimation", "GetPlayingAnimationTracks"})), TuplesKt.to("AnimationController", SetsKt.setOf(new String[]{"LoadAnimation", "GetPlayingAnimationTracks"})), TuplesKt.to("Workspace", SetsKt.setOf(new String[]{"Raycast", "FindPartOnRay", "FindPartOnRayWithIgnoreList", "FindPartOnRayWithWhitelist", "GetPartBoundsInBox", "GetPartBoundsInRadius", "GetPartsInPart", "GetServerTimeNow", "GetRealPhysicsFPS", "Spherecast", "Blockcast", "FindPartsInRegion3", "FindPartsInRegion3WithIgnoreList", "FindPartsInRegion3WithWhiteList", "IsRegion3Empty", "IsRegion3EmptyWithIgnoreList", "JoinToOutsiders", "UnjoinFromOutsiders", "BulkMoveTo", "ArePartsTouchingOthers", "GetNumAwakeParts", "PGSIsEnabled", "SetInsertPoint", "ZoomToExtents", "CalculateJumpPower", "CalculateJumpHeight", "GetPhysicsThrottling", "Shapecast"})), TuplesKt.to("Players", SetsKt.setOf(new String[]{"GetPlayers", "GetPlayerFromCharacter", "GetPlayerByUserId", "GetUserIdFromNameAsync", "GetNameFromUserIdAsync", "GetUserThumbnailAsync", "GetHumanoidDescriptionFromUserId"})), TuplesKt.to("Player", SetsKt.setOf(new String[]{"Kick", "LoadCharacter", "GetMouse", "IsInGroup", "GetRankInGroup", "GetRoleInGroup", "DistanceFromCharacter", "IsFriendsWith", "HasAppearanceLoaded", "GetJoinData", "ClearCharacterAppearance", "GetNetworkPing"})), TuplesKt.to("RunService", SetsKt.setOf(new String[]{"IsStudio", "IsRunning", "IsServer", "IsClient", "IsEdit", "IsRunMode", "BindToRenderStep", "UnbindFromRenderStep"})), TuplesKt.to("TweenService", SetsKt.setOf(new String[]{"Create", "GetValue", "SmoothDamp"})), TuplesKt.to("Debris", SetsKt.setOf(new String[]{"AddItem", "addItem"})), TuplesKt.to("HttpService", SetsKt.setOf(new String[]{"JSONEncode", "JSONDecode", "GenerateGUID", "UrlEncode", "GetAsync", "PostAsync", "RequestAsync"})), TuplesKt.to("CollectionService", SetsKt.setOf(new String[]{"GetTagged", "AddTag", "RemoveTag", "HasTag", "GetTags", "GetInstanceAddedSignal", "GetInstanceRemovedSignal", "GetAllTags"})), TuplesKt.to("Selection", SetsKt.setOf(new String[]{"Get", "Set", "Add", "Remove"})), TuplesKt.to("ChangeHistoryService", SetsKt.setOf(new String[]{"SetWaypoint", "TryBeginRecording", "FinishRecording", "Undo", "Redo", "ResetWaypoints", "SetEnabled", "GetCanUndo", "GetCanRedo"})), TuplesKt.to("DataStoreService", SetsKt.setOf(new String[]{"GetDataStore", "GetGlobalDataStore", "GetOrderedDataStore"})), TuplesKt.to("MarketplaceService", SetsKt.setOf(new String[]{"PromptPurchase", "PromptGamePassPurchase", "PromptProductPurchase", "UserOwnsGamePassAsync", "GetProductInfo", "PlayerOwnsAsset"})), TuplesKt.to("UserInputService", SetsKt.setOf(new String[]{"GetMouseLocation", "IsKeyDown", "GetFocusedTextBox", "IsMouseButtonPressed", "GetKeysPressed", "GetLastInputType", "GetConnectedGamepads"})), TuplesKt.to("ContextActionService", SetsKt.setOf(new String[]{"BindAction", "UnbindAction", "BindActionAtPriority", "SetTitle", "SetImage", "SetPosition", "SetDescription", "GetButton", "UnbindAllActions", "GetBoundActionInfo", "GetAllBoundActionInfo"})), TuplesKt.to("StarterGui", SetsKt.setOf(new String[]{"SetCore", "GetCore", "SetCoreGuiEnabled", "GetCoreGuiEnabled"})), TuplesKt.to("BindableEvent", SetsKt.setOf("Fire")), TuplesKt.to("BindableFunction", SetsKt.setOf("Invoke")), TuplesKt.to("RemoteEvent", SetsKt.setOf(new String[]{"FireServer", "FireClient", "FireAllClients"})), TuplesKt.to("UnreliableRemoteEvent", SetsKt.setOf(new String[]{"FireServer", "FireClient", "FireAllClients"})), TuplesKt.to("RemoteFunction", SetsKt.setOf(new String[]{"InvokeServer", "InvokeClient"})), TuplesKt.to("Sound", SetsKt.setOf(new String[]{"Play", "Stop", "Pause", "Resume"})), TuplesKt.to("GuiObject", SetsKt.setOf(new String[]{"TweenPosition", "TweenSize", "TweenSizeAndPosition"})), TuplesKt.to("TextBox", SetsKt.setOf(new String[]{"CaptureFocus", "ReleaseFocus", "IsFocused"})), TuplesKt.to("TextService", SetsKt.setOf(new String[]{"GetTextSize", "FilterStringAsync"})), TuplesKt.to("Plugin", SetsKt.setOf(new String[]{"CreateToolbar", "GetSetting", "SetSetting", "CreateDockWidgetPluginGui", "CreateDockWidgetPluginGuiAsync", "CreateQWidgetPluginGui", "OpenScript", "GetMouse", "Activate", "Deactivate", "IsActivated", "IsActivatedWithExclusiveMouse", "GetStudioUserId", "CreatePluginAction", "CreatePluginMenu", "SelectRibbonTool", "GetSelectedRibbonTool", "Union", "Negate", "Separate", "Intersect", "StartDrag", "OpenWikiPage", "SaveSelectedToRoblox", "GetJoinMode", "PromptForExistingAssetId", "ImportFbxRig", "GetItem", "SetItem", "GetGridSize", "IsLoaded", "PromptSaveSelection"})), TuplesKt.to("PluginGui", SetsKt.setOf(new String[]{"BindToClose", "GetRelativeMousePosition"})), TuplesKt.to("PluginToolbar", SetsKt.setOf("CreateButton")), TuplesKt.to("PluginToolbarButton", SetsKt.setOf("SetActive")), TuplesKt.to("ParticleEmitter", SetsKt.setOf(new String[]{"Emit", "Clear"})), TuplesKt.to("Camera", SetsKt.setOf(new String[]{"WorldToScreenPoint", "WorldToViewportPoint", "ScreenPointToRay", "ViewportPointToRay", "GetPartsObscuringTarget"})), TuplesKt.to("Lighting", SetsKt.setOf(new String[]{"GetMinutesAfterMidnight", "SetMinutesAfterMidnight", "GetSunDirection", "GetMoonDirection"})), TuplesKt.to("SoundService", SetsKt.setOf(new String[]{"PlayLocalSound", "SetListener", "GetListener"})), TuplesKt.to("PathfindingService", SetsKt.setOf(new String[]{"CreatePath", "FindPathAsync"})), TuplesKt.to("BadgeService", SetsKt.setOf(new String[]{"AwardBadge", "UserHasBadgeAsync", "GetBadgeInfoAsync"})), TuplesKt.to("TeleportService", SetsKt.setOf(new String[]{"Teleport", "TeleportAsync", "TeleportToPlaceInstance"})), TuplesKt.to("InsertService", SetsKt.setOf("LoadAsset")), TuplesKt.to("Teams", SetsKt.setOf("GetTeams")), TuplesKt.to("Team", SetsKt.setOf("GetPlayers")), TuplesKt.to("PhysicsService", SetsKt.setOf(new String[]{"RegisterCollisionGroup", "UnregisterCollisionGroup", "RemoveCollisionGroup", "IsCollisionGroupRegistered", "CollisionGroupSetCollidable", "SetPartCollisionGroup", "CreateCollisionGroup", "CollisionGroupsAreCollidable", "GetRegisteredCollisionGroups"})), TuplesKt.to("ContentProvider", SetsKt.setOf(new String[]{"PreloadAsync", "GetAssetFetchStatus"})), TuplesKt.to("Tool", SetsKt.setOf(new String[]{"Activate", "Deactivate"})), TuplesKt.to("ProximityPrompt", SetsKt.setOf(new String[]{"InputHoldBegin", "InputHoldEnd"})), TuplesKt.to("PlayerGui", SetsKt.setOf(new String[]{"SetTopbarTransparency", "GetGuiObjectsAtPosition"})), TuplesKt.to("MessagingService", SetsKt.setOf(new String[]{"PublishAsync", "SubscribeAsync"})), TuplesKt.to("Chat", SetsKt.setOf(new String[]{"Chat", "FilterStringForBroadcast"})), TuplesKt.to("TextChannel", SetsKt.setOf(new String[]{"SendAsync", "DisplaySystemMessage"})), TuplesKt.to("GuiService", SetsKt.setOf(new String[]{"GetGuiInset", "IsTenFootInterface"})), TuplesKt.to("LocalizationService", SetsKt.setOf(new String[]{"GetTranslatorForPlayerAsync", "GetCountryRegionForPlayerAsync"})), TuplesKt.to("PolicyService", SetsKt.setOf("GetPolicyInfoForPlayerAsync")), TuplesKt.to("StudioService", SetsKt.setOf(new String[]{"GetUserId", "PromptImportFile"})), TuplesKt.to("RbxAnalyticsService", SetsKt.setOf(new String[]{"GetSessionId", "GetClientId", "GetPlaySessionId", "ReportStats", "SendEventDeferred", "SendEventImmediately", "ReportCounter", "ReportInfluxSeries", "TrackEvent", "FireLogEvent", "SetRBXEvent"})), TuplesKt.to("DataModel", SetsKt.setOf(new String[]{"BindToClose", "IsLoaded", "GetJobsInfo", "SetPlaceId", "GetObjects"})), TuplesKt.to("ReplicatedFirst", SetsKt.setOf(new String[]{"RemoveDefaultLoadingScreen", "IsFinishedReplicating", "IsDefaultLoadingScreenRemoved"})));
+        this.events = SetsKt.setOf(new String[]{"Touched", "TouchEnded", "ChildAdded", "ChildRemoved", "DescendantAdded", "DescendantRemoving", "Changed", "AncestryChanged", "Destroying", "AttributeChanged", "Heartbeat", "RenderStepped", "Stepped", "PreSimulation", "PostSimulation", "PreRender", "PreAnimation", "PlayerAdded", "PlayerRemoving", "CharacterAdded", "CharacterRemoving", "CharacterAppearanceLoaded", "Died", "HealthChanged", "Running", "Jumping", "StateChanged", "MoveToFinished", "FreeFalling", "Seated", "MouseButton1Click", "MouseButton1Down", "MouseButton1Up", "MouseButton2Click", "Activated", "MouseEnter", "MouseLeave", "FocusLost", "Focused", "Event", "OnServerEvent", "OnClientEvent", "MouseClick", "RightMouseClick", "MouseHoverEnter", "MouseHoverLeave", "Triggered", "TriggerEnded", "PromptShown", "PromptHidden", "PromptTriggered", "Completed", "Click", "SelectionChanged", "InputBegan", "InputEnded", "InputChanged", "TouchTapInWorld", "TouchTap", "TouchStarted", "TouchEnded", "TouchMoved", "Equipped", "Unequipped", "Deactivated", "Played", "Ended", "Paused", "Resumed", "Loaded", "Chatted", "Idled", "Button1Down", "Button1Up", "Move", "Blocked", "PromptPurchaseFinished", "PromptGamePassPurchaseFinished", "ServerScriptServiceChanged", "WindowFocused", "WindowFocusReleased", "Unloading", "Close", "BindToClose", "Deactivation", "ChildAddedToCharacter", "ReturnPressedFromOnScreenKeyboard", "TextChanged", "MessageReceived", "OnIncomingMessage", "LastInputTypeChanged", "JumpRequest", "MouseDrag", "Unloading", "Deactivation", "Loaded", "PromptProductPurchaseFinished", "PromptPurchaseFinished", "PromptGamePassPurchaseFinished", "PromptBundlePurchaseFinished", "Loaded", "GraphicsQualityChangeRequest", "OnTeleport", "ChildRemoving", "ClockTimeChanged", "PlaybackStateChanged", "DidLoop", "Stopped", "KeyframeReached", "OnUndo", "OnRedo", "OnRecordingStarted", "OnRecordingFinished", "WaypointSet", "Activated", "PromptDismissed", "DragBegin", "DragContinue", "DragEnd", "MouseButton2Down", "MouseButton2Up", "MouseWheelForward", "MouseWheelBackward", "WheelBackward", "WheelForward", "Button2Down", "Button2Up", "KeyDown", "KeyUp", "SelectionGained", "SelectionLost"});
         this.sequenceClasses = SetsKt.setOf(new String[]{"UIGradient", "ParticleEmitter", "Beam", "Trail"});
         this.universalEvents = SetsKt.setOf(new String[]{"ChildAdded", "ChildRemoved", "DescendantAdded", "DescendantRemoving", "Changed", "AncestryChanged", "Destroying", "AttributeChanged"});
         LuaTable m = this.rt.getInstanceMeta();
@@ -131,8 +131,8 @@ public final class InstanceApi {
         }));
         this.CONSTRAINT_READOUTS = SetsKt.setOf(new String[]{"CurrentPosition", "CurrentAngle", "CurrentDistance", "CurrentLength"});
         this.BASE_PROPS = SetsKt.setOf(new String[]{"Name", "ClassName", "Parent", "Archivable"});
-        this.PART_PROPS = SetsKt.setOf(new String[]{"Position", "Orientation", "Rotation", "Size", "Color", "BrickColor", "CFrame", "AssemblyLinearVelocity", "Velocity", "AssemblyAngularVelocity", "RotVelocity", "Mass", "AssemblyMass", "PivotOffset", "AssemblyRootPart", "Anchored", "CanCollide", "Transparency", "Material", "Shape", "CanTouch", "CanQuery", "Locked", "Massless", "Reflectance", "CastShadow"});
-        this.SPECIAL_PROPS = MapsKt.mapOf(TuplesKt.to("DataModel", SetsKt.setOf(new String[]{"PlaceId", "GameId", "CreatorId", "CreatorType", "PlaceVersion", "JobId", "PrivateServerId", "PrivateServerOwnerId"})), TuplesKt.to("ImageLabel", SetsKt.setOf("IsLoaded")), TuplesKt.to("ImageButton", SetsKt.setOf("IsLoaded")), TuplesKt.to("StudioService", SetsKt.setOf(new String[]{"GridSize", "RotateIncrement", "UseLocalSpace", "DraggerSolveConstraints", "ShowConstraintDetails", "ActiveScript", "StudioLocaleId", "Theme"})), TuplesKt.to("DraggerService", SetsKt.setOf(new String[]{"HoverThickness", "AlignDraggedObjects", "ShowHover", "AnimateHover", "PivotSnapToGeometry", "ShowPivotIndicator", "JointsEnabled", "CollisionsEnabled", "AngleSnapEnabled", "AngleSnapIncrement", "LinearSnapEnabled", "LinearSnapIncrement", "HoverAnimateFrequency", "GeometrySnapColor"})), TuplesKt.to("Players", SetsKt.setOf(new String[]{"LocalPlayer", "MaxPlayers"})), TuplesKt.to("Humanoid", SetsKt.setOf(new String[]{"Health", "RootPart", "MoveDirection", "FloorMaterial", "Jump", "SeatPart", "Sit", "PlatformStand", "AutoRotate", "UseJumpPower", "JumpHeight", "RigType"})), TuplesKt.to("Workspace", SetsKt.setOf(new String[]{"DistributedGameTime", "CurrentCamera", "Gravity", "StreamingEnabled"})), TuplesKt.to("Camera", SetsKt.setOf(new String[]{"ViewportSize", "CFrame", "Focus", "CameraSubject", "CameraType", "FieldOfView"})), TuplesKt.to("Lighting", SetsKt.setOf(new String[]{"TimeOfDay", "ClockTime", "Brightness", "Ambient", "OutdoorAmbient", "FogEnd", "FogStart", "FogColor", "GlobalShadows"})), TuplesKt.to("UserInputService", SetsKt.setOf(new String[]{"TouchEnabled", "KeyboardEnabled", "MouseEnabled", "GamepadEnabled", "VREnabled", "MouseBehavior", "MouseIconEnabled", "AccelerometerEnabled", "GyroscopeEnabled", "ModalEnabled"})), TuplesKt.to("HttpService", SetsKt.setOf("HttpEnabled")), TuplesKt.to("RunService", SetsKt.setOf("ClientGitHash")), TuplesKt.to("Player", SetsKt.setOf(new String[]{"PlayerGui", "Backpack", "Character", "UserId", "DisplayName", "Team", "TeamColor", "Neutral", "AccountAge", "MembershipType", "RespawnLocation", "CameraMode", "CameraMaxZoomDistance", "CameraMinZoomDistance", "DevTouchMovementMode"})), TuplesKt.to("TextBox", SetsKt.setOf(new String[]{"TextBounds", "ContentText", "TextFits"})), TuplesKt.to("TextLabel", SetsKt.setOf(new String[]{"TextBounds", "ContentText", "TextFits"})), TuplesKt.to("TextButton", SetsKt.setOf(new String[]{"TextBounds", "ContentText", "TextFits"})), TuplesKt.to("StarterGui", SetsKt.setOf(new String[]{"ShowDevelopmentGui", "ResetPlayerGuiOnSpawn"})), TuplesKt.to("Sound", SetsKt.setOf(new String[]{"SoundId", "Volume", "Looped", "Playing", "IsPlaying", "IsPaused", "IsLoaded", "TimeLength", "TimePosition", "PlaybackSpeed", "PlaybackLoudness", "RollOffMinDistance", "RollOffMaxDistance", "RollOffMode", "PlayOnRemove", "SoundGroup"})), TuplesKt.to("SoundService", SetsKt.setOf(new String[]{"AmbientReverb", "DistanceFactor", "DopplerScale", "RolloffScale", "RespectFilteringEnabled"})));
+        this.PART_PROPS = SetsKt.setOf(new String[]{"Position", "Orientation", "Rotation", "Size", "Color", "BrickColor", "CFrame", "AssemblyLinearVelocity", "Velocity", "AssemblyAngularVelocity", "RotVelocity", "Mass", "AssemblyMass", "PivotOffset", "AssemblyRootPart", "Anchored", "CanCollide", "Transparency", "Material", "Shape", "CanTouch", "CanQuery", "Locked", "Massless", "Reflectance", "CastShadow", "CustomPhysicalProperties", "CollisionGroup"});
+        this.SPECIAL_PROPS = MapsKt.mapOf(TuplesKt.to("DataModel", SetsKt.setOf(new String[]{"PlaceId", "GameId", "CreatorId", "CreatorType", "PlaceVersion", "JobId", "PrivateServerId", "PrivateServerOwnerId"})), TuplesKt.to("ImageLabel", SetsKt.setOf("IsLoaded")), TuplesKt.to("ImageButton", SetsKt.setOf("IsLoaded")), TuplesKt.to("StudioService", SetsKt.setOf(new String[]{"GridSize", "RotateIncrement", "UseLocalSpace", "DraggerSolveConstraints", "ShowConstraintDetails", "ActiveScript", "StudioLocaleId", "Theme"})), TuplesKt.to("DraggerService", SetsKt.setOf(new String[]{"HoverThickness", "AlignDraggedObjects", "ShowHover", "AnimateHover", "PivotSnapToGeometry", "ShowPivotIndicator", "JointsEnabled", "CollisionsEnabled", "AngleSnapEnabled", "AngleSnapIncrement", "LinearSnapEnabled", "LinearSnapIncrement", "HoverAnimateFrequency", "GeometrySnapColor"})), TuplesKt.to("Players", SetsKt.setOf(new String[]{"LocalPlayer", "MaxPlayers"})), TuplesKt.to("Humanoid", SetsKt.setOf(new String[]{"Health", "RootPart", "MoveDirection", "FloorMaterial", "Jump", "SeatPart", "Sit", "PlatformStand", "AutoRotate", "UseJumpPower", "JumpHeight", "RigType"})), TuplesKt.to("Workspace", SetsKt.setOf(new String[]{"DistributedGameTime", "CurrentCamera", "Gravity", "StreamingEnabled"})), TuplesKt.to("Camera", SetsKt.setOf(new String[]{"ViewportSize", "CFrame", "Focus", "CameraSubject", "CameraType", "FieldOfView"})), TuplesKt.to("Lighting", SetsKt.setOf(new String[]{"TimeOfDay", "ClockTime", "Brightness", "Ambient", "OutdoorAmbient", "FogEnd", "FogStart", "FogColor", "GlobalShadows", "ExposureCompensation"})), TuplesKt.to("UserInputService", SetsKt.setOf(new String[]{"TouchEnabled", "KeyboardEnabled", "MouseEnabled", "GamepadEnabled", "VREnabled", "MouseBehavior", "MouseIconEnabled", "AccelerometerEnabled", "GyroscopeEnabled", "ModalEnabled"})), TuplesKt.to("HttpService", SetsKt.setOf("HttpEnabled")), TuplesKt.to("RunService", SetsKt.setOf("ClientGitHash")), TuplesKt.to("Player", SetsKt.setOf(new String[]{"PlayerGui", "Backpack", "PlayerScripts", "Character", "UserId", "DisplayName", "Team", "TeamColor", "Neutral", "AccountAge", "MembershipType", "RespawnLocation", "CameraMode", "CameraMaxZoomDistance", "CameraMinZoomDistance", "DevTouchMovementMode"})), TuplesKt.to("TextBox", SetsKt.setOf(new String[]{"TextBounds", "ContentText", "TextFits"})), TuplesKt.to("TextLabel", SetsKt.setOf(new String[]{"TextBounds", "ContentText", "TextFits"})), TuplesKt.to("TextButton", SetsKt.setOf(new String[]{"TextBounds", "ContentText", "TextFits"})), TuplesKt.to("StarterGui", SetsKt.setOf(new String[]{"ShowDevelopmentGui", "ResetPlayerGuiOnSpawn"})), TuplesKt.to("Sound", SetsKt.setOf(new String[]{"SoundId", "Volume", "Looped", "Playing", "IsPlaying", "IsPaused", "IsLoaded", "TimeLength", "TimePosition", "PlaybackSpeed", "PlaybackLoudness", "RollOffMinDistance", "RollOffMaxDistance", "RollOffMode", "PlayOnRemove", "SoundGroup"})), TuplesKt.to("SoundService", SetsKt.setOf(new String[]{"AmbientReverb", "DistanceFactor", "DopplerScale", "RolloffScale", "RespectFilteringEnabled"})), TuplesKt.to("Attachment", SetsKt.setOf(new String[]{"Position", "Orientation", "CFrame", "Axis", "SecondaryAxis", "WorldPosition", "WorldCFrame", "WorldAxis", "WorldSecondaryAxis", "Visible"})), TuplesKt.to("WeldConstraint", SetsKt.setOf(new String[]{"Part0", "Part1", "Enabled", "Active"})), TuplesKt.to("RopeConstraint", SetsKt.setOf(new String[]{"Attachment0", "Attachment1", "Enabled", "Visible", "Length", "Restitution", "WinchEnabled", "WinchTarget", "WinchSpeed", "WinchForce", "WinchResponsiveness", "Thickness", "CurrentDistance"})), TuplesKt.to("HingeConstraint", SetsKt.setOf(new String[]{"Attachment0", "Attachment1", "Enabled", "Visible", "ActuatorType", "AngularVelocity", "MotorMaxTorque", "MotorMaxAcceleration", "AngularSpeed", "TargetAngle", "ServoMaxTorque", "LimitsEnabled", "LowerAngle", "UpperAngle", "Restitution", "CurrentAngle", "Radius"})), TuplesKt.to("SpringConstraint", SetsKt.setOf(new String[]{"Attachment0", "Attachment1", "Enabled", "Visible", "FreeLength", "Stiffness", "Damping", "MaxForce", "LimitsEnabled", "MinLength", "MaxLength", "CurrentLength", "Coils", "Radius", "Thickness"})), TuplesKt.to("RodConstraint", SetsKt.setOf(new String[]{"Attachment0", "Attachment1", "Enabled", "Visible", "Length", "LimitsEnabled", "LimitAngle0", "LimitAngle1", "Thickness", "CurrentDistance"})), TuplesKt.to("BallSocketConstraint", SetsKt.setOf(new String[]{"Attachment0", "Attachment1", "Enabled", "Visible", "LimitsEnabled", "UpperAngle", "TwistLimitsEnabled", "TwistLowerAngle", "TwistUpperAngle", "MaxFrictionTorque", "Restitution", "Radius"})), TuplesKt.to("PrismaticConstraint", SetsKt.setOf(new String[]{"Attachment0", "Attachment1", "Enabled", "Visible", "ActuatorType", "Velocity", "MotorMaxForce", "MotorMaxAcceleration", "Speed", "TargetPosition", "ServoMaxForce", "LimitsEnabled", "LowerLimit", "UpperLimit", "Restitution", "CurrentPosition"})), TuplesKt.to("CylindricalConstraint", SetsKt.setOf(new String[]{"Attachment0", "Attachment1", "Enabled", "Visible", "ActuatorType", "Velocity", "MotorMaxForce", "Speed", "TargetPosition", "ServoMaxForce", "LimitsEnabled", "LowerLimit", "UpperLimit", "Restitution", "CurrentPosition", "AngularActuatorType", "AngularVelocity", "MotorMaxTorque", "AngularSpeed", "TargetAngle", "ServoMaxTorque", "AngularLimitsEnabled", "LowerAngle", "UpperAngle", "CurrentAngle"})), TuplesKt.to("LinearVelocity", SetsKt.setOf(new String[]{"Attachment0", "Attachment1", "Enabled", "VectorVelocity", "LineVelocity", "PlaneVelocity", "MaxForce", "VelocityConstraintMode", "RelativeTo", "LineDirection"})), TuplesKt.to("AngularVelocity", SetsKt.setOf(new String[]{"Attachment0", "Attachment1", "Enabled", "AngularVelocity", "MaxTorque", "RelativeTo"})), TuplesKt.to("AlignPosition", SetsKt.setOf(new String[]{"Attachment0", "Attachment1", "Enabled", "Position", "Mode", "MaxForce", "MaxVelocity", "Responsiveness", "RigidityEnabled"})), TuplesKt.to("AlignOrientation", SetsKt.setOf(new String[]{"Attachment0", "Attachment1", "Enabled", "CFrame", "Mode", "MaxTorque", "MaxAngularVelocity", "Responsiveness", "RigidityEnabled"})), TuplesKt.to("BloomEffect", SetsKt.setOf(new String[]{"Enabled", "Intensity", "Size", "Threshold"})), TuplesKt.to("ColorCorrectionEffect", SetsKt.setOf(new String[]{"Enabled", "Brightness", "Contrast", "Saturation", "TintColor"})), TuplesKt.to("SunRaysEffect", SetsKt.setOf(new String[]{"Enabled", "Intensity", "Spread"})), TuplesKt.to("BlurEffect", SetsKt.setOf(new String[]{"Enabled", "Size"})), TuplesKt.to("DepthOfFieldEffect", SetsKt.setOf(new String[]{"Enabled", "FarIntensity", "FocusDistance", "InFocusRadius", "NearIntensity"})), TuplesKt.to("Atmosphere", SetsKt.setOf(new String[]{"Density", "Offset", "Color", "Decay", "Glare", "Haze"})), TuplesKt.to("ScreenGui", SetsKt.setOf(new String[]{"Enabled", "ResetOnSpawn", "IgnoreGuiInset", "DisplayOrder"})), TuplesKt.to("VehicleSeat", SetsKt.setOf(new String[]{"Throttle", "ThrottleFloat", "Steer", "SteerFloat", "MaxSpeed", "Torque", "TurnSpeed", "Occupant", "Disabled", "HeadsUpDisplay", "AreHingesDetected"})), TuplesKt.to("Seat", SetsKt.setOf(new String[]{"Occupant", "Disabled"})));
         HashMap map = new HashMap();
         List listListOf = CollectionsKt.listOf(new String[]{"TextLabel", "TextButton", "TextBox", "Message", "Hint"});
         Iterator it = CollectionsKt.listOf(new String[]{"Text", "TextScaled", "TextSize", "TextBounds", "TextColor3", "TextWrapped", "TextXAlignment", "TextYAlignment", "Font", "FontFace", "TextTransparency", "TextStrokeTransparency", "TextStrokeColor3", "RichText", "LineHeight", "MaxVisibleGraphemes", "TextFits", "ContentText", "TextTruncate", "TextDirection", "TextWrap"}).iterator();
@@ -673,10 +673,62 @@ public final class InstanceApi {
             case "Parent": return inst.getParent();
             case "CFrame":
                 if (inst.isA("BasePart")) return PartData.INSTANCE.cframe(inst);
+                if (inst.isA("Attachment")) return attLocalCFrame(inst);
+                if ("Camera".equals(inst.getClassName())) {
+                    Object cf = inst.get("CFrame");
+                    return cf instanceof CFrame ? cf : this.rt.getStudio().getCamera().cframe();
+                }
                 return inst.get("CFrame");
             case "Position":
                 if (inst.isA("BasePart")) return PartData.INSTANCE.cframe(inst).getPosition();
+                if (inst.isA("Attachment")) return attLocalCFrame(inst).getPosition();
                 return inst.get("Position");
+            case "Axis":
+                if (inst.isA("Attachment")) return attLocalCFrame(inst).getRightVector();
+                return inst.get("Axis");
+            case "SecondaryAxis":
+                if (inst.isA("Attachment")) return attLocalCFrame(inst).getUpVector();
+                return inst.get("SecondaryAxis");
+            case "WorldCFrame":
+                if (inst.isA("Attachment")) return attWorldCFrame(inst);
+                return inst.get("WorldCFrame");
+            case "WorldPosition":
+                if (inst.isA("Attachment")) return attWorldCFrame(inst).getPosition();
+                return inst.get("WorldPosition");
+            case "WorldAxis":
+                if (inst.isA("Attachment")) return attWorldCFrame(inst).getRightVector();
+                return inst.get("WorldAxis");
+            case "WorldSecondaryAxis":
+                if (inst.isA("Attachment")) return attWorldCFrame(inst).getUpVector();
+                return inst.get("WorldSecondaryAxis");
+            case "Part0":
+                if ("WeldConstraint".equals(inst.getClassName())) {
+                    Object p0 = inst.get("Part0");
+                    return p0 != null ? p0 : inst.get("Part0Internal");
+                }
+                return inst.get("Part0");
+            case "Part1":
+                if ("WeldConstraint".equals(inst.getClassName())) {
+                    Object p1 = inst.get("Part1");
+                    return p1 != null ? p1 : inst.get("Part1Internal");
+                }
+                return inst.get("Part1");
+            case "Active":
+                if ("WeldConstraint".equals(inst.getClassName())) {
+                    Object p0 = inst.get("Part0"); if (p0 == null) p0 = inst.get("Part0Internal");
+                    Object p1 = inst.get("Part1"); if (p1 == null) p1 = inst.get("Part1Internal");
+                    return Boolean.valueOf(!Boolean.FALSE.equals(inst.get("Enabled")) && p0 instanceof Instance && p1 instanceof Instance);
+                }
+                return inst.get("Active");
+            case "Shape":
+                if (inst.isA("BasePart")) return new EnumValue(PartData.INSTANCE.shape(inst));
+                return inst.get("Shape");
+            case "CollisionGroup":
+                if (inst.isA("BasePart")) {
+                    Object cg = inst.get("CollisionGroup");
+                    return cg instanceof String ? cg : "Default";
+                }
+                return inst.get("CollisionGroup");
             case "Size":
                 if (inst.isA("BasePart")) return PartData.INSTANCE.size(inst);
                 return inst.get("Size");
@@ -893,11 +945,465 @@ public final class InstanceApi {
                 }
                 return txt;
             }
+            case "PlayerGui":
+            case "Backpack":
+            case "PlayerScripts":
+                if ("Player".equals(inst.getClassName())) {
+                    return Instance.findFirstChild$default(inst, k, false, 2, null);
+                }
+                return inst.get(k);
+            case "ViewportSize":
+                if ("Camera".equals(inst.getClassName())) {
+                    return this.rt.getStudio().viewportSizeDp();
+                }
+                return inst.get(k);
+            case "Focus":
+                if ("Camera".equals(inst.getClassName())) {
+                    Object foc = inst.get("Focus");
+                    return foc instanceof CFrame ? foc : CFrame.INSTANCE.getIDENTITY();
+                }
+                return inst.get(k);
+            case "FieldOfView":
+                if ("Camera".equals(inst.getClassName())) {
+                    Object fov = inst.get("FieldOfView");
+                    return fov instanceof Number ? Float.valueOf(((Number) fov).floatValue()) : Float.valueOf(70.0f);
+                }
+                return inst.get(k);
+            case "CameraType":
+                if ("Camera".equals(inst.getClassName())) {
+                    Object ct = inst.get("CameraType");
+                    if (ct instanceof EnumValue) return ct;
+                    if (ct instanceof Number) return new EnumValue(((Number) ct).intValue());
+                    return new EnumValue(5);
+                }
+                return inst.get(k);
+            case "CameraSubject":
+                if ("Camera".equals(inst.getClassName())) {
+                    Object cs = inst.get("CameraSubject");
+                    if (cs instanceof Instance) return cs;
+                    PlaySession pl = this.rt.getPlay();
+                    if (pl != null && pl.getCharacter() != null) {
+                        return pl.getCharacter().findFirstChildOfClass("Humanoid");
+                    }
+                    return null;
+                }
+                return inst.get(k);
+            case "RootPart":
+                if ("Humanoid".equals(inst.getClassName())) {
+                    Object rp = inst.get("RootPart");
+                    if (rp instanceof Instance) return rp;
+                    Instance par = inst.getParent();
+                    return par != null ? Instance.findFirstChild$default(par, "HumanoidRootPart", false, 2, null) : null;
+                }
+                return inst.get(k);
+            case "MoveDirection":
+                if ("Humanoid".equals(inst.getClassName())) {
+                    PlaySession pl = this.rt.getPlay();
+                    if (pl != null) return pl.moveDirection(inst);
+                    Object md = inst.get("MoveDirection");
+                    return md instanceof Vector3 ? md : Vector3.INSTANCE.getZERO();
+                }
+                return inst.get(k);
+            case "FloorMaterial":
+                if ("Humanoid".equals(inst.getClassName())) {
+                    Object fm = inst.get("FloorMaterial");
+                    if (fm instanceof EnumValue) return fm;
+                    if (fm instanceof Number) return new EnumValue(((Number) fm).intValue());
+                    return new EnumValue(1792);
+                }
+                return inst.get(k);
+            case "RigType":
+                if ("Humanoid".equals(inst.getClassName())) {
+                    Object rtVal = inst.get("RigType");
+                    if (rtVal instanceof EnumValue) return rtVal;
+                    if (rtVal instanceof Number) return new EnumValue(((Number) rtVal).intValue());
+                    Instance par = inst.getParent();
+                    boolean isR15Rig = par != null && Instance.findFirstChild$default(par, "UpperTorso", false, 2, null) != null;
+                    return new EnumValue(isR15Rig ? 1 : 0);
+                }
+                return inst.get(k);
+            case "AutoRotate":
+            case "UseJumpPower":
+                if ("Humanoid".equals(inst.getClassName())) {
+                    Object b = inst.get(k);
+                    return b instanceof Boolean ? b : Boolean.TRUE;
+                }
+                return inst.get(k);
+            case "Jump":
+            case "Sit":
+            case "PlatformStand":
+                if ("Humanoid".equals(inst.getClassName())) {
+                    Object b = inst.get(k);
+                    return b instanceof Boolean ? b : Boolean.FALSE;
+                }
+                return inst.get(k);
+            case "TouchEnabled":
+            case "MouseIconEnabled":
+                if ("UserInputService".equals(inst.getClassName())) {
+                    Object b = inst.get(k);
+                    return b instanceof Boolean ? b : Boolean.TRUE;
+                }
+                return inst.get(k);
+            case "KeyboardEnabled":
+            case "MouseEnabled":
+            case "GamepadEnabled":
+            case "VREnabled":
+            case "ModalEnabled":
+                if ("UserInputService".equals(inst.getClassName())) {
+                    Object b = inst.get(k);
+                    return b instanceof Boolean ? b : Boolean.FALSE;
+                }
+                return inst.get(k);
+            case "MouseBehavior":
+                if ("UserInputService".equals(inst.getClassName())) {
+                    Object mb = inst.get("MouseBehavior");
+                    if (mb instanceof EnumValue) return mb;
+                    if (mb instanceof Number) return new EnumValue(((Number) mb).intValue());
+                    return new EnumValue(0);
+                }
+                return inst.get(k);
+            case "DistributedGameTime":
+                if ("Workspace".equals(inst.getClassName())) {
+                    PlaySession pl = this.rt.getPlay();
+                    return Double.valueOf(pl != null ? pl.getElapsedTime() : 0.0d);
+                }
+                return inst.get(k);
+            case "Gravity":
+                if ("Workspace".equals(inst.getClassName())) {
+                    Object g = inst.get("Gravity");
+                    return g instanceof Number ? Float.valueOf(((Number) g).floatValue()) : Float.valueOf(196.2f);
+                }
+                return inst.get(k);
+            case "StreamingEnabled":
+                if ("Workspace".equals(inst.getClassName())) {
+                    Object se = inst.get("StreamingEnabled");
+                    return se instanceof Boolean ? se : Boolean.FALSE;
+                }
+                return inst.get(k);
+            case "ClockTime":
+                if ("Lighting".equals(inst.getClassName())) {
+                    return Float.valueOf(com.goydevv.studrblx.core.PlaceFactory.resolveClockTime(inst));
+                }
+                return inst.get(k);
+            case "TimeOfDay":
+                if ("Lighting".equals(inst.getClassName())) {
+                    float hours = com.goydevv.studrblx.core.PlaceFactory.resolveClockTime(inst);
+                    return com.goydevv.studrblx.core.PlaceFactory.formatClockTime(hours);
+                }
+                return inst.get(k);
+            case "Brightness":
+                if ("Lighting".equals(inst.getClassName())) {
+                    Object br = inst.get("Brightness");
+                    return br instanceof Number ? Float.valueOf(((Number) br).floatValue()) : Float.valueOf(2.0f);
+                }
+                return inst.get(k);
+            case "Ambient":
+                if ("Lighting".equals(inst.getClassName())) {
+                    Object amb = inst.get("Ambient");
+                    return amb instanceof Color3 ? amb : Color3.INSTANCE.fromRGB(70, 70, 70);
+                }
+                return inst.get(k);
+            case "OutdoorAmbient":
+                if ("Lighting".equals(inst.getClassName())) {
+                    Object oa = inst.get("OutdoorAmbient");
+                    return oa instanceof Color3 ? oa : Color3.INSTANCE.fromRGB(70, 70, 70);
+                }
+                return inst.get(k);
+            case "FogStart":
+                if ("Lighting".equals(inst.getClassName())) {
+                    Object fs = inst.get("FogStart");
+                    return fs instanceof Number ? Float.valueOf(((Number) fs).floatValue()) : Float.valueOf(0.0f);
+                }
+                return inst.get(k);
+            case "FogEnd":
+                if ("Lighting".equals(inst.getClassName())) {
+                    Object fe = inst.get("FogEnd");
+                    return fe instanceof Number ? Float.valueOf(((Number) fe).floatValue()) : Float.valueOf(100000.0f);
+                }
+                return inst.get(k);
+            case "FogColor":
+                if ("Lighting".equals(inst.getClassName())) {
+                    Object fc = inst.get("FogColor");
+                    return fc instanceof Color3 ? fc : Color3.INSTANCE.fromRGB(192, 192, 192);
+                }
+                return inst.get(k);
+            case "GlobalShadows":
+                if ("Lighting".equals(inst.getClassName())) {
+                    Object gs = inst.get("GlobalShadows");
+                    return gs instanceof Boolean ? gs : Boolean.TRUE;
+                }
+                return inst.get(k);
+            case "ExposureCompensation":
+                if ("Lighting".equals(inst.getClassName())) {
+                    Object ec = inst.get("ExposureCompensation");
+                    return ec instanceof Number ? Float.valueOf(((Number) ec).floatValue()) : Float.valueOf(0.0f);
+                }
+                return inst.get(k);
+            case "Orientation":
+            case "Rotation":
+                if (inst.isA("BasePart")) {
+                    Vector3 o = PartData.INSTANCE.cframe(inst).toOrientation();
+                    return new Vector3((float) Math.toDegrees(o.getX()), (float) Math.toDegrees(o.getY()), (float) Math.toDegrees(o.getZ()));
+                }
+                if (inst.isA("Attachment")) {
+                    Vector3 o = attLocalCFrame(inst).toOrientation();
+                    return new Vector3((float) Math.toDegrees(o.getX()), (float) Math.toDegrees(o.getY()), (float) Math.toDegrees(o.getZ()));
+                }
+                return inst.get(k);
+            case "AssemblyLinearVelocity":
+            case "Velocity":
+                if (inst.isA("BasePart")) {
+                    PlaySession pl = this.rt.getPlay();
+                    if (pl != null) {
+                        Vector3 vel = pl.velocityOf(inst);
+                        if (vel != null) return vel;
+                    }
+                    Object vObj = inst.get(k);
+                    return vObj instanceof Vector3 ? vObj : Vector3.INSTANCE.getZERO();
+                }
+                return inst.get(k);
+            case "AssemblyAngularVelocity":
+            case "RotVelocity":
+                if (inst.isA("BasePart")) {
+                    PlaySession pl = this.rt.getPlay();
+                    if (pl != null) {
+                        return pl.angularVelocityOf(inst);
+                    }
+                    Object vObj = inst.get(k);
+                    return vObj instanceof Vector3 ? vObj : Vector3.INSTANCE.getZERO();
+                }
+                return inst.get(k);
+            case "Mass":
+                if (inst.isA("BasePart")) {
+                    return Float.valueOf(computePartMass(inst));
+                }
+                return inst.get(k);
+            case "AssemblyMass":
+                if (inst.isA("BasePart")) {
+                    PlaySession pl = this.rt.getPlay();
+                    if (pl != null) return Float.valueOf(pl.assemblyMassOf(inst));
+                    return Float.valueOf(computePartMass(inst));
+                }
+                return inst.get(k);
+            case "AssemblyRootPart":
+                if (inst.isA("BasePart")) {
+                    Instance par = inst.getParent();
+                    if (par != null && par.isA("Model")) {
+                        Instance hrp = Instance.findFirstChild$default(par, "HumanoidRootPart", false, 2, null);
+                        if (hrp != null) return hrp;
+                        Object pp = par.get("PrimaryPart");
+                        if (pp instanceof Instance) return pp;
+                    }
+                    return inst;
+                }
+                return inst.get(k);
             default:
                 Object v = inst.get(k);
                 if (v == null && "Size".equals(k)) v = inst.get("size");
+                if (v == null) v = defaultPropValue(inst, k);
                 return v;
         }
+    }
+
+    private CFrame attLocalCFrame(Instance att) {
+        Object cfObj = att.get("CFrame");
+        if (cfObj instanceof CFrame) return (CFrame) cfObj;
+        return CFrame.INSTANCE.getIDENTITY();
+    }
+
+    private CFrame attWorldCFrame(Instance att) {
+        CFrame local = attLocalCFrame(att);
+        Instance par = att.getParent();
+        if (par != null && par.isA("BasePart")) {
+            return PartData.INSTANCE.cframe(par).times(local);
+        }
+        return local;
+    }
+
+    private float computePartMass(Instance p) {
+        PlaySession pl = this.rt.getPlay();
+        if (pl != null) return pl.partMassOf(p);
+        if (Boolean.TRUE.equals(p.get("Massless"))) return 0.0f;
+        Vector3 sz = PartData.INSTANCE.size(p);
+        int shape = PartData.INSTANCE.shape(p);
+        float vol;
+        if (shape == 0) {
+            float r = Math.min(sz.getX(), Math.min(sz.getY(), sz.getZ())) * 0.5f;
+            vol = (float) ((4.0d / 3.0d) * Math.PI * r * r * r);
+        } else if (shape == 2) {
+            float r = Math.min(sz.getY(), sz.getZ()) * 0.5f;
+            vol = (float) (Math.PI * r * r * sz.getX());
+        } else {
+            vol = sz.getX() * sz.getY() * sz.getZ();
+        }
+        float dens = 0.7f;
+        Object cpObj = p.get("CustomPhysicalProperties");
+        if (cpObj instanceof com.goydevv.studrblx.model.PhysicalProps && ((com.goydevv.studrblx.model.PhysicalProps) cpObj).getCustom()) {
+            dens = ((com.goydevv.studrblx.model.PhysicalProps) cpObj).getDensity();
+        }
+        return Math.max(vol, 0.001f) * dens;
+    }
+
+    private Object defaultPropValue(Instance inst, String k) {
+        String cn = inst.getClassName();
+        if ("VehicleSeat".equals(cn)) {
+            switch (k) {
+                case "Throttle": case "Steer": case "AreHingesDetected": return Integer.valueOf(0);
+                case "ThrottleFloat": case "SteerFloat": return Float.valueOf(0.0f);
+                case "MaxSpeed": return Float.valueOf(25.0f);
+                case "Torque": return Float.valueOf(10.0f);
+                case "TurnSpeed": return Float.valueOf(1.0f);
+                case "Disabled": return Boolean.FALSE;
+                case "HeadsUpDisplay": return Boolean.TRUE;
+                default: return null;
+            }
+        }
+        if ("Seat".equals(cn)) {
+            if ("Disabled".equals(k)) return Boolean.FALSE;
+            return null;
+        }
+        if ("ScreenGui".equals(cn)) {
+            if ("Enabled".equals(k) || "ResetOnSpawn".equals(k)) return Boolean.TRUE;
+            if ("IgnoreGuiInset".equals(k)) return Boolean.FALSE;
+            if ("DisplayOrder".equals(k)) return Integer.valueOf(0);
+            return null;
+        }
+        if ("BlurEffect".equals(cn)) {
+            if ("Enabled".equals(k)) return Boolean.TRUE;
+            if ("Size".equals(k)) return Float.valueOf(24.0f);
+            return null;
+        }
+        if ("DepthOfFieldEffect".equals(cn)) {
+            switch (k) {
+                case "Enabled": return Boolean.TRUE;
+                case "FarIntensity": return Float.valueOf(0.1f);
+                case "FocusDistance": return Float.valueOf(0.05f);
+                case "InFocusRadius": return Float.valueOf(30.0f);
+                case "NearIntensity": return Float.valueOf(0.75f);
+                default: return null;
+            }
+        }
+        if ("Atmosphere".equals(cn)) {
+            switch (k) {
+                case "Density": return Float.valueOf(0.395f);
+                case "Offset": return Float.valueOf(0.25f);
+                case "Color": return Color3.INSTANCE.fromRGB(199, 170, 107);
+                case "Decay": return Color3.INSTANCE.fromRGB(92, 60, 13);
+                case "Glare": case "Haze": return Float.valueOf(0.0f);
+                default: return null;
+            }
+        }
+        if ("RopeConstraint".equals(cn)) {
+            switch (k) {
+                case "Length": case "WinchTarget": return Float.valueOf(5.0f);
+                case "Restitution": case "CurrentDistance": return Float.valueOf(0.0f);
+                case "WinchEnabled": return Boolean.FALSE;
+                case "WinchSpeed": return Float.valueOf(2.0f);
+                case "WinchForce": return Float.valueOf(10000.0f);
+                case "WinchResponsiveness": return Float.valueOf(45.0f);
+                case "Thickness": return Float.valueOf(0.1f);
+                default: return null;
+            }
+        }
+        if ("RodConstraint".equals(cn)) {
+            switch (k) {
+                case "Length": return Float.valueOf(5.0f);
+                case "LimitsEnabled": return Boolean.FALSE;
+                case "LimitAngle0": case "LimitAngle1": return Float.valueOf(90.0f);
+                case "Thickness": return Float.valueOf(0.1f);
+                case "CurrentDistance": return Float.valueOf(0.0f);
+                default: return null;
+            }
+        }
+        if ("SpringConstraint".equals(cn)) {
+            switch (k) {
+                case "FreeLength": return Float.valueOf(1.0f);
+                case "Stiffness": return Float.valueOf(1000.0f);
+                case "Damping": case "MinLength": case "CurrentLength": return Float.valueOf(0.0f);
+                case "MaxForce": return Float.valueOf(Float.MAX_VALUE);
+                case "LimitsEnabled": return Boolean.FALSE;
+                case "MaxLength": return Float.valueOf(5.0f);
+                case "Coils": return Float.valueOf(3.0f);
+                case "Radius": return Float.valueOf(0.4f);
+                case "Thickness": return Float.valueOf(0.1f);
+                default: return null;
+            }
+        }
+        if ("HingeConstraint".equals(cn) || "CylindricalConstraint".equals(cn)) {
+            switch (k) {
+                case "ActuatorType": case "AngularActuatorType": return new EnumValue(0);
+                case "AngularVelocity": case "MotorMaxTorque": case "AngularSpeed": case "TargetAngle": case "ServoMaxTorque":
+                case "Restitution": case "CurrentAngle": case "Velocity": case "MotorMaxForce": case "Speed":
+                case "TargetPosition": case "ServoMaxForce": case "LowerLimit": case "CurrentPosition": return Float.valueOf(0.0f);
+                case "LimitsEnabled": case "AngularLimitsEnabled": return Boolean.FALSE;
+                case "LowerAngle": return Float.valueOf(-45.0f);
+                case "UpperAngle": return Float.valueOf(45.0f);
+                case "UpperLimit": return Float.valueOf(5.0f);
+                case "Radius": return Float.valueOf(0.15f);
+                default: return null;
+            }
+        }
+        if ("PrismaticConstraint".equals(cn)) {
+            switch (k) {
+                case "ActuatorType": return new EnumValue(0);
+                case "Velocity": case "MotorMaxForce": case "Speed": case "TargetPosition": case "ServoMaxForce":
+                case "LowerLimit": case "Restitution": case "CurrentPosition": return Float.valueOf(0.0f);
+                case "LimitsEnabled": return Boolean.FALSE;
+                case "UpperLimit": return Float.valueOf(5.0f);
+                default: return null;
+            }
+        }
+        if ("BallSocketConstraint".equals(cn)) {
+            switch (k) {
+                case "LimitsEnabled": case "TwistLimitsEnabled": return Boolean.FALSE;
+                case "UpperAngle": case "TwistUpperAngle": return Float.valueOf(45.0f);
+                case "TwistLowerAngle": return Float.valueOf(-45.0f);
+                case "MaxFrictionTorque": case "Restitution": return Float.valueOf(0.0f);
+                case "Radius": return Float.valueOf(0.15f);
+                default: return null;
+            }
+        }
+        if ("LinearVelocity".equals(cn)) {
+            switch (k) {
+                case "VectorVelocity": return Vector3.INSTANCE.getZERO();
+                case "LineDirection": return Vector3.INSTANCE.getX();
+                case "LineVelocity": return Float.valueOf(0.0f);
+                case "MaxForce": return Float.valueOf(1000.0f);
+                case "VelocityConstraintMode": case "RelativeTo": return new EnumValue(2);
+                default: return null;
+            }
+        }
+        if ("AngularVelocity".equals(cn)) {
+            switch (k) {
+                case "AngularVelocity": return Vector3.INSTANCE.getZERO();
+                case "MaxTorque": return Float.valueOf(1000.0f);
+                case "RelativeTo": return new EnumValue(2);
+                default: return null;
+            }
+        }
+        if ("AlignPosition".equals(cn)) {
+            switch (k) {
+                case "Position": return Vector3.INSTANCE.getZERO();
+                case "Mode": return new EnumValue(1);
+                case "MaxForce": return Float.valueOf(10000.0f);
+                case "MaxVelocity": return Float.valueOf(Float.MAX_VALUE);
+                case "Responsiveness": return Float.valueOf(10.0f);
+                case "RigidityEnabled": return Boolean.FALSE;
+                default: return null;
+            }
+        }
+        if ("AlignOrientation".equals(cn)) {
+            switch (k) {
+                case "CFrame": return CFrame.INSTANCE.getIDENTITY();
+                case "Mode": return new EnumValue(1);
+                case "MaxTorque": return Float.valueOf(10000.0f);
+                case "MaxAngularVelocity": return Float.valueOf(Float.MAX_VALUE);
+                case "Responsiveness": return Float.valueOf(10.0f);
+                case "RigidityEnabled": return Boolean.FALSE;
+                default: return null;
+            }
+        }
+        return null;
     }
 
     public final boolean hasK(Instance inst, String name) {
@@ -986,6 +1492,151 @@ public final class InstanceApi {
                     inst.set("CFrame", cur.withPosition((Vector3) v), true);
                     return;
                 }
+                if (inst.isA("Attachment") && v instanceof Vector3) {
+                    CFrame cur = attLocalCFrame(inst);
+                    inst.set("CFrame", cur.withPosition((Vector3) v), true);
+                    return;
+                }
+                inst.set(k, v, true);
+                return;
+            case "Orientation":
+            case "Rotation":
+                if (inst.isA("BasePart") && v instanceof Vector3) {
+                    Vector3 deg = (Vector3) v;
+                    CFrame cur = PartData.INSTANCE.cframe(inst);
+                    CFrame rot = CFrame.INSTANCE.fromOrientation((float) Math.toRadians(deg.getX()), (float) Math.toRadians(deg.getY()), (float) Math.toRadians(deg.getZ()));
+                    inst.set("CFrame", rot.withPosition(cur.getPosition()), true);
+                    return;
+                }
+                if (inst.isA("Attachment") && v instanceof Vector3) {
+                    Vector3 deg = (Vector3) v;
+                    CFrame cur = attLocalCFrame(inst);
+                    CFrame rot = CFrame.INSTANCE.fromOrientation((float) Math.toRadians(deg.getX()), (float) Math.toRadians(deg.getY()), (float) Math.toRadians(deg.getZ()));
+                    inst.set("CFrame", rot.withPosition(cur.getPosition()), true);
+                    return;
+                }
+                inst.set(k, v, true);
+                return;
+            case "Axis":
+                if (inst.isA("Attachment") && v instanceof Vector3) {
+                    CFrame cur = attLocalCFrame(inst);
+                    Vector3 r = ((Vector3) v).getUnit();
+                    if (r.getMagnitude() > 1.0E-5f) {
+                        Vector3 u = cur.getUpVector();
+                        u = u.minus(r.times(r.dot(u)));
+                        if (u.getMagnitude() < 1.0E-4f) {
+                            u = Math.abs(r.getY()) < 0.9f ? Vector3.INSTANCE.getY() : Vector3.INSTANCE.getZ();
+                            u = u.minus(r.times(r.dot(u)));
+                        }
+                        u = u.getUnit();
+                        Vector3 b = r.cross(u);
+                        inst.set("CFrame", CFrame.INSTANCE.fromColumns(cur.getPosition(), r, u, b), true);
+                    }
+                    return;
+                }
+                inst.set(k, v, true);
+                return;
+            case "SecondaryAxis":
+                if (inst.isA("Attachment") && v instanceof Vector3) {
+                    CFrame cur = attLocalCFrame(inst);
+                    Vector3 u = ((Vector3) v).getUnit();
+                    if (u.getMagnitude() > 1.0E-5f) {
+                        Vector3 r = cur.getRightVector();
+                        r = r.minus(u.times(u.dot(r)));
+                        if (r.getMagnitude() < 1.0E-4f) {
+                            r = Math.abs(u.getX()) < 0.9f ? Vector3.INSTANCE.getX() : Vector3.INSTANCE.getZ();
+                            r = r.minus(u.times(u.dot(r)));
+                        }
+                        r = r.getUnit();
+                        Vector3 b = r.cross(u);
+                        inst.set("CFrame", CFrame.INSTANCE.fromColumns(cur.getPosition(), r, u, b), true);
+                    }
+                    return;
+                }
+                inst.set(k, v, true);
+                return;
+            case "WorldCFrame":
+                if (inst.isA("Attachment") && v instanceof CFrame) {
+                    Instance par = inst.getParent();
+                    CFrame local = (par != null && par.isA("BasePart")) ? PartData.INSTANCE.cframe(par).inverse().times((CFrame) v) : (CFrame) v;
+                    inst.set("CFrame", local, true);
+                    return;
+                }
+                inst.set(k, v, true);
+                return;
+            case "WorldPosition":
+                if (inst.isA("Attachment") && v instanceof Vector3) {
+                    CFrame wcf = attWorldCFrame(inst).withPosition((Vector3) v);
+                    Instance par = inst.getParent();
+                    CFrame local = (par != null && par.isA("BasePart")) ? PartData.INSTANCE.cframe(par).inverse().times(wcf) : wcf;
+                    inst.set("CFrame", local, true);
+                    return;
+                }
+                inst.set(k, v, true);
+                return;
+            case "WorldAxis":
+                if (inst.isA("Attachment") && v instanceof Vector3) {
+                    Instance par = inst.getParent();
+                    Vector3 localAx = (par != null && par.isA("BasePart")) ? PartData.INSTANCE.cframe(par).vectorToObject((Vector3) v) : (Vector3) v;
+                    setK(inst, "Axis", localAx);
+                    return;
+                }
+                inst.set(k, v, true);
+                return;
+            case "WorldSecondaryAxis":
+                if (inst.isA("Attachment") && v instanceof Vector3) {
+                    Instance par = inst.getParent();
+                    Vector3 localSec = (par != null && par.isA("BasePart")) ? PartData.INSTANCE.cframe(par).vectorToObject((Vector3) v) : (Vector3) v;
+                    setK(inst, "SecondaryAxis", localSec);
+                    return;
+                }
+                inst.set(k, v, true);
+                return;
+            case "Part0":
+                if ("WeldConstraint".equals(inst.getClassName())) {
+                    inst.set("Part0", v, true);
+                    inst.set("Part0Internal", v, false);
+                    return;
+                }
+                inst.set("Part0", v, true);
+                return;
+            case "Part1":
+                if ("WeldConstraint".equals(inst.getClassName())) {
+                    inst.set("Part1", v, true);
+                    inst.set("Part1Internal", v, false);
+                    return;
+                }
+                inst.set("Part1", v, true);
+                return;
+            case "AssemblyLinearVelocity":
+            case "Velocity":
+                if (inst.isA("BasePart") && v instanceof Vector3) {
+                    inst.set(k, v, true);
+                    PlaySession pl = this.rt.getPlay();
+                    if (pl != null) pl.setVelocity(inst, (Vector3) v);
+                    return;
+                }
+                inst.set(k, v, true);
+                return;
+            case "AssemblyAngularVelocity":
+            case "RotVelocity":
+                if (inst.isA("BasePart") && v instanceof Vector3) {
+                    inst.set(k, v, true);
+                    PlaySession pl = this.rt.getPlay();
+                    if (pl != null) pl.setAngularVelocity(inst, (Vector3) v);
+                    return;
+                }
+                inst.set(k, v, true);
+                return;
+            case "Shape":
+                if (inst.isA("BasePart")) {
+                    EnumValue ev = v instanceof EnumValue ? (EnumValue) v : (v instanceof Number ? new EnumValue(((Number) v).intValue()) : null);
+                    if (ev != null) {
+                        inst.set("shape", ev, true);
+                        inst.set("Shape", ev, false);
+                        return;
+                    }
+                }
                 inst.set(k, v, true);
                 return;
             case "CFrame":
@@ -1038,6 +1689,31 @@ public final class InstanceApi {
                     return;
                 }
                 inst.set("TimePosition", v, true);
+                return;
+            case "TimeOfDay":
+                if ("Lighting".equals(inst.getClassName())) {
+                    Float parsed = com.goydevv.studrblx.core.PlaceFactory.parseTimeOfDay(v != null ? v.toString() : null);
+                    if (parsed != null) {
+                        inst.set("ClockTime", parsed, true);
+                        inst.set("TimeOfDay", com.goydevv.studrblx.core.PlaceFactory.formatClockTime(parsed.floatValue()), true);
+                    } else {
+                        inst.set("TimeOfDay", v, true);
+                    }
+                    return;
+                }
+                inst.set("TimeOfDay", v, true);
+                return;
+            case "ClockTime":
+                if ("Lighting".equals(inst.getClassName()) && v instanceof Number) {
+                    float hours = ((Number) v).floatValue() % 24.0f;
+                    if (hours < 0.0f) {
+                        hours += 24.0f;
+                    }
+                    inst.set("ClockTime", Float.valueOf(hours), true);
+                    inst.set("TimeOfDay", com.goydevv.studrblx.core.PlaceFactory.formatClockTime(hours), true);
+                    return;
+                }
+                inst.set("ClockTime", v, true);
                 return;
             default:
                 inst.set(k, v, true);
@@ -1366,6 +2042,15 @@ public final class InstanceApi {
             case "GamepadKeyCode":
             case "RollOffMode":
             case "AmbientReverb":
+            case "CameraMode":
+            case "DevCameraOcclusionMode":
+            case "DevTouchMovementMode":
+            case "DevComputerMovementMode":
+            case "MouseBehavior":
+            case "FloorMaterial":
+            case "AnimationPriority":
+            case "Priority":
+            case "ScreenInsets":
                 return 18;
             case "Parent":
             case "PrimaryPart":
@@ -2379,11 +3064,60 @@ public final class InstanceApi {
                 Object av = inst.getAttributes().get(args.checkjstring(2));
                 return av != null ? this.rt.toLua(av, inst, args.checkjstring(2)) : LuaValue.NIL;
             }
+            case "FindFirstAncestor": {
+                String n = args.checkjstring(2);
+                for (Instance p = inst.getParent(); p != null; p = p.getParent()) {
+                    if (n.equals(p.getName())) return this.rt.wrap(p);
+                }
+                return LuaValue.NIL;
+            }
+            case "FindFirstAncestorOfClass": {
+                String cls = args.checkjstring(2);
+                for (Instance p = inst.getParent(); p != null; p = p.getParent()) {
+                    if (cls.equals(p.getClassName())) return this.rt.wrap(p);
+                }
+                return LuaValue.NIL;
+            }
+            case "FindFirstAncestorWhichIsA": {
+                String cls = args.checkjstring(2);
+                for (Instance p = inst.getParent(); p != null; p = p.getParent()) {
+                    if (p.isA(cls)) return this.rt.wrap(p);
+                }
+                return LuaValue.NIL;
+            }
+            case "FindFirstDescendant": {
+                String n = args.checkjstring(2);
+                Instance f = inst.findFirstChild(n, true);
+                return f != null ? this.rt.wrap(f) : LuaValue.NIL;
+            }
+            case "GetTags": {
+                LuaTable tbl = new LuaTable();
+                List<String> ts = tags(inst);
+                for (int i = 0; i < ts.size(); i++) tbl.set(i + 1, LuaValue.valueOf(ts.get(i)));
+                return tbl;
+            }
+            case "HasTag": {
+                return LuaValue.valueOf(tags(inst).contains(args.checkjstring(2)));
+            }
+            case "AddTag": {
+                String tag = args.checkjstring(2);
+                List<String> ts = new ArrayList<>(tags(inst));
+                if (!ts.contains(tag)) { ts.add(tag); setTags(inst, ts); }
+                return LuaValue.NIL;
+            }
+            case "RemoveTag": {
+                String tag = args.checkjstring(2);
+                List<String> ts = new ArrayList<>(tags(inst));
+                if (ts.remove(tag)) setTags(inst, ts);
+                return LuaValue.NIL;
+            }
             case "SetAttribute": {
                 String ak = args.checkjstring(2);
                 LuaValue av = args.arg(3);
                 if (av.isnil()) inst.getAttributes().remove(ak);
                 else inst.getAttributes().put(ak, this.rt.fromLua(av, null, inst, ak));
+                this.rt.fire(inst, "AttributeChanged", LuaValue.valueOf(ak));
+                this.rt.fire(inst, "AttributeChanged:" + ak, new LuaValue[0]);
                 return LuaValue.NIL;
             }
             case "GetAttributes": {
@@ -2395,6 +3129,9 @@ public final class InstanceApi {
                     tbl.set(e.getKey(), this.rt.toLua(e.getValue(), inst, e.getKey()));
                 }
                 return tbl;
+            }
+            case "GetAttributeChangedSignal": {
+                return new LuaUserdata(new SignalRef(inst, "AttributeChanged:" + args.checkjstring(2)), this.signalMeta);
             }
             case "GetPropertyChangedSignal": {
                 return new LuaUserdata(new SignalRef(inst, "Changed:" + args.checkjstring(2)), this.signalMeta);
@@ -3351,6 +4088,7 @@ public final class InstanceApi {
                 new Function1<Instance, Boolean>() {
                     @Override
                     public Boolean invoke(Instance p) {
+                        if (Boolean.FALSE.equals(p.get("CanQuery"))) return Boolean.FALSE;
                         if (rp == null) return Boolean.TRUE;
                         boolean inList = false;
                         for (Instance fi : rp.getFilter()) {
@@ -3368,9 +4106,12 @@ public final class InstanceApi {
             if (!(pObj instanceof Vector3)) return new LuaTable();
             Vector3 center = (Vector3) pObj;
             float radius = (float) args.arg(3).optdouble(1.0d);
+            Function1<Instance, Boolean> flt = args.narg() >= 4 && !args.arg(4).isnil() ? filterFrom(args.arg(4)) : null;
             LuaTable out = new LuaTable();
             int idx = 1;
             for (Instance p : this.rt.getStudio().renderParts()) {
+                if (Boolean.FALSE.equals(p.get("CanQuery"))) continue;
+                if (flt != null && !flt.invoke(p).booleanValue()) continue;
                 CFrame cf = PartData.INSTANCE.cframe(p);
                 Vector3 sz = PartData.INSTANCE.size(p);
                 float pr = sz.getMagnitude() * 0.5f;
@@ -3386,9 +4127,12 @@ public final class InstanceApi {
             if (!(cObj instanceof CFrame) || !(sObj instanceof Vector3)) return new LuaTable();
             Vector3 center = ((CFrame) cObj).getPosition();
             Vector3 half = ((Vector3) sObj).div(2.0f);
+            Function1<Instance, Boolean> flt = args.narg() >= 4 && !args.arg(4).isnil() ? filterFrom(args.arg(4)) : null;
             LuaTable out = new LuaTable();
             int idx = 1;
             for (Instance p : this.rt.getStudio().renderParts()) {
+                if (Boolean.FALSE.equals(p.get("CanQuery"))) continue;
+                if (flt != null && !flt.invoke(p).booleanValue()) continue;
                 Vector3 pc = PartData.INSTANCE.cframe(p).getPosition();
                 Vector3 ph = PartData.INSTANCE.size(p).div(2.0f);
                 if (Math.abs(pc.getX() - center.getX()) <= half.getX() + ph.getX()
@@ -3446,6 +4190,7 @@ public final class InstanceApi {
                 new Function1<Instance, Boolean>() {
                     @Override
                     public Boolean invoke(Instance p) {
+                        if (Boolean.FALSE.equals(p.get("CanQuery"))) return Boolean.FALSE;
                         if (rp == null) return Boolean.TRUE;
                         boolean inList = false;
                         for (Instance fi : rp.getFilter()) {
@@ -3663,6 +4408,56 @@ public final class InstanceApi {
                 }
                 return LuaValue.NIL;
             }
+            case "GetExtentsSize": case "GetModelSize": {
+                Pair<Vector3, Vector3> b = Geometry.INSTANCE.boundsOf(partsIn(m));
+                if (b == null) return LuaTypes.INSTANCE.wrap(Vector3.INSTANCE.getZERO());
+                return LuaTypes.INSTANCE.wrap(b.getSecond().minus(b.getFirst()));
+            }
+            case "GetBoundingBox": {
+                Pair<Vector3, Vector3> b = Geometry.INSTANCE.boundsOf(partsIn(m));
+                if (b == null) {
+                    return LuaValue.varargsOf(LuaTypes.INSTANCE.wrap(CFrame.INSTANCE.getIDENTITY()), LuaTypes.INSTANCE.wrap(Vector3.INSTANCE.getZERO()));
+                }
+                Vector3 sz = b.getSecond().minus(b.getFirst());
+                Vector3 center = b.getFirst().plus(b.getSecond()).times(0.5f);
+                return LuaValue.varargsOf(LuaTypes.INSTANCE.wrap(CFrame.INSTANCE.at(center)), LuaTypes.INSTANCE.wrap(sz));
+            }
+            case "GetModelCFrame": {
+                Pair<Vector3, Vector3> b = Geometry.INSTANCE.boundsOf(partsIn(m));
+                if (b == null) return LuaTypes.INSTANCE.wrap(modelPivot(m));
+                return LuaTypes.INSTANCE.wrap(CFrame.INSTANCE.at(b.getFirst().plus(b.getSecond()).times(0.5f)));
+            }
+            case "TranslateBy": {
+                Object vObj = args.arg(2).isuserdata() ? args.arg(2).touserdata() : null;
+                if (vObj instanceof Vector3) {
+                    Vector3 delta = (Vector3) vObj;
+                    for (Instance d : partsIn(m)) {
+                        d.set("CFrame", PartData.INSTANCE.cframe(d).plus(delta), true);
+                    }
+                }
+                return LuaValue.NIL;
+            }
+            case "ScaleTo": {
+                float targetScale = (float) args.arg(2).optdouble(1.0d);
+                if (targetScale > 1.0E-4f) {
+                    Object curObj = m.getAttributes().get("__modelScale");
+                    float curScale = curObj instanceof Number ? ((Number) curObj).floatValue() : 1.0f;
+                    float factor = targetScale / Math.max(curScale, 1.0E-4f);
+                    Vector3 pivot = modelPivot(m).getPosition();
+                    for (Instance d : partsIn(m)) {
+                        CFrame cf = PartData.INSTANCE.cframe(d);
+                        Vector3 rel = cf.getPosition().minus(pivot).times(factor);
+                        d.set("CFrame", cf.withPosition(pivot.plus(rel)), true);
+                        PartData.INSTANCE.setSize(d, PartData.INSTANCE.size(d).times(factor));
+                    }
+                    m.getAttributes().put("__modelScale", Float.valueOf(targetScale));
+                }
+                return LuaValue.NIL;
+            }
+            case "GetScale": {
+                Object curObj = m.getAttributes().get("__modelScale");
+                return LuaValue.valueOf(curObj instanceof Number ? ((Number) curObj).doubleValue() : 1.0d);
+            }
             default:
                 return LuaValue.NIL;
         }
@@ -3695,8 +4490,7 @@ public final class InstanceApi {
     public final org.luaj.vm2.Varargs partCall(com.goydevv.studrblx.model.Instance p, java.lang.String name, org.luaj.vm2.Varargs args) {
         switch (name) {
             case "GetMass": {
-                Vector3 sz = PartData.INSTANCE.size(p);
-                return LuaValue.valueOf(sz.getX() * sz.getY() * sz.getZ() * 0.7f);
+                return LuaValue.valueOf(computePartMass(p));
             }
             case "GetPivot": {
                 return LuaTypes.INSTANCE.wrap(PartData.INSTANCE.cframe(p));
@@ -3706,8 +4500,55 @@ public final class InstanceApi {
                 if (cfObj instanceof CFrame) p.set("CFrame", cfObj, true);
                 return LuaValue.NIL;
             }
-            case "GetTouchingParts": case "GetConnectedParts": {
+            case "ApplyImpulse": {
+                Object vObj = args.arg(2).isuserdata() ? args.arg(2).touserdata() : null;
+                PlaySession pl = this.rt.getPlay();
+                if (pl != null && vObj instanceof Vector3) pl.applyImpulse(p, (Vector3) vObj);
+                return LuaValue.NIL;
+            }
+            case "ApplyAngularImpulse": {
+                Object vObj = args.arg(2).isuserdata() ? args.arg(2).touserdata() : null;
+                PlaySession pl = this.rt.getPlay();
+                if (pl != null && vObj instanceof Vector3) pl.applyAngularImpulse(p, (Vector3) vObj);
+                return LuaValue.NIL;
+            }
+            case "GetTouchingParts": {
+                PlaySession pl = this.rt.getPlay();
+                if (pl != null) return listToLua(pl.touchingParts(p));
                 return new LuaTable();
+            }
+            case "GetConnectedParts": {
+                PlaySession pl = this.rt.getPlay();
+                if (pl != null) return listToLua(pl.connectedPartsOf(p));
+                LuaTable tbl = new LuaTable();
+                tbl.set(1, this.rt.wrap(p));
+                return tbl;
+            }
+            case "GetVelocityAtPosition": {
+                Object vObj = args.arg(2).isuserdata() ? args.arg(2).touserdata() : null;
+                PlaySession pl = this.rt.getPlay();
+                if (pl != null && vObj instanceof Vector3) {
+                    Vector3 v = pl.velocityOf(p);
+                    if (v == null) v = Vector3.INSTANCE.getZERO();
+                    Vector3 w = pl.angularVelocityOf(p);
+                    Vector3 r = ((Vector3) vObj).minus(PartData.INSTANCE.cframe(p).getPosition());
+                    return LuaTypes.INSTANCE.wrap(v.plus(w.cross(r)));
+                }
+                return LuaTypes.INSTANCE.wrap(Vector3.INSTANCE.getZERO());
+            }
+            case "IsGrounded": {
+                if (Boolean.TRUE.equals(p.get("Anchored"))) return LuaValue.TRUE;
+                PlaySession pl = this.rt.getPlay();
+                if (pl != null) {
+                    for (Instance cp : pl.connectedPartsOf(p)) {
+                        if (Boolean.TRUE.equals(cp.get("Anchored"))) return LuaValue.TRUE;
+                    }
+                }
+                return LuaValue.FALSE;
+            }
+            case "GetRootPart": {
+                Object rp = getK(p, "AssemblyRootPart");
+                return rp instanceof Instance ? this.rt.wrap((Instance) rp) : this.rt.wrap(p);
             }
             default:
                 return LuaValue.NIL;
@@ -3834,7 +4675,16 @@ public final class InstanceApi {
                 return LuaValue.NIL;
             }
             case "GetPlayingAnimationTracks": {
-                return new LuaTable();
+                LuaTable tbl = new LuaTable();
+                PlaySession pl = this.rt.getPlay();
+                if (pl != null) {
+                    List<LuaTable> tracks = pl.playingTrackTables(h);
+                    int idx = 1;
+                    for (LuaTable t : tracks) {
+                        tbl.set(idx++, t);
+                    }
+                }
+                return tbl;
             }
             default:
                 return LuaValue.NIL;

@@ -129,6 +129,7 @@ public final class StartScreen extends LinearLayout {
     private final ExecutorService net;
     private String page;
     private final boolean phone;
+    private final boolean compactLandscape;
     private String query;
     private long selectedGroup;
     private boolean sortByName;
@@ -476,7 +477,13 @@ public final class StartScreen extends LinearLayout {
         this.filterMode = "All";
         this.sortByName = false;
         this.accountChip = new LinearLayout(this.act);
-        this.phone = this.act.getResources().getConfiguration().smallestScreenWidthDp < 600;
+        int screenWidthDp = this.act.getResources().getConfiguration().screenWidthDp;
+        if (screenWidthDp <= 0) {
+            android.util.DisplayMetrics dm = this.act.getResources().getDisplayMetrics();
+            screenWidthDp = (int) (dm.widthPixels / Math.max(1.0f, dm.density));
+        }
+        this.phone = screenWidthDp < 560;
+        this.compactLandscape = !this.phone && screenWidthDp < 900;
         this.iconViews = new HashMap<>();
         this.grids = new ArrayList<>();
         this.query = "";
@@ -583,12 +590,13 @@ public final class StartScreen extends LinearLayout {
             body.addView(hsv, Ui.lp$default(Ui.INSTANCE, -1, -2, 0.0f, 4, null));
             body.addView(makeDivider(false));
         } else {
-            this.nav.setPadding(dp(10.0f), dp(12.0f), dp(10.0f), dp(12.0f));
+            int navPad = dp(this.compactLandscape ? 8.0f : 10.0f);
+            this.nav.setPadding(navPad, dp(10.0f), navPad, dp(10.0f));
             ScrollView sv = new ScrollView(this.act);
             sv.setFillViewport(true);
             sv.setBackgroundColor(COL_CANVAS);
             sv.addView(this.nav, new FrameLayout.LayoutParams(-1, -1));
-            body.addView(sv, Ui.lp$default(Ui.INSTANCE, dp(208.0f), -1, 0.0f, 4, null));
+            body.addView(sv, Ui.lp$default(Ui.INSTANCE, dp(this.compactLandscape ? 156.0f : 196.0f), -1, 0.0f, 4, null));
             body.addView(makeDivider(true));
         }
         this.content.setBackgroundColor(COL_CANVAS);
@@ -799,7 +807,7 @@ public final class StartScreen extends LinearLayout {
         LinearLayout v = new LinearLayout(this.act);
         v.setOrientation(HORIZONTAL);
         v.setGravity(Gravity.CENTER_VERTICAL);
-        v.setPadding(dp(10.0f), dp(this.phone ? 7.0f : 9.0f), dp(14.0f), dp(this.phone ? 7.0f : 9.0f));
+        v.setPadding(dp(this.compactLandscape ? 8.0f : 10.0f), dp((this.phone || this.compactLandscape) ? 7.0f : 9.0f), dp(this.compactLandscape ? 10.0f : 14.0f), dp((this.phone || this.compactLandscape) ? 7.0f : 9.0f));
         v.setBackground(Ui.INSTANCE.rippleBg(this.act, selected ? COL_NAV_ACTIVE : COL_CANVAS, 6.0f));
         v.setClickable(true);
         v.setOnClickListener(new View.OnClickListener() {
@@ -814,7 +822,7 @@ public final class StartScreen extends LinearLayout {
         LinearLayout.LayoutParams lpIcon = Ui.lp$default(Ui.INSTANCE, dp(18.0f), dp(18.0f), 0.0f, 4, null);
         lpIcon.rightMargin = dp(10.0f);
         v.addView(iv, lpIcon);
-        v.addView(Ui.INSTANCE.text(this.act, label, 13.5f, selected ? COL_TEXT_PRIMARY : COL_TEXT_SECONDARY, selected));
+        v.addView(Ui.INSTANCE.text(this.act, label, this.compactLandscape ? 12.5f : 13.5f, selected ? COL_TEXT_PRIMARY : COL_TEXT_SECONDARY, selected));
         LinearLayout.LayoutParams lpItem;
         if (this.phone) {
             lpItem = Ui.lp$default(Ui.INSTANCE, -2, -2, 0.0f, 4, null);
@@ -890,10 +898,12 @@ public final class StartScreen extends LinearLayout {
         LinearLayout col = new LinearLayout(this.act);
         col.setOrientation(VERTICAL);
         col.setBackgroundColor(COL_CANVAS);
-        col.setPadding(dp(this.phone ? 14.0f : 24.0f), dp(12.0f), dp(this.phone ? 14.0f : 24.0f), dp(28.0f));
+        int hPad = dp(this.phone ? 12.0f : (this.compactLandscape ? 16.0f : 24.0f));
+        col.setPadding(hPad, dp(this.compactLandscape ? 8.0f : 12.0f), hPad, dp(24.0f));
         ScrollView sv = new ScrollView(this.act);
+        sv.setFillViewport(true);
         sv.setBackgroundColor(COL_CANVAS);
-        sv.addView(col);
+        sv.addView(col, new FrameLayout.LayoutParams(-1, -2));
         this.content.addView(sv, new FrameLayout.LayoutParams(-1, -1));
         return col;
     }
@@ -1165,7 +1175,7 @@ public final class StartScreen extends LinearLayout {
             final Function0<Unit> onClick,
             final Function0<Unit> onMenu
     ) {
-        int w = dp(this.phone ? 150.0f : 178.0f);
+        int w = dp(this.phone ? 140.0f : (this.compactLandscape ? 136.0f : 162.0f));
         int inset = dp(6.0f);
         int thumbSize = w - (inset * 2);
 
@@ -1209,41 +1219,7 @@ public final class StartScreen extends LinearLayout {
             bindIcon(img, iconUrl, fallbackIcon);
         }
 
-        if (badgeText != null && badgeText.length() > 0) {
-            TextView badge = Ui.INSTANCE.text(this.act, badgeText, 10.0f, COL_TEXT_PRIMARY, true);
-            badge.setPadding(dp(7.0f), dp(2.0f), dp(7.0f), dp(2.0f));
-            GradientDrawable badgeBg = new GradientDrawable();
-            badgeBg.setColor(COL_BADGE_BG);
-            badgeBg.setCornerRadius(dp(10.0f));
-            badge.setBackground(badgeBg);
-            FrameLayout.LayoutParams lpBadge = new FrameLayout.LayoutParams(-2, -2);
-            lpBadge.gravity = Gravity.TOP | Gravity.START;
-            lpBadge.leftMargin = dp(6.0f);
-            lpBadge.topMargin = dp(6.0f);
-            thumbBox.addView(badge, lpBadge);
-        }
-
-        if (onMenu != null) {
-            TextView overflow = Ui.INSTANCE.text(this.act, "⋮", 14.0f, COL_TEXT_PRIMARY, true);
-            overflow.setGravity(Gravity.CENTER);
-            GradientDrawable ovBg = new GradientDrawable();
-            ovBg.setColor(0xCC050508);
-            ovBg.setCornerRadius(dp(12.0f));
-            overflow.setBackground(ovBg);
-            overflow.setClickable(true);
-            overflow.setContentDescription("More options");
-            overflow.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    onMenu.invoke();
-                }
-            });
-            FrameLayout.LayoutParams lpOv = new FrameLayout.LayoutParams(dp(24.0f), dp(24.0f));
-            lpOv.gravity = Gravity.TOP | Gravity.END;
-            lpOv.rightMargin = dp(6.0f);
-            lpOv.topMargin = dp(6.0f);
-            thumbBox.addView(overflow, lpOv);
-        }
+        // Clean unobstructed 1:1 inset thumbnail (badge + menu placed in dedicated meta row below)
 
         LinearLayout.LayoutParams lpThumb = new LinearLayout.LayoutParams(thumbSize, thumbSize);
         lpThumb.setMargins(inset, inset, inset, 0);
@@ -1271,6 +1247,39 @@ public final class StartScreen extends LinearLayout {
             tvOwner.setEllipsize(TextUtils.TruncateAt.END);
             tvOwner.setPadding(0, dp(1.0f), 0, 0);
             info.addView(tvOwner);
+        }
+
+        boolean hasBadge = badgeText != null && badgeText.length() > 0;
+        if (hasBadge || onMenu != null) {
+            LinearLayout metaRow = new LinearLayout(this.act);
+            metaRow.setOrientation(HORIZONTAL);
+            metaRow.setGravity(Gravity.CENTER_VERTICAL);
+            metaRow.setPadding(0, dp(6.0f), 0, 0);
+            if (hasBadge) {
+                TextView badge = Ui.INSTANCE.text(this.act, badgeText, 10.0f, COL_TEXT_PRIMARY, true);
+                badge.setPadding(dp(7.0f), dp(2.0f), dp(7.0f), dp(2.0f));
+                GradientDrawable badgeBg = new GradientDrawable();
+                badgeBg.setColor(COL_BADGE_BG);
+                badgeBg.setCornerRadius(dp(10.0f));
+                badge.setBackground(badgeBg);
+                metaRow.addView(badge, Ui.lp$default(Ui.INSTANCE, -2, -2, 0.0f, 4, null));
+            }
+            metaRow.addView(new View(this.act), Ui.INSTANCE.lp(0, 1, 1.0f));
+            if (onMenu != null) {
+                TextView overflow = Ui.INSTANCE.text(this.act, "⋮", 14.0f, COL_TEXT_SECONDARY, true);
+                overflow.setGravity(Gravity.CENTER);
+                overflow.setBackground(Ui.INSTANCE.rippleBg(this.act, COL_CARD, 12.0f));
+                overflow.setClickable(true);
+                overflow.setContentDescription("More options");
+                overflow.setOnClickListener(new View.OnClickListener() {
+                    @Override
+                    public void onClick(View v) {
+                        onMenu.invoke();
+                    }
+                });
+                metaRow.addView(overflow, Ui.lp$default(Ui.INSTANCE, dp(24.0f), dp(24.0f), 0.0f, 4, null));
+            }
+            info.addView(metaRow, Ui.lp$default(Ui.INSTANCE, -1, -2, 0.0f, 4, null));
         }
 
         card.addView(info, Ui.lp$default(Ui.INSTANCE, w, -2, 0.0f, 4, null));
@@ -1322,19 +1331,19 @@ public final class StartScreen extends LinearLayout {
             LinearLayout heroRow = new LinearLayout(this.act);
             heroRow.setOrientation(this.phone ? VERTICAL : HORIZONTAL);
             heroRow.setGravity(Gravity.CENTER_VERTICAL);
-            heroRow.setPadding(0, dp(8.0f), 0, dp(12.0f));
+            heroRow.setPadding(0, dp(this.compactLandscape ? 4.0f : 8.0f), dp(24.0f), dp(this.compactLandscape ? 6.0f : 12.0f));
 
             LinearLayout heroText = new LinearLayout(this.act);
             heroText.setOrientation(VERTICAL);
-            heroText.addView(Ui.INSTANCE.text(this.act, "Take a quick tour", 22.0f, COL_TEXT_PRIMARY, true));
-            TextView heroSub = Ui.INSTANCE.text(this.act, "Learn the basics of Studio by creating your first playable experience in this quick guided tour.", 13.0f, COL_TEXT_SECONDARY, false);
+            heroText.addView(Ui.INSTANCE.text(this.act, "Take a quick tour", this.compactLandscape ? 18.0f : 22.0f, COL_TEXT_PRIMARY, true));
+            TextView heroSub = Ui.INSTANCE.text(this.act, "Learn the basics of Studio by creating your first playable experience in this quick guided tour.", this.compactLandscape ? 12.0f : 13.0f, COL_TEXT_SECONDARY, false);
             heroSub.setSingleLine(false);
             heroSub.setLineSpacing(dp(2.0f), 1.0f);
-            heroSub.setPadding(0, dp(6.0f), dp(16.0f), dp(14.0f));
+            heroSub.setPadding(0, dp(4.0f), dp(12.0f), dp(this.compactLandscape ? 10.0f : 14.0f));
             heroText.addView(heroSub);
 
-            TextView startLearn = Ui.INSTANCE.text(this.act, "Start Learning", 13.0f, 0xFFFFFFFF, true);
-            startLearn.setPadding(dp(18.0f), dp(9.0f), dp(18.0f), dp(9.0f));
+            TextView startLearn = Ui.INSTANCE.text(this.act, "Start Learning", this.compactLandscape ? 12.0f : 13.0f, 0xFFFFFFFF, true);
+            startLearn.setPadding(dp(this.compactLandscape ? 14.0f : 18.0f), dp(this.compactLandscape ? 7.0f : 9.0f), dp(this.compactLandscape ? 14.0f : 18.0f), dp(this.compactLandscape ? 7.0f : 9.0f));
             GradientDrawable slBg = new GradientDrawable();
             slBg.setColor(COL_CTA_BLUE);
             slBg.setCornerRadius(dp(6.0f));
@@ -1356,8 +1365,8 @@ public final class StartScreen extends LinearLayout {
 
             TourCollageView collage = new TourCollageView(this.act);
             LinearLayout.LayoutParams lpCollage = new LinearLayout.LayoutParams(
-                    this.phone ? -1 : dp(230.0f),
-                    dp(this.phone ? 110.0f : 132.0f)
+                    this.phone ? -1 : dp(this.compactLandscape ? 168.0f : 230.0f),
+                    dp(this.phone ? 84.0f : (this.compactLandscape ? 100.0f : 132.0f))
             );
             if (this.phone) {
                 lpCollage.topMargin = dp(12.0f);

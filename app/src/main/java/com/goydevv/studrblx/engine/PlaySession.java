@@ -79,10 +79,13 @@ public final class PlaySession implements TreeListener {
     private final float CELL;
     private final Set<String> HOLD_TOGETHER;
     private final Set<String> MOVER_CLASSES;
+    private final Set<String> MECH_CONSTRAINT_CLASSES;
+    private final ArrayList<Instance> mechConstraints;
     private final LinkedHashMap<String, ActionButton> actions;
     private volatile Instance activePrompt;
     private float airTime;
     private DefaultAnimate animator;
+    private boolean hasCustomAnimate;
     private int avatarApplied;
     private final ArrayList<Instance> bigParts;
     private final ArrayList<Body> bodies;
@@ -223,8 +226,10 @@ public final class PlaySession implements TreeListener {
         this.touching = new IdentityHashMap<>();
         this.startedScripts = Collections.newSetFromMap(new IdentityHashMap());
         this.CELL = 32.0f;
-        this.HOLD_TOGETHER = SetsKt.setOf(new String[]{"RigidConstraint", "HingeConstraint", "BallSocketConstraint", "CylindricalConstraint", "PrismaticConstraint", "UniversalConstraint", "TorsionSpringConstraint", "PlaneConstraint", "SpringConstraint"});
-        this.MOVER_CLASSES = SetsKt.setOf(new String[]{"BodyForce", "BodyThrust", "BodyVelocity", "BodyPosition", "RocketPropulsion", "VectorForce", "LineForce", "LinearVelocity", "AlignPosition", "SpringConstraint", "RopeConstraint", "RodConstraint"});
+        this.HOLD_TOGETHER = SetsKt.setOf(new String[]{"RigidConstraint"});
+        this.MOVER_CLASSES = SetsKt.setOf(new String[]{"BodyForce", "BodyThrust", "BodyVelocity", "BodyPosition", "BodyAngularVelocity", "BodyGyro", "RocketPropulsion", "VectorForce", "LineForce", "LinearVelocity", "AlignPosition"});
+        this.MECH_CONSTRAINT_CLASSES = SetsKt.setOf(new String[]{"RopeConstraint", "RodConstraint", "SpringConstraint", "HingeConstraint", "BallSocketConstraint", "PrismaticConstraint", "CylindricalConstraint", "UniversalConstraint", "AngularVelocity", "AlignOrientation"});
+        this.mechConstraints = new ArrayList<>();
         this.jointOrder = new ArrayList<>();
         this.rigid = new IdentityHashMap<>();
         this.avatarApplied = -1;
@@ -509,6 +514,11 @@ public final class PlaySession implements TreeListener {
         private float restTime;
         private boolean sleeping;
         private Vector3 vel;
+        private Vector3 angVel;
+        private float inertia;
+        private Vector3 com;
+        private boolean isSphere;
+        private float sphereRadius;
 
         /* JADX WARN: Multi-variable type inference failed */
         public Body(List<? extends Instance> parts, Vector3 vel) {
@@ -516,12 +526,28 @@ public final class PlaySession implements TreeListener {
             Intrinsics.checkNotNullParameter(vel, "vel");
             this.parts = (List<Instance>) parts;
             this.vel = vel;
+            this.angVel = Vector3.INSTANCE.getZERO();
             this.mass = 1.0f;
+            this.inertia = 1.0f;
+            this.com = Vector3.INSTANCE.getZERO();
+            this.isSphere = false;
+            this.sphereRadius = 0.5f;
             this.friction = 0.3f;
             this.elasticity = 0.5f;
             this.min = Vector3.INSTANCE.getZERO();
             this.max = Vector3.INSTANCE.getZERO();
         }
+
+        public final Vector3 getAngVel() { return this.angVel; }
+        public final void setAngVel(Vector3 v) { Intrinsics.checkNotNullParameter(v, "<set-?>"); this.angVel = v; }
+        public final float getInertia() { return this.inertia; }
+        public final void setInertia(float f) { this.inertia = f; }
+        public final Vector3 getCom() { return this.com; }
+        public final void setCom(Vector3 v) { Intrinsics.checkNotNullParameter(v, "<set-?>"); this.com = v; }
+        public final boolean getIsSphere() { return this.isSphere; }
+        public final void setIsSphere(boolean z) { this.isSphere = z; }
+        public final float getSphereRadius() { return this.sphereRadius; }
+        public final void setSphereRadius(float f) { this.sphereRadius = f; }
 
         public final List<Instance> getParts() {
             return this.parts;
@@ -618,6 +644,22 @@ public final class PlaySession implements TreeListener {
         return 196.2f;
     }
 
+    public final double getElapsedTime() {
+        return this.time;
+    }
+
+    private final boolean isLockFirstPerson() {
+        Instance p = this.player;
+        Object obj = p != null ? p.get("CameraMode") : null;
+        if (obj instanceof EnumValue) {
+            return ((EnumValue) obj).getValue() == 1;
+        }
+        if (obj instanceof Number) {
+            return ((Number) obj).intValue() == 1;
+        }
+        return false;
+    }
+
     public final void start() {
         String str;
         Iterable iterableDescendants$default;
@@ -628,11 +670,7 @@ public final class PlaySession implements TreeListener {
         OutputLog.INSTANCE.info("Playtest started");
         installBridge();
         setupTextChat();
-        for (Instance s : Instance.descendants$default(this.dm, null, 1, null)) {
-            if (Intrinsics.areEqual(s.getClassName(), "Script")) {
-                maybeRunScript(s);
-            }
-        }
+        // 1) Create Player + Backpack + PlayerGui + PlayerScripts + addPlayerModule
         Instance players = this.dm.getService("Players");
         Instance p = InstanceFactory.INSTANCE.create("Player");
         Context ctx = this.studio.getApp();
@@ -669,7 +707,7 @@ public final class PlaySession implements TreeListener {
         Number number2 = obj2 instanceof Number ? (Number) obj2 : null;
         p.set("CameraMinZoomDistance", Float.valueOf(number2 != null ? number2.floatValue() : 0.5f), false);
         Object obj3 = sp != null ? sp.get("CameraMode") : null;
-        Object enumValue = obj3 instanceof EnumValue ? (EnumValue) obj3 : null;
+        Object enumValue = obj3 instanceof EnumValue ? (EnumValue) obj3 : (obj3 instanceof Number ? new EnumValue(((Number) obj3).intValue()) : null);
         if (enumValue == null) {
             enumValue = new EnumValue(0);
         }
@@ -686,7 +724,39 @@ public final class PlaySession implements TreeListener {
         addPlayerModule(ps);
         this.player = p;
         Instance.setParent$default(p, players, 0, 2, null);
+        if (isLockFirstPerson()) {
+            this.camDist = 0.5f;
+            this.distTarget = 0.5f;
+            this.firstPerson = true;
+        }
+        // 2) Run ReplicatedFirst LocalScripts first
+        Instance instanceFindService2 = this.dm.findService("ReplicatedFirst");
+        if (instanceFindService2 != null && (iterableDescendants$default = Instance.descendants$default(instanceFindService2, null, 1, null)) != null) {
+            Iterator it2 = iterableDescendants$default.iterator();
+            while (it2.hasNext()) {
+                Instance rfScript = (Instance) it2.next();
+                if (Intrinsics.areEqual(rfScript.getClassName(), "LocalScript")) {
+                    maybeRunScript(rfScript);
+                }
+            }
+        }
+        // 3) Run server Scripts & fire PlayerAdded
+        for (Instance s : Instance.descendants$default(this.dm, null, 1, null)) {
+            if (Intrinsics.areEqual(s.getClassName(), "Script")) {
+                maybeRunScript(s);
+            }
+        }
         this.rt.fire(players, "PlayerAdded", this.rt.wrap(p));
+        // 4) resetGui(true) & clone StarterPack
+        resetGui(true);
+        Instance instanceFindService = this.dm.findService("StarterPack");
+        if (instanceFindService != null && (children = instanceFindService.getChildren()) != null) {
+            Iterable iterable2 = children;
+            for (Iterator it = iterable2.iterator(); it.hasNext(); ) {
+                Instance.setParent$default(((Instance) it.next()).cloneTree(), Instance.findFirstChild$default(p, "Backpack", false, 2, null), 0, 2, null);
+            }
+        }
+        // 5) Clone StarterPlayerScripts into PlayerScripts
         if (sp != null && (instanceFindFirstChild$default = Instance.findFirstChild$default(sp, "StarterPlayerScripts", false, 2, null)) != null && (children2 = instanceFindFirstChild$default.getChildren()) != null) {
             Iterable<Instance> iterable = children2;
             for (Instance instance : iterable) {
@@ -695,22 +765,7 @@ public final class PlaySession implements TreeListener {
                 }
             }
         }
-        resetGui(true);
-        Instance instanceFindService = this.dm.findService("StarterPack");
-        if (instanceFindService != null && (children = instanceFindService.getChildren()) != null) {
-            Iterable iterable2 = children;
-            int i = 0;
-            for (Iterator it = iterable2.iterator(); it.hasNext(); it = it) {
-                Instance.setParent$default(((Instance) it.next()).cloneTree(), Instance.findFirstChild$default(p, "Backpack", false, 2, null), 0, 2, null);
-            }
-        }
-        Instance instanceFindService2 = this.dm.findService("ReplicatedFirst");
-        if (instanceFindService2 != null && (iterableDescendants$default = Instance.descendants$default(instanceFindService2, null, 1, null)) != null) {
-            Iterator it2 = iterableDescendants$default.iterator();
-            while (it2.hasNext()) {
-                maybeRunScript((Instance) it2.next());
-            }
-        }
+        // 6) spawnCharacter()
         spawnCharacter();
         systemMessage("Chat '/?' or '/help' for a list of chat commands.", -4934476);
     }
@@ -1191,6 +1246,12 @@ public final class PlaySession implements TreeListener {
                 }
                 break;
             default:
+                if ("Part0".equals(name) || "Part1".equals(name) || "Part0Internal".equals(name) || "Part1Internal".equals(name)
+                        || "Attachment0".equals(name) || "Attachment1".equals(name) || "Enabled".equals(name)
+                        || "Massless".equals(name) || "CustomPhysicalProperties".equals(name)
+                        || "Shape".equals(name) || "shape".equals(name) || "CollisionGroup".equals(name)) {
+                    this.physicsDirty = true;
+                }
                 return;
         }
         if (this.statics.contains(inst)) {
@@ -1388,6 +1449,11 @@ public final class PlaySession implements TreeListener {
         Instance root = Instance.findFirstChild$default(model, "HumanoidRootPart", false, 2, null);
         Intrinsics.checkNotNull(root);
         Instance hum = model.findFirstChildOfClass("Humanoid");
+        if (hum != null && hum.findFirstChildOfClass("Animator") == null) {
+            Instance animInst = InstanceFactory.INSTANCE.create("Animator");
+            animInst.setName("Animator");
+            animInst.attachRaw(hum);
+        }
         Intrinsics.checkNotNull(hum);
         Instance spCfg = this.dm.findService("StarterPlayer");
         if (spCfg != null) {
@@ -1522,7 +1588,25 @@ public final class PlaySession implements TreeListener {
         } else {
             z2 = false;
         }
-        this.animator = z2 ? new DefaultAnimate(this.isR15) : null;
+        Instance instanceFindService3 = this.dm.findService("StarterPlayer");
+        if (instanceFindService3 != null && (instanceFindFirstChild$default = Instance.findFirstChild$default(instanceFindService3, "StarterCharacterScripts", false, 2, null)) != null && (children = instanceFindFirstChild$default.getChildren()) != null) {
+            Iterator it6 = children.iterator();
+            while (it6.hasNext()) {
+                ((Instance) it6.next()).cloneTree().attachRaw(model);
+            }
+        }
+        boolean customAnim = false;
+        for (Instance ch : model.getChildren()) {
+            if (Intrinsics.areEqual(ch.getName(), "Animate")
+                    && (Intrinsics.areEqual(ch.getClassName(), "LocalScript") || Intrinsics.areEqual(ch.getClassName(), "Script"))
+                    && !Intrinsics.areEqual(ch.get("Disabled"), (Object) true)
+                    && !Intrinsics.areEqual(ch.get("Enabled"), (Object) false)) {
+                customAnim = true;
+                break;
+            }
+        }
+        this.hasCustomAnimate = customAnim;
+        this.animator = (z2 && !customAnim) ? new DefaultAnimate(this.isR15) : null;
         this.vel = Vector3.INSTANCE.getZERO();
         this.dead = false;
         this.emote = null;
@@ -1536,13 +1620,6 @@ public final class PlaySession implements TreeListener {
         this.character = model;
         setFloorMaterial(MATERIAL_AIR);
         writeCharacter(0.0f);
-        Instance instanceFindService3 = this.dm.findService("StarterPlayer");
-        if (instanceFindService3 != null && (instanceFindFirstChild$default = Instance.findFirstChild$default(instanceFindService3, "StarterCharacterScripts", false, 2, null)) != null && (children = instanceFindFirstChild$default.getChildren()) != null) {
-            Iterator it6 = children.iterator();
-            while (it6.hasNext()) {
-                ((Instance) it6.next()).cloneTree().attachRaw(model);
-            }
-        }
         Instance.setParent$default(model, this.dm.getWorkspace(), 0, 2, null);
         Instance model2 = model;
         Instance.set$default(p3, "Character", model2, false, 4, null);
@@ -2251,19 +2328,19 @@ public final class PlaySession implements TreeListener {
                 this.emote = null;
             }
         }
-        String p = pose();
-        if (this.isR15) {
-            animateR15(dt, p);
-        } else {
-            animateR6(dt, p);
-        }
-        float hs = Intrinsics.areEqual(p, "Climbing") ? Math.abs(this.vel.getY()) : (float) Math.sqrt((this.vel.getX() * this.vel.getX()) + (this.vel.getZ() * this.vel.getZ()));
-        DefaultAnimate defaultAnimate = this.animator;
-        if (defaultAnimate != null) {
-            dt2 = dt;
-            defaultAnimate.step(dt2, p, hs, this.equipped != null, this.emote, this.jumpAnimTime);
-        } else {
-            dt2 = dt;
+        dt2 = dt;
+        if (!this.hasCustomAnimate) {
+            String p = pose();
+            if (this.isR15) {
+                animateR15(dt, p);
+            } else {
+                animateR6(dt, p);
+            }
+            float hs = Intrinsics.areEqual(p, "Climbing") ? Math.abs(this.vel.getY()) : (float) Math.sqrt((this.vel.getX() * this.vel.getX()) + (this.vel.getZ() * this.vel.getZ()));
+            DefaultAnimate defaultAnimate = this.animator;
+            if (defaultAnimate != null) {
+                defaultAnimate.step(dt2, p, hs, this.equipped != null, this.emote, this.jumpAnimTime);
+            }
         }
         float diff = this.facing - this.renderFacing;
         while (diff > 3.141592653589793d) {
@@ -3118,7 +3195,7 @@ public final class PlaySession implements TreeListener {
             return CFrame.INSTANCE.getIDENTITY();
         }
         AnimPlayer scripted = this.rigPlayers.get(this.character);
-        if (this.time - this.customAnimateAt < 1.0d) {
+        if (this.hasCustomAnimate || this.time - this.customAnimateAt < 1.0d) {
             base = CFrame.INSTANCE.getIDENTITY();
         } else {
             DefaultAnimate defaultAnimate = this.animator;
@@ -3129,6 +3206,9 @@ public final class PlaySession implements TreeListener {
         }
         if (base != null) {
             return base;
+        }
+        if (this.hasCustomAnimate) {
+            return CFrame.INSTANCE.getIDENTITY();
         }
         if (!this.isR15) {
             Float f = this.motorAngle.get(j.getName());
@@ -3977,6 +4057,16 @@ public final class PlaySession implements TreeListener {
         }
         this.lastDir = (Vector3) objectRef.element;
         if (this.seated != null) {
+            if ("VehicleSeat".equals(this.seated.getClassName())) {
+                float thrF = this.controlsEnabled ? RangesKt.coerceIn(-this.studio.getMoveY(), -1.0f, 1.0f) : 0.0f;
+                float strF = this.controlsEnabled ? RangesKt.coerceIn(this.studio.getMoveX(), -1.0f, 1.0f) : 0.0f;
+                int thrI = Math.abs(thrF) > 0.1f ? (thrF > 0.0f ? 1 : -1) : 0;
+                int strI = Math.abs(strF) > 0.1f ? (strF > 0.0f ? 1 : -1) : 0;
+                this.seated.set("ThrottleFloat", Float.valueOf(thrF), false);
+                this.seated.set("Throttle", Integer.valueOf(thrI), false);
+                this.seated.set("SteerFloat", Float.valueOf(strF), false);
+                this.seated.set("Steer", Integer.valueOf(strI), false);
+            }
             if (this.jumpRequested) {
                 leaveSeat(true);
             } else {
@@ -4590,6 +4680,7 @@ public final class PlaySession implements TreeListener {
         Iterator it;
         this.physicsDirty = false;
         IdentityHashMap oldVel = new IdentityHashMap();
+        IdentityHashMap oldAngVel = new IdentityHashMap();
         Set oldSleep = Collections.newSetFromMap(new IdentityHashMap());
         Iterator<Body> it2 = this.bodies.iterator();
         Intrinsics.checkNotNullExpressionValue(it2, "iterator(...)");
@@ -4599,6 +4690,7 @@ public final class PlaySession implements TreeListener {
             Body b2 = next;
             for (Instance p : b2.getParts()) {
                 oldVel.put(p, b2.getVel());
+                oldAngVel.put(p, b2.getAngVel());
                 if (b2.getSleeping()) {
                     oldSleep.add(p);
                 }
@@ -4737,6 +4829,10 @@ public final class PlaySession implements TreeListener {
                     zero = Vector3.INSTANCE.getZERO();
                 }
                 Body b3 = new Body(arrayList4, zero);
+                Vector3 oldW = (Vector3) oldAngVel.get(CollectionsKt.first((List) parts));
+                if (oldW != null) {
+                    b3.setAngVel(oldW);
+                }
                 measure(b3);
                 Iterable iterable = parts;
                 if (!(iterable instanceof Collection) || !((Collection) iterable).isEmpty()) {
@@ -4775,9 +4871,13 @@ public final class PlaySession implements TreeListener {
             insertGrid(p4);
         }
         this.movers.clear();
+        this.mechConstraints.clear();
         for (Instance d : wsAll) {
             if (this.MOVER_CLASSES.contains(d.getClassName()) && !Intrinsics.areEqual(d.get("Enabled"), (Object) false)) {
                 this.movers.add(d);
+            }
+            if (this.MECH_CONSTRAINT_CLASSES.contains(d.getClassName())) {
+                this.mechConstraints.add(d);
             }
         }
     }
@@ -4866,69 +4966,98 @@ public final class PlaySession implements TreeListener {
     /* JADX WARN: Code duplicated, block: B:16:0x0065  */
     /* JADX WARN: Code duplicated, block: B:24:0x007d  */
     /* JADX WARN: Code duplicated, block: B:31:0x0093  */
+    public final float partMassOf(Instance p) {
+        if (p == null || !p.isA("BasePart")) return 0.0f;
+        if (Intrinsics.areEqual(p.get("Massless"), Boolean.TRUE)) return 0.0f;
+        Vector3 s = PartData.INSTANCE.size(p);
+        int shape = PartData.INSTANCE.shape(p);
+        float vol;
+        if (shape == 0) {
+            float r = Math.min(s.getX(), Math.min(s.getY(), s.getZ())) * 0.5f;
+            vol = (float) ((4.0d / 3.0d) * Math.PI * r * r * r);
+        } else if (shape == 2) {
+            float r = Math.min(s.getY(), s.getZ()) * 0.5f;
+            vol = (float) (Math.PI * r * r * s.getX());
+        } else {
+            vol = s.getX() * s.getY() * s.getZ();
+        }
+        vol = RangesKt.coerceAtLeast(vol, 0.001f);
+        float[] d = physProps(PartData.INSTANCE.material(p));
+        Object obj = p.get("CustomPhysicalProperties");
+        PhysicalProps cp = obj instanceof PhysicalProps ? (PhysicalProps) obj : null;
+        float dens = (cp != null && cp.getCustom()) ? cp.getDensity() : d[0];
+        return vol * dens;
+    }
+
     private final void measure(Body b) {
-        float dens;
-        float fr;
-        float el;
         float mass = 0.0f;
         float f = 0.0f;
         float e = 0.0f;
         float w = 0.0f;
+        float cx = 0.0f, cy = 0.0f, cz = 0.0f;
+        float posWeight = 0.0f;
         for (Instance p : b.getParts()) {
             Vector3 s = PartData.INSTANCE.size(p);
-            float vol = RangesKt.coerceAtLeast(s.getX() * s.getY() * s.getZ(), 0.001f);
+            int shape = PartData.INSTANCE.shape(p);
+            float vol;
+            if (shape == 0) {
+                float r = Math.min(s.getX(), Math.min(s.getY(), s.getZ())) * 0.5f;
+                vol = (float) ((4.0d / 3.0d) * Math.PI * r * r * r);
+            } else if (shape == 2) {
+                float r = Math.min(s.getY(), s.getZ()) * 0.5f;
+                vol = (float) (Math.PI * r * r * s.getX());
+            } else {
+                vol = s.getX() * s.getY() * s.getZ();
+            }
+            vol = RangesKt.coerceAtLeast(vol, 0.001f);
             float[] d = physProps(PartData.INSTANCE.material(p));
             Object obj = p.get("CustomPhysicalProperties");
             PhysicalProps cp = obj instanceof PhysicalProps ? (PhysicalProps) obj : null;
-            if (cp == null) {
-                dens = d[0];
-            } else {
-                PhysicalProps physicalProps = cp.getCustom() ? cp : null;
-                if (physicalProps != null) {
-                    dens = physicalProps.getDensity();
-                } else {
-                    dens = d[0];
-                }
-            }
-            if (cp == null) {
-                fr = d[1];
-            } else {
-                PhysicalProps physicalProps2 = cp.getCustom() ? cp : null;
-                if (physicalProps2 != null) {
-                    fr = physicalProps2.getFriction();
-                } else {
-                    fr = d[1];
-                }
-            }
-            if (cp == null) {
-                el = d[2];
-            } else {
-                PhysicalProps physicalProps3 = cp.getCustom() ? cp : null;
-                if (physicalProps3 != null) {
-                    el = physicalProps3.getElasticity();
-                } else {
-                    el = d[2];
-                }
-            }
-            float f2 = f;
-            if (!Intrinsics.areEqual(p.get("Massless"), (Object) true)) {
-                mass += vol * dens;
-            }
-            f = f2 + (fr * vol);
+            float dens = (cp != null && cp.getCustom()) ? cp.getDensity() : d[0];
+            float fr = (cp != null && cp.getCustom()) ? cp.getFriction() : d[1];
+            float el = (cp != null && cp.getCustom()) ? cp.getElasticity() : d[2];
+            float pm = Intrinsics.areEqual(p.get("Massless"), Boolean.TRUE) ? 0.0f : (vol * dens);
+            mass += pm;
+            Vector3 pp = PartData.INSTANCE.cframe(p).getPosition();
+            float pw = pm > 0.0f ? pm : vol * 0.01f;
+            cx += pp.getX() * pw;
+            cy += pp.getY() * pw;
+            cz += pp.getZ() * pw;
+            posWeight += pw;
+            f += fr * vol;
             e += el * vol;
             w += vol;
         }
-        float f3 = f;
         b.setMass(RangesKt.coerceAtLeast(mass, 0.01f));
+        Vector3 com = posWeight > 0.0f ? new Vector3(cx / posWeight, cy / posWeight, cz / posWeight) : Vector3.INSTANCE.getZERO();
+        b.setCom(com);
         if (w > 0.0f) {
-            b.setFriction(f3 / w);
+            b.setFriction(f / w);
             b.setElasticity(e / w);
+        }
+        if (b.getParts().size() == 1 && PartData.INSTANCE.shape(b.getParts().get(0)) == 0) {
+            Vector3 s = PartData.INSTANCE.size(b.getParts().get(0));
+            float r = Math.max(0.05f, Math.min(s.getX(), Math.min(s.getY(), s.getZ())) * 0.5f);
+            b.setIsSphere(true);
+            b.setSphereRadius(r);
+            b.setInertia(Math.max(0.05f, 0.4f * b.getMass() * r * r));
+        } else {
+            b.setIsSphere(false);
+            float inertiaSum = 0.0f;
+            for (Instance p : b.getParts()) {
+                Vector3 s = PartData.INSTANCE.size(p);
+                float pm = Math.max(0.01f, partMassOf(p));
+                Vector3 dCom = PartData.INSTANCE.cframe(p).getPosition().minus(com);
+                float d2 = dCom.dot(dCom);
+                float iLocal = pm * ((s.getX() * s.getX() + s.getY() * s.getY() + s.getZ() * s.getZ()) / 12.0f);
+                inertiaSum += iLocal + (pm * d2);
+            }
+            b.setInertia(Math.max(0.05f, inertiaSum));
         }
         Vector3 lo = new Vector3(Float.MAX_VALUE, Float.MAX_VALUE, Float.MAX_VALUE);
         Vector3 hi = lo.unaryMinus();
-        Iterator<Instance> it = b.getParts().iterator();
-        while (it.hasNext()) {
-            Pair<Vector3, Vector3> pairPartAabb = Geometry.INSTANCE.partAabb(it.next());
+        for (Instance p : b.getParts()) {
+            Pair<Vector3, Vector3> pairPartAabb = Geometry.INSTANCE.partAabb(p);
             Vector3 a0 = pairPartAabb.component1();
             Vector3 a1 = pairPartAabb.component2();
             lo = new Vector3(Math.min(lo.getX(), a0.getX()), Math.min(lo.getY(), a0.getY()), Math.min(lo.getZ(), a0.getZ()));
@@ -5676,8 +5805,7 @@ public final class PlaySession implements TreeListener {
                                         }
                                     } else {
                                         Object obj14 = next.get("LineDirection");
-                                        if (obj14 instanceof Vector3) {
-                                        }
+                                        obj = obj14 instanceof Vector3 ? (Vector3) obj14 : null;
                                         if (obj == null) {
                                             vector3 = new Vector3(1.0f, 0.0f, 0.0f);
                                         } else {
@@ -6404,452 +6532,971 @@ public final class PlaySession implements TreeListener {
         	at jadx.core.dex.visitors.typeinference.TypeUpdate.apply(TypeUpdate.java:91)
         	... 5 more
         */
-    private final void solveDistanceConstraints() {
-        List<Instance> list = this.studio.renderConstraints();
-        if (list.isEmpty()) {
-            return;
+    private final boolean canCollideParts(Instance a, Instance b) {
+        if (a == null || b == null || a == b) return false;
+        if (Intrinsics.areEqual(a.get("CanCollide"), Boolean.FALSE) || Intrinsics.areEqual(b.get("CanCollide"), Boolean.FALSE)) {
+            return false;
         }
-        for (int i = 0; i < list.size(); i++) {
-            Instance c = list.get(i);
-            if (Intrinsics.areEqual(c.get("Enabled"), (Object) false)) {
+        Object gaObj = a.get("CollisionGroup");
+        Object gbObj = b.get("CollisionGroup");
+        String ga = gaObj instanceof String ? (String) gaObj : "Default";
+        String gb = gbObj instanceof String ? (String) gbObj : "Default";
+        return com.goydevv.studrblx.lua.RobloxServices.INSTANCE.areCollisionGroupsCollidable(ga, gb);
+    }
+
+    private final void translateBody(Body b, Vector3 delta) {
+        if (delta.getMagnitude() < 1.0E-7f) return;
+        for (Instance part : b.getParts()) {
+            part.set("CFrame", PartData.INSTANCE.cframe(part).plus(delta), false);
+        }
+        b.setCom(b.getCom().plus(delta));
+        b.setMin(b.getMin().plus(delta));
+        b.setMax(b.getMax().plus(delta));
+    }
+
+    private final void rotateBody(Body b, Vector3 axis, float angleRad) {
+        if (Math.abs(angleRad) < 1.0E-6f) return;
+        float aMag = axis.getMagnitude();
+        if (aMag < 1.0E-6f) return;
+        CFrame rot = CFrame.INSTANCE.fromAxisAngle(axis.div(aMag), angleRad);
+        Vector3 com = b.getCom();
+        for (Instance part : b.getParts()) {
+            CFrame cf = PartData.INSTANCE.cframe(part);
+            Vector3 rel = cf.getPosition().minus(com);
+            Vector3 newPos = com.plus(rot.vectorToWorld(rel));
+            CFrame newCf = rot.times(cf.rotationOnly()).withPosition(newPos).orthonormalize();
+            part.set("CFrame", newCf, false);
+        }
+    }
+
+    private final void applyBodyImpulseAt(Body b, Vector3 impulse, Vector3 worldPoint) {
+        if (b == null) return;
+        float invM = 1.0f / Math.max(b.getMass(), 0.01f);
+        float invI = 1.0f / Math.max(b.getInertia(), 0.05f);
+        b.setVel(b.getVel().plus(impulse.times(invM)));
+        Vector3 r = worldPoint.minus(b.getCom());
+        Vector3 angImp = r.cross(impulse).times(invI);
+        b.setAngVel(b.getAngVel().plus(angImp));
+        b.setSleeping(false);
+        b.setRestTime(0.0f);
+    }
+
+    private final Vector3 bodyVelAt(Body b, Vector3 worldPoint) {
+        if (b == null) return Vector3.INSTANCE.getZERO();
+        Vector3 r = worldPoint.minus(b.getCom());
+        return b.getVel().plus(b.getAngVel().cross(r));
+    }
+
+    private final float[] materialPropsOf(Instance p) {
+        if (p == null) return new float[]{0.7f, 0.3f, 0.5f};
+        Object obj = p.get("CustomPhysicalProperties");
+        PhysicalProps cp = obj instanceof PhysicalProps ? (PhysicalProps) obj : null;
+        if (cp != null && cp.getCustom()) {
+            return new float[]{cp.getDensity(), cp.getFriction(), cp.getElasticity()};
+        }
+        return physProps(PartData.INSTANCE.material(p));
+    }
+
+    /**
+     * Exact sphere vs OBB / sphere contact returning separation vector (pointing from obs to sphere), or null if no overlap.
+     */
+    private final Vector3 spherePartContact(Vector3 sc, float radius, Instance obs) {
+        CFrame ocf = PartData.INSTANCE.cframe(obs);
+        Vector3 osz = PartData.INSTANCE.size(obs);
+        int oshape = PartData.INSTANCE.shape(obs);
+        if (oshape == 0) {
+            float or = Math.min(osz.getX(), Math.min(osz.getY(), osz.getZ())) * 0.5f;
+            Vector3 diff = sc.minus(ocf.getPosition());
+            float dist = diff.getMagnitude();
+            float sumR = radius + or;
+            if (dist >= sumR) return null;
+            if (dist < 1.0E-5f) return new Vector3(0.0f, sumR, 0.0f);
+            return diff.div(dist).times(sumR - dist);
+        }
+        Vector3 local = ocf.pointToObject(sc);
+        float hx = osz.getX() * 0.5f;
+        float hy = osz.getY() * 0.5f;
+        float hz = osz.getZ() * 0.5f;
+        float cx = RangesKt.coerceIn(local.getX(), -hx, hx);
+        float cy = RangesKt.coerceIn(local.getY(), -hy, hy);
+        float cz = RangesKt.coerceIn(local.getZ(), -hz, hz);
+        Vector3 closest = new Vector3(cx, cy, cz);
+        Vector3 diff = local.minus(closest);
+        float d2 = diff.dot(diff);
+        if (d2 >= radius * radius) return null;
+        if (d2 > 1.0E-8f) {
+            float d = (float) Math.sqrt(d2);
+            return ocf.vectorToWorld(diff.div(d)).times(radius - d);
+        }
+        // Center is inside OBB: push out along shallowest face
+        float dx = hx - Math.abs(local.getX());
+        float dy = hy - Math.abs(local.getY());
+        float dz = hz - Math.abs(local.getZ());
+        Vector3 localN;
+        float pen;
+        if (dy <= dx && dy <= dz) {
+            localN = new Vector3(0.0f, local.getY() >= 0.0f ? 1.0f : -1.0f, 0.0f);
+            pen = dy + radius;
+        } else if (dx <= dz) {
+            localN = new Vector3(local.getX() >= 0.0f ? 1.0f : -1.0f, 0.0f, 0.0f);
+            pen = dx + radius;
+        } else {
+            localN = new Vector3(0.0f, 0.0f, local.getZ() >= 0.0f ? 1.0f : -1.0f);
+            pen = dz + radius;
+        }
+        return ocf.vectorToWorld(localN).times(pen);
+    }
+
+    private final CFrame attLocalCFrame(Instance att) {
+        if (att == null) return CFrame.INSTANCE.getIDENTITY();
+        Object cfObj = att.get("CFrame");
+        if (cfObj instanceof CFrame) return (CFrame) cfObj;
+        Object posObj = att.get("Position");
+        Vector3 pos = posObj instanceof Vector3 ? (Vector3) posObj : Vector3.INSTANCE.getZERO();
+        Object oriObj = att.get("Orientation");
+        if (oriObj instanceof Vector3) {
+            Vector3 o = (Vector3) oriObj;
+            return CFrame.INSTANCE.fromOrientation(
+                    (float) Math.toRadians(o.getX()),
+                    (float) Math.toRadians(o.getY()),
+                    (float) Math.toRadians(o.getZ())
+            ).withPosition(pos);
+        }
+        return CFrame.INSTANCE.at(pos);
+    }
+
+    private final CFrame attWorldCFrame(Instance att) {
+        Instance part = attPart(att);
+        if (part == null) return null;
+        return PartData.INSTANCE.cframe(part).times(attLocalCFrame(att));
+    }
+
+    private final int enumVal(Instance inst, String key, int def) {
+        Object o = inst.get(key);
+        if (o instanceof EnumValue) return ((EnumValue) o).getValue();
+        if (o instanceof Number) return ((Number) o).intValue();
+        return def;
+    }
+
+    private final boolean boolVal(Instance inst, String key, boolean def) {
+        Object o = inst.get(key);
+        return o instanceof Boolean ? ((Boolean) o).booleanValue() : def;
+    }
+
+    private final void solvePivotCoincidence(Body b0, Body b1, Vector3 w0, Vector3 w1, float dt, boolean m0, boolean m1) {
+        Vector3 err = w1.minus(w0);
+        float dist = err.getMagnitude();
+        float invM0 = m0 ? (1.0f / Math.max(b0.getMass(), 0.01f)) : 0.0f;
+        float invM1 = m1 ? (1.0f / Math.max(b1.getMass(), 0.01f)) : 0.0f;
+        float invMSum = invM0 + invM1;
+        if (invMSum <= 1.0E-7f) return;
+        if (dist > 1.0E-5f) {
+            if (m0) translateBody(b0, err.times(invM0 / invMSum));
+            if (m1) translateBody(b1, err.times(-invM1 / invMSum));
+        }
+        Vector3 v0 = m0 ? bodyVelAt(b0, w0) : Vector3.INSTANCE.getZERO();
+        Vector3 v1 = m1 ? bodyVelAt(b1, w1) : Vector3.INSTANCE.getZERO();
+        Vector3 relV = v1.minus(v0);
+        if (relV.getMagnitude() > 1.0E-5f) {
+            Vector3 imp = relV.div(invMSum).times(0.8f);
+            if (m0) applyBodyImpulseAt(b0, imp, w0);
+            if (m1) applyBodyImpulseAt(b1, imp.unaryMinus(), w1);
+        }
+    }
+
+    private final void alignAxes(Body b0, Body b1, Vector3 axis0, Vector3 axis1, boolean m0, boolean m1) {
+        Vector3 cross = axis1.cross(axis0);
+        float sinA = cross.getMagnitude();
+        float cosA = axis1.dot(axis0);
+        if (sinA < 1.0E-5f && cosA > 0.0f) return;
+        float angle = (float) Math.atan2(sinA, cosA);
+        Vector3 rotAxis;
+        if (sinA > 1.0E-5f) {
+            rotAxis = cross.div(sinA);
+        } else {
+            rotAxis = Math.abs(axis0.getY()) < 0.9f
+                    ? axis0.cross(Vector3.INSTANCE.getY()).getUnit()
+                    : axis0.cross(Vector3.INSTANCE.getX()).getUnit();
+        }
+        float invI0 = m0 ? (1.0f / Math.max(b0.getInertia(), 0.05f)) : 0.0f;
+        float invI1 = m1 ? (1.0f / Math.max(b1.getInertia(), 0.05f)) : 0.0f;
+        float invISum = invI0 + invI1;
+        if (invISum <= 1.0E-7f) return;
+        if (m0) rotateBody(b0, rotAxis, -angle * (invI0 / invISum));
+        if (m1) rotateBody(b1, rotAxis, angle * (invI1 / invISum));
+        // Remove relative angular velocity perpendicular to axis0
+        Vector3 w0 = m0 ? b0.getAngVel() : Vector3.INSTANCE.getZERO();
+        Vector3 w1 = m1 ? b1.getAngVel() : Vector3.INSTANCE.getZERO();
+        Vector3 relW = w1.minus(w0);
+        Vector3 perpW = relW.minus(axis0.times(relW.dot(axis0)));
+        if (perpW.getMagnitude() > 1.0E-5f) {
+            if (m0) b0.setAngVel(b0.getAngVel().plus(perpW.times(invI0 / invISum)));
+            if (m1) b1.setAngVel(b1.getAngVel().minus(perpW.times(invI1 / invISum)));
+        }
+    }
+
+    private final void solveMechanicalConstraints(float dt) {
+        if (this.mechConstraints.isEmpty()) return;
+        // Pass 1: Continuous force/spring/winch/angular-mover integration (once per step)
+        for (int i = 0; i < this.mechConstraints.size(); i++) {
+            Instance c = this.mechConstraints.get(i);
+            if (c.getParent() == null || Intrinsics.areEqual(c.get("Enabled"), Boolean.FALSE)) continue;
+            String cn = c.getClassName();
+            if ("AngularVelocity".equals(cn)) {
+                Object a0Obj = c.get("Attachment0");
+                Instance a0 = a0Obj instanceof Instance ? (Instance) a0Obj : null;
+                Instance p0 = attPart(a0);
+                Body b0 = p0 != null ? this.bodyOf.get(p0) : null;
+                if (b0 != null && !Intrinsics.areEqual(p0.get("Anchored"), Boolean.TRUE)) {
+                    Vector3 targetW = vec(c, "AngularVelocity");
+                    int relTo = enumVal(c, "RelativeTo", 2);
+                    if (relTo == 0) {
+                        CFrame cf0 = attWorldCFrame(a0);
+                        if (cf0 != null) targetW = cf0.vectorToWorld(targetW);
+                    }
+                    float maxT = num(c, "MaxTorque", 10000.0f);
+                    Vector3 dw = targetW.minus(b0.getAngVel());
+                    float dwMag = dw.getMagnitude();
+                    float maxDw = (maxT * dt) / Math.max(b0.getInertia(), 0.05f);
+                    if (dwMag > 1.0E-5f) {
+                        b0.setAngVel(b0.getAngVel().plus(dwMag > maxDw ? dw.div(dwMag).times(maxDw) : dw));
+                        b0.setSleeping(false);
+                        b0.setRestTime(0.0f);
+                    }
+                }
+                continue;
+            }
+            if ("AlignOrientation".equals(cn)) {
+                Object a0Obj = c.get("Attachment0");
+                Instance a0 = a0Obj instanceof Instance ? (Instance) a0Obj : null;
+                Instance p0 = attPart(a0);
+                Body b0 = p0 != null ? this.bodyOf.get(p0) : null;
+                if (b0 != null && !Intrinsics.areEqual(p0.get("Anchored"), Boolean.TRUE)) {
+                    CFrame targetCf = null;
+                    int mode = enumVal(c, "Mode", 1);
+                    if (mode == 0) {
+                        Object cfObj = c.get("CFrame");
+                        if (cfObj instanceof CFrame) targetCf = (CFrame) cfObj;
+                    } else {
+                        Object a1Obj = c.get("Attachment1");
+                        if (a1Obj instanceof Instance) targetCf = attWorldCFrame((Instance) a1Obj);
+                    }
+                    CFrame curCf = attWorldCFrame(a0);
+                    if (targetCf != null && curCf != null) {
+                        float resp = RangesKt.coerceIn(num(c, "Responsiveness", 10.0f), 1.0f, 200.0f);
+                        float alpha = RangesKt.coerceIn(resp * dt * 0.25f, 0.0f, 1.0f);
+                        CFrame lerped = curCf.rotationOnly().lerp(targetCf.rotationOnly(), alpha);
+                        CFrame deltaRot = lerped.times(curCf.rotationOnly().inverse());
+                        Vector3 com = b0.getCom();
+                        for (Instance part : b0.getParts()) {
+                            CFrame pcf = PartData.INSTANCE.cframe(part);
+                            Vector3 rel = pcf.getPosition().minus(com);
+                            part.set("CFrame", deltaRot.times(pcf.rotationOnly()).withPosition(com.plus(deltaRot.vectorToWorld(rel))).orthonormalize(), false);
+                        }
+                        b0.setAngVel(b0.getAngVel().times(Math.max(0.0f, 1.0f - alpha)));
+                        b0.setSleeping(false);
+                    }
+                }
                 continue;
             }
             Object a0Obj = c.get("Attachment0");
             Object a1Obj = c.get("Attachment1");
-            if (!(a0Obj instanceof Instance) || !(a1Obj instanceof Instance)) {
-                continue;
-            }
+            if (!(a0Obj instanceof Instance) || !(a1Obj instanceof Instance)) continue;
             Instance a0 = (Instance) a0Obj;
             Instance a1 = (Instance) a1Obj;
-            Instance p0 = a0.getParent();
-            Instance p1 = a1.getParent();
-            if (p0 == null || p1 == null || !p0.isA("BasePart") || !p1.isA("BasePart")) {
-                continue;
-            }
-            CFrame cf0 = PartData.INSTANCE.cframe(p0);
-            CFrame cf1 = PartData.INSTANCE.cframe(p1);
-            Vector3 off0 = (a0.get("CFrame") instanceof CFrame) ? ((CFrame) a0.get("CFrame")).getPosition() : Vector3.INSTANCE.getZERO();
-            Vector3 off1 = (a1.get("CFrame") instanceof CFrame) ? ((CFrame) a1.get("CFrame")).getPosition() : Vector3.INSTANCE.getZERO();
-            Vector3 w0 = cf0.times(off0);
-            Vector3 w1 = cf1.times(off1);
-            Vector3 delta = w1.minus(w0);
-            float dist = delta.getMagnitude();
-            if (dist < 1.0E-4f) {
-                continue;
-            }
-            Vector3 dir = delta.div(dist);
+            Instance p0 = attPart(a0);
+            Instance p1 = attPart(a1);
+            if (p0 == null || p1 == null) continue;
             Body b0 = this.bodyOf.get(p0);
             Body b1 = this.bodyOf.get(p1);
             boolean m0 = b0 != null && !Intrinsics.areEqual(p0.get("Anchored"), Boolean.TRUE);
             boolean m1 = b1 != null && !Intrinsics.areEqual(p1.get("Anchored"), Boolean.TRUE);
-            if (!m0 && !m1) {
-                continue;
+            if (!m0 && !m1) continue;
+            if (b0 != null && b0 == b1) continue;
+
+            if ("RopeConstraint".equals(cn) && boolVal(c, "WinchEnabled", false)) {
+                float len = num(c, "Length", 5.0f);
+                float target = num(c, "WinchTarget", 5.0f);
+                float speed = Math.abs(num(c, "WinchSpeed", 2.0f));
+                float diff = target - len;
+                float stepLen = speed * dt;
+                float nextLen = Math.abs(diff) <= stepLen ? target : (len + (diff > 0.0f ? stepLen : -stepLen));
+                c.set("Length", Float.valueOf(Math.max(0.0f, nextLen)), false);
+            } else if ("SpringConstraint".equals(cn)) {
+                CFrame cf0 = attWorldCFrame(a0);
+                CFrame cf1 = attWorldCFrame(a1);
+                if (cf0 == null || cf1 == null) continue;
+                Vector3 w0 = cf0.getPosition();
+                Vector3 w1 = cf1.getPosition();
+                Vector3 delta = w1.minus(w0);
+                float dist = delta.getMagnitude();
+                c.set("CurrentLength", Float.valueOf(dist), false);
+                if (dist > 1.0E-4f) {
+                    Vector3 dir = delta.div(dist);
+                    float freeLen = num(c, "FreeLength", 1.0f);
+                    float stiff = num(c, "Stiffness", 1000.0f);
+                    float damp = num(c, "Damping", 0.0f);
+                    float maxF = num(c, "MaxForce", Float.MAX_VALUE);
+                    Vector3 v0 = m0 ? bodyVelAt(b0, w0) : Vector3.INSTANCE.getZERO();
+                    Vector3 v1 = m1 ? bodyVelAt(b1, w1) : Vector3.INSTANCE.getZERO();
+                    float relV = v1.minus(v0).dot(dir);
+                    float fMag = RangesKt.coerceIn((dist - freeLen) * stiff + (relV * damp), -maxF, maxF);
+                    Vector3 imp = dir.times(fMag * dt);
+                    if (m0) applyBodyImpulseAt(b0, imp, w0);
+                    if (m1) applyBodyImpulseAt(b1, imp.unaryMinus(), w1);
+                }
             }
-            String cn = c.getClassName();
-            if (Intrinsics.areEqual(cn, "SpringConstraint")) {
-                float freeLen = (c.get("FreeLength") instanceof Number) ? ((Number) c.get("FreeLength")).floatValue() : 1.0f;
-                float stiff = (c.get("Stiffness") instanceof Number) ? ((Number) c.get("Stiffness")).floatValue() : 1000.0f;
-                float damp = (c.get("Damping") instanceof Number) ? ((Number) c.get("Damping")).floatValue() : 0.0f;
-                float stretch = dist - freeLen;
-                float relVel = (m1 ? b1.getVel().dot(dir) : 0.0f) - (m0 ? b0.getVel().dot(dir) : 0.0f);
-                float fMag = (stretch * stiff) + (relVel * damp);
-                float dt = 0.016666668f;
-                if (m0) {
-                    float invM0 = 1.0f / Math.max(b0.getMass(), 0.2f);
-                    b0.setVel(b0.getVel().plus(dir.times(fMag * invM0 * dt)));
-                    b0.setSleeping(false);
-                }
-                if (m1) {
-                    float invM1 = 1.0f / Math.max(b1.getMass(), 0.2f);
-                    b1.setVel(b1.getVel().minus(dir.times(fMag * invM1 * dt)));
-                    b1.setSleeping(false);
-                }
-            } else {
-                float targetLen = (c.get("Length") instanceof Number) ? ((Number) c.get("Length")).floatValue() : 5.0f;
-                boolean isRod = Intrinsics.areEqual(cn, "RodConstraint");
-                if (!isRod && dist <= targetLen) {
-                    continue;
-                }
-                float err = dist - targetLen;
-                float wSum = (m0 ? 1.0f : 0.0f) + (m1 ? 1.0f : 0.0f);
-                float corr = err / wSum;
-                if (m0) {
-                    Vector3 shift0 = dir.times(corr);
-                    for (Instance part : b0.getParts()) {
-                        CFrame cur = PartData.INSTANCE.cframe(part);
-                        Instance.set$default(part, "CFrame", cur.plus(shift0), false, 4, null);
+        }
+
+        // Pass 2: Iterative position/velocity/motor constraint solver
+        final int ITERS = 4;
+        float subDt = dt / (float) ITERS;
+        for (int iter = 0; iter < ITERS; iter++) {
+            for (int i = 0; i < this.mechConstraints.size(); i++) {
+                Instance c = this.mechConstraints.get(i);
+                if (c.getParent() == null || Intrinsics.areEqual(c.get("Enabled"), Boolean.FALSE)) continue;
+                String cn = c.getClassName();
+                if ("AngularVelocity".equals(cn) || "AlignOrientation".equals(cn)) continue;
+                Object a0Obj = c.get("Attachment0");
+                Object a1Obj = c.get("Attachment1");
+                if (!(a0Obj instanceof Instance) || !(a1Obj instanceof Instance)) continue;
+                Instance a0 = (Instance) a0Obj;
+                Instance a1 = (Instance) a1Obj;
+                Instance p0 = attPart(a0);
+                Instance p1 = attPart(a1);
+                if (p0 == null || p1 == null) continue;
+                Body b0 = this.bodyOf.get(p0);
+                Body b1 = this.bodyOf.get(p1);
+                boolean m0 = b0 != null && !Intrinsics.areEqual(p0.get("Anchored"), Boolean.TRUE);
+                boolean m1 = b1 != null && !Intrinsics.areEqual(p1.get("Anchored"), Boolean.TRUE);
+                if (!m0 && !m1) continue;
+                if (b0 != null && b0 == b1) continue;
+                CFrame cf0 = attWorldCFrame(a0);
+                CFrame cf1 = attWorldCFrame(a1);
+                if (cf0 == null || cf1 == null) continue;
+                Vector3 w0 = cf0.getPosition();
+                Vector3 w1 = cf1.getPosition();
+
+                if ("RopeConstraint".equals(cn) || "RodConstraint".equals(cn)) {
+                    boolean isRod = "RodConstraint".equals(cn);
+                    Vector3 delta = w1.minus(w0);
+                    float dist = delta.getMagnitude();
+                    c.set("CurrentDistance", Float.valueOf(dist), false);
+                    float targetLen = num(c, "Length", 5.0f);
+                    if (!isRod && dist <= targetLen) continue;
+                    if (dist < 1.0E-5f) continue;
+                    Vector3 dir = delta.div(dist);
+                    float err = dist - targetLen;
+                    float invM0 = m0 ? (1.0f / Math.max(b0.getMass(), 0.01f)) : 0.0f;
+                    float invM1 = m1 ? (1.0f / Math.max(b1.getMass(), 0.01f)) : 0.0f;
+                    float invMSum = invM0 + invM1;
+                    if (invMSum <= 1.0E-7f) continue;
+                    if (m0) translateBody(b0, dir.times(err * (invM0 / invMSum)));
+                    if (m1) translateBody(b1, dir.times(-err * (invM1 / invMSum)));
+                    Vector3 v0 = m0 ? bodyVelAt(b0, w0) : Vector3.INSTANCE.getZERO();
+                    Vector3 v1 = m1 ? bodyVelAt(b1, w1) : Vector3.INSTANCE.getZERO();
+                    float vRel = v1.minus(v0).dot(dir);
+                    if (isRod || vRel > 0.0f) {
+                        float rest = isRod ? 0.0f : RangesKt.coerceIn(num(c, "Restitution", 0.0f), 0.0f, 1.0f);
+                        float j = (1.0f + rest) * vRel / invMSum;
+                        Vector3 imp = dir.times(j);
+                        if (m0) applyBodyImpulseAt(b0, imp, w0);
+                        if (m1) applyBodyImpulseAt(b1, imp.unaryMinus(), w1);
                     }
-                    float vn0 = b0.getVel().dot(dir);
-                    if (isRod || vn0 < 0.0f) {
-                        b0.setVel(b0.getVel().minus(dir.times(vn0 * (m1 ? 0.5f : 1.0f))));
+                } else if ("SpringConstraint".equals(cn)) {
+                    if (!boolVal(c, "LimitsEnabled", false)) continue;
+                    Vector3 delta = w1.minus(w0);
+                    float dist = delta.getMagnitude();
+                    c.set("CurrentLength", Float.valueOf(dist), false);
+                    if (dist < 1.0E-5f) continue;
+                    float minLen = num(c, "MinLength", 0.0f);
+                    float maxLen = num(c, "MaxLength", 5.0f);
+                    float err = 0.0f;
+                    if (dist < minLen) err = dist - minLen;
+                    else if (dist > maxLen) err = dist - maxLen;
+                    if (Math.abs(err) < 1.0E-5f) continue;
+                    Vector3 dir = delta.div(dist);
+                    float invM0 = m0 ? (1.0f / Math.max(b0.getMass(), 0.01f)) : 0.0f;
+                    float invM1 = m1 ? (1.0f / Math.max(b1.getMass(), 0.01f)) : 0.0f;
+                    float invMSum = invM0 + invM1;
+                    if (invMSum <= 1.0E-7f) continue;
+                    if (m0) translateBody(b0, dir.times(err * (invM0 / invMSum)));
+                    if (m1) translateBody(b1, dir.times(-err * (invM1 / invMSum)));
+                    Vector3 v0 = m0 ? bodyVelAt(b0, w0) : Vector3.INSTANCE.getZERO();
+                    Vector3 v1 = m1 ? bodyVelAt(b1, w1) : Vector3.INSTANCE.getZERO();
+                    float vRel = v1.minus(v0).dot(dir);
+                    if ((err > 0.0f && vRel > 0.0f) || (err < 0.0f && vRel < 0.0f)) {
+                        Vector3 imp = dir.times(vRel / invMSum);
+                        if (m0) applyBodyImpulseAt(b0, imp, w0);
+                        if (m1) applyBodyImpulseAt(b1, imp.unaryMinus(), w1);
                     }
-                    b0.setSleeping(false);
-                }
-                if (m1) {
-                    Vector3 shift1 = dir.times(-corr);
-                    for (Instance part : b1.getParts()) {
-                        CFrame cur = PartData.INSTANCE.cframe(part);
-                        Instance.set$default(part, "CFrame", cur.plus(shift1), false, 4, null);
+                } else if ("BallSocketConstraint".equals(cn) || "UniversalConstraint".equals(cn)) {
+                    solvePivotCoincidence(b0, b1, w0, w1, subDt, m0, m1);
+                    if (boolVal(c, "LimitsEnabled", false)) {
+                        float maxDeg = num(c, "UpperAngle", 45.0f);
+                        Vector3 ax0 = cf0.getRightVector().getUnit();
+                        Vector3 ax1 = cf1.getRightVector().getUnit();
+                        float dot = RangesKt.coerceIn(ax0.dot(ax1), -1.0f, 1.0f);
+                        float angDeg = (float) Math.toDegrees(Math.acos(dot));
+                        if (angDeg > maxDeg) {
+                            float excessRad = (float) Math.toRadians(angDeg - maxDeg);
+                            Vector3 rotAx = ax1.cross(ax0);
+                            if (rotAx.getMagnitude() > 1.0E-5f) {
+                                rotAx = rotAx.getUnit();
+                                float invI0 = m0 ? (1.0f / Math.max(b0.getInertia(), 0.05f)) : 0.0f;
+                                float invI1 = m1 ? (1.0f / Math.max(b1.getInertia(), 0.05f)) : 0.0f;
+                                float invISum = invI0 + invI1;
+                                if (invISum > 1.0E-7f) {
+                                    if (m0) rotateBody(b0, rotAx, -excessRad * (invI0 / invISum));
+                                    if (m1) rotateBody(b1, rotAx, excessRad * (invI1 / invISum));
+                                }
+                            }
+                        }
                     }
-                    float vn1 = b1.getVel().dot(dir);
-                    if (isRod || vn1 > 0.0f) {
-                        b1.setVel(b1.getVel().minus(dir.times(vn1 * (m0 ? 0.5f : 1.0f))));
+                } else if ("HingeConstraint".equals(cn)) {
+                    solvePivotCoincidence(b0, b1, w0, w1, subDt, m0, m1);
+                    cf0 = attWorldCFrame(a0);
+                    cf1 = attWorldCFrame(a1);
+                    if (cf0 == null || cf1 == null) continue;
+                    Vector3 ax0 = cf0.getRightVector().getUnit();
+                    Vector3 ax1 = cf1.getRightVector().getUnit();
+                    alignAxes(b0, b1, ax0, ax1, m0, m1);
+                    cf0 = attWorldCFrame(a0);
+                    cf1 = attWorldCFrame(a1);
+                    if (cf0 == null || cf1 == null) continue;
+                    ax0 = cf0.getRightVector().getUnit();
+                    Vector3 u0 = cf0.getUpVector();
+                    u0 = u0.minus(ax0.times(u0.dot(ax0))).getUnit();
+                    Vector3 u1 = cf1.getUpVector();
+                    u1 = u1.minus(ax0.times(u1.dot(ax0))).getUnit();
+                    float angleRad = (float) Math.atan2(u0.cross(u1).dot(ax0), u0.dot(u1));
+                    float angleDeg = (float) Math.toDegrees(angleRad);
+                    c.set("CurrentAngle", Float.valueOf(angleDeg), false);
+
+                    float invI0 = m0 ? (1.0f / Math.max(b0.getInertia(), 0.05f)) : 0.0f;
+                    float invI1 = m1 ? (1.0f / Math.max(b1.getInertia(), 0.05f)) : 0.0f;
+                    float invISum = invI0 + invI1;
+                    if (invISum > 1.0E-7f) {
+                        int act = enumVal(c, "ActuatorType", 0);
+                        if (act == 1) { // Motor
+                            float targetW = num(c, "AngularVelocity", 0.0f);
+                            float maxT = Math.abs(num(c, "MotorMaxTorque", 0.0f));
+                            if (maxT > 0.0f) {
+                                float curW = (m1 ? b1.getAngVel().dot(ax0) : 0.0f) - (m0 ? b0.getAngVel().dot(ax0) : 0.0f);
+                                float jAng = RangesKt.coerceIn((targetW - curW) / invISum, -maxT * subDt, maxT * subDt);
+                                if (m0) { b0.setAngVel(b0.getAngVel().minus(ax0.times(jAng * invI0))); b0.setSleeping(false); b0.setRestTime(0.0f); }
+                                if (m1) { b1.setAngVel(b1.getAngVel().plus(ax0.times(jAng * invI1))); b1.setSleeping(false); b1.setRestTime(0.0f); }
+                            }
+                        } else if (act == 2) { // Servo
+                            float targetDeg = num(c, "TargetAngle", 0.0f);
+                            float maxT = Math.abs(num(c, "ServoMaxTorque", 0.0f));
+                            float angSpeed = Math.max(0.01f, Math.abs(num(c, "AngularSpeed", 10.0f)));
+                            if (maxT > 0.0f) {
+                                float errRad = (float) Math.toRadians(targetDeg) - angleRad;
+                                while (errRad > (float) Math.PI) errRad -= (float) (2.0d * Math.PI);
+                                while (errRad < (float) -Math.PI) errRad += (float) (2.0d * Math.PI);
+                                float desiredW = RangesKt.coerceIn(errRad / Math.max(dt, 0.005f), -angSpeed, angSpeed);
+                                float curW = (m1 ? b1.getAngVel().dot(ax0) : 0.0f) - (m0 ? b0.getAngVel().dot(ax0) : 0.0f);
+                                float jAng = RangesKt.coerceIn((desiredW - curW) / invISum, -maxT * subDt, maxT * subDt);
+                                if (m0) { b0.setAngVel(b0.getAngVel().minus(ax0.times(jAng * invI0))); b0.setSleeping(false); b0.setRestTime(0.0f); }
+                                if (m1) { b1.setAngVel(b1.getAngVel().plus(ax0.times(jAng * invI1))); b1.setSleeping(false); b1.setRestTime(0.0f); }
+                            }
+                        }
+                        if (boolVal(c, "LimitsEnabled", false)) {
+                            float loDeg = num(c, "LowerAngle", -45.0f);
+                            float hiDeg = num(c, "UpperAngle", 45.0f);
+                            float clampDeg = RangesKt.coerceIn(angleDeg, loDeg, hiDeg);
+                            if (Math.abs(angleDeg - clampDeg) > 1.0E-3f) {
+                                float corrRad = (float) Math.toRadians(clampDeg - angleDeg);
+                                if (m0) rotateBody(b0, ax0, -corrRad * (invI0 / invISum));
+                                if (m1) rotateBody(b1, ax0, corrRad * (invI1 / invISum));
+                                float rest = RangesKt.coerceIn(num(c, "Restitution", 0.0f), 0.0f, 1.0f);
+                                float curW = (m1 ? b1.getAngVel().dot(ax0) : 0.0f) - (m0 ? b0.getAngVel().dot(ax0) : 0.0f);
+                                if ((angleDeg > hiDeg && curW > 0.0f) || (angleDeg < loDeg && curW < 0.0f)) {
+                                    float jLim = -(1.0f + rest) * curW / invISum;
+                                    if (m0) b0.setAngVel(b0.getAngVel().minus(ax0.times(jLim * invI0)));
+                                    if (m1) b1.setAngVel(b1.getAngVel().plus(ax0.times(jLim * invI1)));
+                                }
+                                c.set("CurrentAngle", Float.valueOf(clampDeg), false);
+                            }
+                        }
                     }
-                    b1.setSleeping(false);
+                } else if ("PrismaticConstraint".equals(cn) || "CylindricalConstraint".equals(cn)) {
+                    boolean isCyl = "CylindricalConstraint".equals(cn);
+                    Vector3 ax0 = cf0.getRightVector().getUnit();
+                    Vector3 ax1 = cf1.getRightVector().getUnit();
+                    alignAxes(b0, b1, ax0, ax1, m0, m1);
+                    if (!isCyl) {
+                        // Prismatic locks rotation around ax0 as well
+                        cf0 = attWorldCFrame(a0);
+                        cf1 = attWorldCFrame(a1);
+                        if (cf0 != null && cf1 != null) {
+                            ax0 = cf0.getRightVector().getUnit();
+                            Vector3 u0 = cf0.getUpVector(); u0 = u0.minus(ax0.times(u0.dot(ax0))).getUnit();
+                            Vector3 u1 = cf1.getUpVector(); u1 = u1.minus(ax0.times(u1.dot(ax0))).getUnit();
+                            float twist = (float) Math.atan2(u0.cross(u1).dot(ax0), u0.dot(u1));
+                            float invI0 = m0 ? (1.0f / Math.max(b0.getInertia(), 0.05f)) : 0.0f;
+                            float invI1 = m1 ? (1.0f / Math.max(b1.getInertia(), 0.05f)) : 0.0f;
+                            float invISum = invI0 + invI1;
+                            if (invISum > 1.0E-7f) {
+                                if (Math.abs(twist) > 1.0E-4f) {
+                                    if (m0) rotateBody(b0, ax0, twist * (invI0 / invISum));
+                                    if (m1) rotateBody(b1, ax0, -twist * (invI1 / invISum));
+                                }
+                                float curW = (m1 ? b1.getAngVel().dot(ax0) : 0.0f) - (m0 ? b0.getAngVel().dot(ax0) : 0.0f);
+                                if (m0) b0.setAngVel(b0.getAngVel().plus(ax0.times(curW * (invI0 / invISum))));
+                                if (m1) b1.setAngVel(b1.getAngVel().minus(ax0.times(curW * (invI1 / invISum))));
+                            }
+                        }
+                    }
+                    cf0 = attWorldCFrame(a0);
+                    cf1 = attWorldCFrame(a1);
+                    if (cf0 == null || cf1 == null) continue;
+                    ax0 = cf0.getRightVector().getUnit();
+                    w0 = cf0.getPosition();
+                    w1 = cf1.getPosition();
+                    Vector3 rel = w1.minus(w0);
+                    float slidePos = rel.dot(ax0);
+                    c.set("CurrentPosition", Float.valueOf(slidePos), false);
+                    Vector3 perp = rel.minus(ax0.times(slidePos));
+                    float invM0 = m0 ? (1.0f / Math.max(b0.getMass(), 0.01f)) : 0.0f;
+                    float invM1 = m1 ? (1.0f / Math.max(b1.getMass(), 0.01f)) : 0.0f;
+                    float invMSum = invM0 + invM1;
+                    if (invMSum > 1.0E-7f) {
+                        if (perp.getMagnitude() > 1.0E-5f) {
+                            if (m0) translateBody(b0, perp.times(invM0 / invMSum));
+                            if (m1) translateBody(b1, perp.times(-invM1 / invMSum));
+                        }
+                        Vector3 v0 = m0 ? bodyVelAt(b0, w0) : Vector3.INSTANCE.getZERO();
+                        Vector3 v1 = m1 ? bodyVelAt(b1, w1) : Vector3.INSTANCE.getZERO();
+                        Vector3 relV = v1.minus(v0);
+                        Vector3 perpV = relV.minus(ax0.times(relV.dot(ax0)));
+                        if (perpV.getMagnitude() > 1.0E-5f) {
+                            Vector3 impP = perpV.div(invMSum).times(0.8f);
+                            if (m0) applyBodyImpulseAt(b0, impP, w0);
+                            if (m1) applyBodyImpulseAt(b1, impP.unaryMinus(), w1);
+                        }
+                        int act = enumVal(c, "ActuatorType", 0);
+                        float curV = relV.dot(ax0);
+                        if (act == 1) { // Linear Motor
+                            float targetV = num(c, "Velocity", 0.0f);
+                            float maxF = Math.abs(num(c, "MotorMaxForce", 0.0f));
+                            if (maxF > 0.0f) {
+                                float j = RangesKt.coerceIn((targetV - curV) / invMSum, -maxF * subDt, maxF * subDt);
+                                if (m0) applyBodyImpulseAt(b0, ax0.times(-j), w0);
+                                if (m1) applyBodyImpulseAt(b1, ax0.times(j), w1);
+                            }
+                        } else if (act == 2) { // Linear Servo
+                            float targetPos = num(c, "TargetPosition", 0.0f);
+                            float maxF = Math.abs(num(c, "ServoMaxForce", 0.0f));
+                            float speed = Math.max(0.01f, Math.abs(num(c, "Speed", 10.0f)));
+                            if (maxF > 0.0f) {
+                                float desiredV = RangesKt.coerceIn((targetPos - slidePos) / Math.max(dt, 0.005f), -speed, speed);
+                                float j = RangesKt.coerceIn((desiredV - curV) / invMSum, -maxF * subDt, maxF * subDt);
+                                if (m0) applyBodyImpulseAt(b0, ax0.times(-j), w0);
+                                if (m1) applyBodyImpulseAt(b1, ax0.times(j), w1);
+                            }
+                        }
+                        if (boolVal(c, "LimitsEnabled", false)) {
+                            float lo = num(c, "LowerLimit", 0.0f);
+                            float hi = num(c, "UpperLimit", 5.0f);
+                            float clamped = RangesKt.coerceIn(slidePos, lo, hi);
+                            if (Math.abs(slidePos - clamped) > 1.0E-4f) {
+                                float corr = clamped - slidePos;
+                                if (m0) translateBody(b0, ax0.times(-corr * (invM0 / invMSum)));
+                                if (m1) translateBody(b1, ax0.times(corr * (invM1 / invMSum)));
+                                float rest = RangesKt.coerceIn(num(c, "Restitution", 0.0f), 0.0f, 1.0f);
+                                if ((slidePos > hi && curV > 0.0f) || (slidePos < lo && curV < 0.0f)) {
+                                    float jLim = -(1.0f + rest) * curV / invMSum;
+                                    if (m0) applyBodyImpulseAt(b0, ax0.times(-jLim), w0);
+                                    if (m1) applyBodyImpulseAt(b1, ax0.times(jLim), w1);
+                                }
+                                c.set("CurrentPosition", Float.valueOf(clamped), false);
+                            }
+                        }
+                    }
+                    if (isCyl) {
+                        Vector3 u0 = cf0.getUpVector(); u0 = u0.minus(ax0.times(u0.dot(ax0))).getUnit();
+                        Vector3 u1 = cf1.getUpVector(); u1 = u1.minus(ax0.times(u1.dot(ax0))).getUnit();
+                        float angleRad = (float) Math.atan2(u0.cross(u1).dot(ax0), u0.dot(u1));
+                        float angleDeg = (float) Math.toDegrees(angleRad);
+                        c.set("CurrentAngle", Float.valueOf(angleDeg), false);
+                        float invI0 = m0 ? (1.0f / Math.max(b0.getInertia(), 0.05f)) : 0.0f;
+                        float invI1 = m1 ? (1.0f / Math.max(b1.getInertia(), 0.05f)) : 0.0f;
+                        float invISum = invI0 + invI1;
+                        if (invISum > 1.0E-7f) {
+                            int angAct = enumVal(c, "AngularActuatorType", 0);
+                            if (angAct == 1) {
+                                float targetW = num(c, "AngularVelocity", 0.0f);
+                                float maxT = Math.abs(num(c, "MotorMaxTorque", 0.0f));
+                                if (maxT > 0.0f) {
+                                    float curW = (m1 ? b1.getAngVel().dot(ax0) : 0.0f) - (m0 ? b0.getAngVel().dot(ax0) : 0.0f);
+                                    float jAng = RangesKt.coerceIn((targetW - curW) / invISum, -maxT * subDt, maxT * subDt);
+                                    if (m0) { b0.setAngVel(b0.getAngVel().minus(ax0.times(jAng * invI0))); b0.setSleeping(false); }
+                                    if (m1) { b1.setAngVel(b1.getAngVel().plus(ax0.times(jAng * invI1))); b1.setSleeping(false); }
+                                }
+                            } else if (angAct == 2) {
+                                float targetDeg = num(c, "TargetAngle", 0.0f);
+                                float maxT = Math.abs(num(c, "ServoMaxTorque", 0.0f));
+                                float angSpeed = Math.max(0.01f, Math.abs(num(c, "AngularSpeed", 10.0f)));
+                                if (maxT > 0.0f) {
+                                    float errRad = (float) Math.toRadians(targetDeg) - angleRad;
+                                    while (errRad > (float) Math.PI) errRad -= (float) (2.0d * Math.PI);
+                                    while (errRad < (float) -Math.PI) errRad += (float) (2.0d * Math.PI);
+                                    float desiredW = RangesKt.coerceIn(errRad / Math.max(dt, 0.005f), -angSpeed, angSpeed);
+                                    float curW = (m1 ? b1.getAngVel().dot(ax0) : 0.0f) - (m0 ? b0.getAngVel().dot(ax0) : 0.0f);
+                                    float jAng = RangesKt.coerceIn((desiredW - curW) / invISum, -maxT * subDt, maxT * subDt);
+                                    if (m0) { b0.setAngVel(b0.getAngVel().minus(ax0.times(jAng * invI0))); b0.setSleeping(false); }
+                                    if (m1) { b1.setAngVel(b1.getAngVel().plus(ax0.times(jAng * invI1))); b1.setSleeping(false); }
+                                }
+                            }
+                            if (boolVal(c, "AngularLimitsEnabled", false)) {
+                                float loDeg = num(c, "LowerAngle", -45.0f);
+                                float hiDeg = num(c, "UpperAngle", 45.0f);
+                                float clampDeg = RangesKt.coerceIn(angleDeg, loDeg, hiDeg);
+                                if (Math.abs(angleDeg - clampDeg) > 1.0E-3f) {
+                                    float corrRad = (float) Math.toRadians(clampDeg - angleDeg);
+                                    if (m0) rotateBody(b0, ax0, -corrRad * (invI0 / invISum));
+                                    if (m1) rotateBody(b1, ax0, corrRad * (invI1 / invISum));
+                                    c.set("CurrentAngle", Float.valueOf(clampDeg), false);
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
     }
 
-    /* JADX WARN: Code duplicated, block: B:138:0x048b A[Catch: all -> 0x0605, TryCatch #1 {all -> 0x0605, blocks: (B:94:0x033e, B:96:0x034f, B:98:0x035b, B:100:0x0363, B:103:0x0373, B:108:0x03c6, B:112:0x03df, B:116:0x03f6, B:120:0x040e, B:122:0x0419, B:123:0x0421, B:125:0x0427, B:126:0x043f, B:128:0x044d, B:130:0x045c, B:133:0x0462, B:137:0x046e, B:141:0x049f, B:143:0x04a5, B:145:0x04af, B:147:0x04b6, B:149:0x04c1, B:153:0x04d4, B:155:0x0509, B:159:0x0523, B:162:0x0538, B:164:0x054c, B:166:0x0560, B:170:0x0586, B:172:0x0591, B:186:0x05c6, B:187:0x05d1, B:189:0x05d7, B:190:0x05e4, B:175:0x059c, B:176:0x05a0, B:178:0x05a6, B:168:0x0572, B:158:0x051b, B:138:0x048b, B:169:0x057a, B:115:0x03f0, B:111:0x03d9, B:195:0x05fc), top: B:206:0x033e }] */
-    /* JADX WARN: Code duplicated, block: B:20:0x0063 A[Catch: all -> 0x0607, TRY_ENTER, TryCatch #4 {all -> 0x0607, blocks: (B:10:0x002b, B:11:0x003a, B:13:0x0040, B:15:0x004d, B:33:0x008b, B:34:0x00bf, B:39:0x00db, B:40:0x0106, B:79:0x0299, B:81:0x02a3, B:82:0x02af, B:84:0x02b5, B:86:0x02d5, B:87:0x02f9, B:89:0x02ff, B:92:0x0336, B:78:0x0295, B:20:0x0063, B:21:0x0067), top: B:212:0x002b }] */
-    /* JADX WARN: Code duplicated, block: B:225:0x0082 A[SYNTHETIC] */
-    /* JADX WARN: Code duplicated, block: B:226:0x0080 A[SYNTHETIC] */
-    /* JADX WARN: Code duplicated, block: B:229:? A[LOOP:1: B:21:0x0067->B:229:?, LOOP_END, SYNTHETIC] */
-    /* JADX WARN: Code duplicated, block: B:23:0x006d A[Catch: all -> 0x028b, TRY_ENTER, TryCatch #5 {all -> 0x028b, blocks: (B:17:0x0058, B:31:0x0085, B:37:0x00c7, B:61:0x01ec, B:62:0x0201, B:64:0x0207, B:66:0x022b, B:69:0x0238, B:70:0x0258, B:72:0x025e, B:73:0x0282, B:23:0x006d), top: B:214:0x0058 }] */
-    /* JADX WARN: Code duplicated, block: B:25:0x007b  */
-    /* JADX WARN: Code duplicated, block: B:26:0x007d  */
-    /* JADX WARN: Multi-variable type inference failed */
-    /* JADX WARN: Type inference failed for: r0v70 */
-    /* JADX WARN: Type inference failed for: r0v71 */
-    /* JADX WARN: Type inference failed for: r0v72 */
-    /* JADX WARN: Type inference failed for: r11v13 */
-    /* JADX WARN: Type inference failed for: r11v14, types: [int] */
-    /* JADX WARN: Type inference failed for: r11v15, types: [int] */
-    /* JADX WARN: Type inference failed for: r18v5 */
-    /* JADX WARN: Type inference failed for: r18v6 */
-    /* JADX WARN: Type inference failed for: r21v10 */
-    /* JADX WARN: Type inference failed for: r2v29 */
-    /* JADX WARN: Type inference failed for: r2v30 */
-    /* JADX WARN: Type inference failed for: r2v31 */
-    /* JADX WARN: Type inference failed for: r2v35 */
-    /* JADX WARN: Type inference failed for: r6v4 */
-    /* JADX WARN: Type inference failed for: r6v5 */
-    /* JADX WARN: Type inference failed for: r6v6 */
     private final void stepBodies(float dt) {
-        try {
-        boolean z;
-        String str;
-        Vector3 vector3;
-        Vector3 vector4;
-        ArrayList arrayListEmptyList;
-        int r2;
-        float f;
-        float f2;
-        float[] fArrPhysProps;
-        float f3;
-        ConvexShape convexShapeShapeOf$default;
-        ConvexShape convexShape;
-        Vector3 first;
-        Iterator it;
-        boolean z2;
-        PlaySession playSession = this;
-        float f4 = dt;
-        float gravity = playSession.getGravity();
-        Object obj = playSession.dm.getWorkspace().get("FallenPartsDestroyHeight");
-        Number number = obj instanceof Number ? (Number) obj : null;
-        float fFloatValue = number != null ? number.floatValue() : -500.0f;
-        boolean z3 = true;
-        playSession.writing = true;
-        boolean z4 = false;
+        if (dt <= 0.0f) return;
+        float gravity = getGravity();
+        Object fpdhObj = this.dm.getWorkspace().get("FallenPartsDestroyHeight");
+        float destroyY = fpdhObj instanceof Number ? ((Number) fpdhObj).floatValue() : -500.0f;
+        this.writing = true;
         try {
             try { applyMovers(dt); } catch (Exception _amEx) { OutputLog.INSTANCE.warn("Physics mover skipped: " + _amEx.getMessage()); }
-            for (Body body : CollectionsKt.toList(playSession.bodies)) {
-                if (body.getSleeping()) {
-                    f4 = dt;
-                    z4 = false;
-                } else {
-                    List<Instance> parts = body.getParts();
-                    if (!(parts instanceof Collection)) {
-                        it = parts.iterator();
-                        while (true) {
-                            if (it.hasNext()) {
-                                z = z4;
-                                break;
-                            }
-                            if (((Instance) it.next()).getParent() == null) {
-                                z2 = z3;
+
+            // 1. Integrate linear & angular motion, resolve static collisions
+            List<Body> snapshot = CollectionsKt.toList(this.bodies);
+            for (Body body : snapshot) {
+                if (body.getSleeping()) continue;
+                boolean removed = false;
+                for (Instance p : body.getParts()) {
+                    if (p.getParent() == null) { removed = true; break; }
+                }
+                if (removed) {
+                    this.bodies.remove(body);
+                    continue;
+                }
+                // Gravity + mild damping
+                body.setVel(new Vector3(body.getVel().getX(), body.getVel().getY() - (gravity * dt), body.getVel().getZ()));
+                float angDamp = Math.max(0.0f, 1.0f - (0.12f * dt));
+                body.setAngVel(body.getAngVel().times(angDamp));
+
+                // Integrate translation & rotation
+                Vector3 linDelta = body.getVel().times(dt);
+                translateBody(body, linDelta);
+                Vector3 w = body.getAngVel();
+                float wMag = w.getMagnitude();
+                if (wMag > 1.0E-4f) {
+                    rotateBody(body, w.div(wMag), Math.min(wMag * dt, 0.8f));
+                }
+
+                // Recompute part & body AABBs
+                ArrayList<Pair<Vector3, Vector3>> partAabbs = new ArrayList<>(body.getParts().size());
+                Vector3 lo = new Vector3(Float.MAX_VALUE, Float.MAX_VALUE, Float.MAX_VALUE);
+                Vector3 hi = lo.unaryMinus();
+                for (Instance p : body.getParts()) {
+                    Pair<Vector3, Vector3> ab = Geometry.INSTANCE.partAabb(p);
+                    partAabbs.add(ab);
+                    if (!Intrinsics.areEqual(p.get("CanCollide"), Boolean.FALSE)) {
+                        lo = new Vector3(Math.min(lo.getX(), ab.getFirst().getX()), Math.min(lo.getY(), ab.getFirst().getY()), Math.min(lo.getZ(), ab.getFirst().getZ()));
+                        hi = new Vector3(Math.max(hi.getX(), ab.getSecond().getX()), Math.max(hi.getY(), ab.getSecond().getY()), Math.max(hi.getZ(), ab.getSecond().getZ()));
+                    }
+                }
+                body.setMin(lo);
+                body.setMax(hi);
+                body.setHasBox(lo.getX() <= hi.getX());
+
+                // Static world collision detection & resolution
+                Vector3 bestSep = Vector3.INSTANCE.getZERO();
+                Instance hitStatic = null;
+                Instance hitDynPart = null;
+                ArrayList<Instance> supportStatics = null;
+                if (body.getHasBox()) {
+                    List<Instance> candidates = query$default(this, lo, hi, false, 4, null);
+                    for (int pi = 0; pi < body.getParts().size(); pi++) {
+                        Instance dp = body.getParts().get(pi);
+                        if (Intrinsics.areEqual(dp.get("CanCollide"), Boolean.FALSE)) continue;
+                        Pair<Vector3, Vector3> dab = partAabbs.get(pi);
+                        ConvexShape dShape = null;
+                        boolean dpSphere = PartData.INSTANCE.shape(dp) == 0;
+                        Vector3 dpCenter = dpSphere ? PartData.INSTANCE.cframe(dp).getPosition() : null;
+                        float dpRad = dpSphere ? Math.min(PartData.INSTANCE.size(dp).getX(), Math.min(PartData.INSTANCE.size(dp).getY(), PartData.INSTANCE.size(dp).getZ())) * 0.5f : 0.0f;
+                        for (Instance st : candidates) {
+                            if (!canCollideParts(dp, st)) continue;
+                            Pair<Vector3, Vector3> sab = Geometry.INSTANCE.partAabb(st);
+                            if (!Geometry.INSTANCE.aabbOverlap(dab.getFirst(), dab.getSecond(), sab.getFirst(), sab.getSecond(), 0.05f)) continue;
+                            Vector3 sep = null;
+                            if (dpSphere) {
+                                sep = spherePartContact(dpCenter, dpRad, st);
                             } else {
-                                z2 = z4;
+                                if (dShape == null) dShape = Geometry.shapeOf$default(Geometry.INSTANCE, dp, null, 2, null);
+                                Pair<Vector3, Float> contact = Geometry.INSTANCE.contact(dShape, dab.getFirst(), dab.getSecond(), st);
+                                if (contact != null) sep = contact.getFirst();
                             }
-                            if (z2) {
-                                z = z3;
-                                break;
-                            }
-                        }
-                    } else {
-                        try {
-                            if (!parts.isEmpty()) {
-                                it = parts.iterator();
-                                while (true) {
-                                    if (it.hasNext()) {
-                                        z = z4;
-                                        break;
-                                    }
-                                    if (((Instance) it.next()).getParent() == null) {
-                                        z2 = z3;
-                                    } else {
-                                        z2 = z4;
-                                    }
-                                    if (z2) {
-                                        z = z3;
-                                        break;
-                                    }
+                            if (sep != null && sep.getMagnitude() > 1.0E-5f) {
+                                float sepMag = sep.getMagnitude();
+                                if (sepMag > bestSep.getMagnitude()) {
+                                    bestSep = sep;
+                                    hitStatic = st;
+                                    hitDynPart = dp;
                                 }
-                            } else {
-                                z = z4;
+                                if (sep.getY() > 0.5f * sepMag) {
+                                    if (supportStatics == null) supportStatics = new ArrayList<>(4);
+                                    if (!supportStatics.contains(st)) supportStatics.add(st);
+                                }
+                                touchBegin(dp, st);
                             }
-                        } catch (Throwable th) {
-                            playSession.writing = false;
-                            throw th;
                         }
                     }
-                    if (z) {
-                        playSession.bodies.remove(body);
-                    } else {
-                        body.setVel(new Vector3(body.getVel().getX(), body.getVel().getY() - (gravity * f4), body.getVel().getZ()));
-                        Vector3 vector3Times = body.getVel().times(f4);
-                        for (Instance instance : body.getParts()) {
-                            instance.set("CFrame", PartData.INSTANCE.cframe(instance).plus(vector3Times), z4);
+                }
+
+                if (bestSep.getMagnitude() > 1.0E-4f) {
+                    translateBody(body, bestSep);
+                    Vector3 normal = bestSep.getUnit();
+                    float[] sp = materialPropsOf(hitStatic);
+                    float fric = (sp[1] + body.getFriction()) * 0.5f;
+                    float elas = (sp[2] + body.getElasticity()) * 0.5f;
+
+                    // Contact point on surface
+                    Vector3 contactPt;
+                    if (body.getIsSphere()) {
+                        contactPt = body.getCom().minus(normal.times(body.getSphereRadius()));
+                    } else if (hitDynPart != null) {
+                        CFrame dcf = PartData.INSTANCE.cframe(hitDynPart);
+                        Vector3 dsz = PartData.INSTANCE.size(hitDynPart);
+                        Vector3 localN = dcf.vectorToObject(normal.unaryMinus());
+                        Vector3 supportLocal = new Vector3(
+                                localN.getX() >= 0.0f ? dsz.getX() * 0.5f : -dsz.getX() * 0.5f,
+                                localN.getY() >= 0.0f ? dsz.getY() * 0.5f : -dsz.getY() * 0.5f,
+                                localN.getZ() >= 0.0f ? dsz.getZ() * 0.5f : -dsz.getZ() * 0.5f
+                        );
+                        // Blend toward center when face is nearly flush to avoid artificial corner wobble
+                        float maxAbs = Math.max(Math.abs(localN.getX()), Math.max(Math.abs(localN.getY()), Math.abs(localN.getZ())));
+                        if (maxAbs > 0.96f) {
+                            supportLocal = new Vector3(
+                                    Math.abs(localN.getX()) > 0.96f ? supportLocal.getX() : 0.0f,
+                                    Math.abs(localN.getY()) > 0.96f ? supportLocal.getY() : 0.0f,
+                                    Math.abs(localN.getZ()) > 0.96f ? supportLocal.getZ() : 0.0f
+                            );
                         }
-                        Vector3 zero = Vector3.INSTANCE.getZERO();
-                        Instance instance2 = null;
-                        ArrayList arrayList = new ArrayList(body.getParts().size());
-                        Vector3 vector5 = new Vector3(Float.MAX_VALUE, Float.MAX_VALUE, Float.MAX_VALUE);
-                        Vector3 vector3UnaryMinus = vector5.unaryMinus();
-                        Iterator<Instance> it2 = body.getParts().iterator();
-                        while (true) {
-                            str = "CanCollide";
-                            if (!it2.hasNext()) {
+                        contactPt = dcf.times(supportLocal);
+                    } else {
+                        contactPt = body.getCom();
+                    }
+
+                    // Overhang support check: clamp contactPt to actual static support edge when CoM is unsupported
+                    boolean overhanging = false;
+                    if (!body.getIsSphere() && hitStatic != null && normal.getY() > 0.5f) {
+                        Vector3 com = body.getCom();
+                        Vector3 comProj = com.plus(normal.times(contactPt.minus(com).dot(normal)));
+                        boolean comSupported = false;
+                        Vector3 bestSupportPt = null;
+                        float bestDistSq = Float.MAX_VALUE;
+                        int nSup = supportStatics != null ? supportStatics.size() : 0;
+                        int count = nSup > 0 ? nSup : 1;
+                        for (int si = 0; si < count; si++) {
+                            Instance st = nSup > 0 ? supportStatics.get(si) : hitStatic;
+                            CFrame scf = PartData.INSTANCE.cframe(st);
+                            Vector3 ssz = PartData.INSTANCE.size(st);
+                            float hx = ssz.getX() * 0.5f;
+                            float hy = ssz.getY() * 0.5f;
+                            float hz = ssz.getZ() * 0.5f;
+                            Vector3 pLocal = scf.pointToObject(comProj);
+                            if (Math.abs(pLocal.getX()) <= hx + 0.02f
+                                    && Math.abs(pLocal.getY()) <= hy + 0.15f
+                                    && Math.abs(pLocal.getZ()) <= hz + 0.02f) {
+                                comSupported = true;
                                 break;
                             }
-                            try {
-                                Instance next = it2.next();
-                                try {
-                                    Pair<Vector3, Vector3> pairPartAabb = Geometry.INSTANCE.partAabb(next);
-                                    arrayList.add(pairPartAabb);
-                                    if (!Intrinsics.areEqual(next.get("CanCollide"), Boolean.valueOf(z4))) {
-                                        ArrayList arrayList2 = arrayList;
-                                        Vector3 vector6 = new Vector3(Math.min(vector5.getX(), pairPartAabb.getFirst().getX()), Math.min(vector5.getY(), pairPartAabb.getFirst().getY()), Math.min(vector5.getZ(), pairPartAabb.getFirst().getZ()));
-                                        vector3UnaryMinus = new Vector3(Math.max(vector3UnaryMinus.getX(), pairPartAabb.getSecond().getX()), Math.max(vector3UnaryMinus.getY(), pairPartAabb.getSecond().getY()), Math.max(vector3UnaryMinus.getZ(), pairPartAabb.getSecond().getZ()));
-                                        arrayList = arrayList2;
-                                        vector5 = vector6;
-                                    }
-                                } catch (Throwable th2) {
-                                    Throwable th = th2;
-                                    playSession = this;
-                                    playSession.writing = false;
-                                    throw th;
-                                }
-                            } catch (Throwable th3) {
-                                Throwable th = th3;
+                            Vector3 clampedLocal = new Vector3(
+                                    RangesKt.coerceIn(pLocal.getX(), -hx, hx),
+                                    RangesKt.coerceIn(pLocal.getY(), -hy, hy),
+                                    RangesKt.coerceIn(pLocal.getZ(), -hz, hz)
+                            );
+                            Vector3 supPt = scf.times(clampedLocal);
+                            Vector3 diff = supPt.minus(comProj);
+                            float d2 = diff.dot(diff);
+                            if (d2 < bestDistSq) {
+                                bestDistSq = d2;
+                                bestSupportPt = supPt;
                             }
                         }
-                        ArrayList arrayList3 = arrayList;
-                        Vector3 vector7 = vector5;
-                        boolean z5 = z4;
-                        try {
-                            if (vector7.getX() <= vector3UnaryMinus.getX()) {
-                                vector3 = vector3UnaryMinus;
-                                playSession = this;
-                                vector4 = vector7;
-                                List listQuery$default = query$default(playSession, vector4, vector3, false, 4, null);
-                                int i = 0;
-                                ArrayList arrayList4 = new ArrayList();
-                                for (Object obj2 : listQuery$default) {
-                                    List list = listQuery$default;
-                                    int i2 = i;
-                                    if (!Intrinsics.areEqual(((Instance) obj2).get("CanCollide"), Boolean.valueOf(z5))) {
-                                        arrayList4.add(obj2);
-                                    }
-                                    i = i2;
-                                    listQuery$default = list;
-                                }
-                                ArrayList<Instance> arrayList5 = arrayList4;
-                                int i3 = 0;
-                                ArrayList arrayList6 = new ArrayList(CollectionsKt.collectionSizeOrDefault(arrayList5, 10));
-                                for (Instance instance3 : arrayList5) {
-                                    arrayList6.add(TuplesKt.to(instance3, Geometry.INSTANCE.partAabb(instance3)));
-                                }
-                                arrayListEmptyList = arrayList6;
+                        if (!comSupported && bestSupportPt != null && bestDistSq > 1.0E-4f) {
+                            overhanging = true;
+                            contactPt = bestSupportPt;
+                        }
+                    }
+
+                    Vector3 r = contactPt.minus(body.getCom());
+                    Vector3 vContact = body.getVel().plus(body.getAngVel().cross(r));
+                    float vn = vContact.dot(normal);
+                    if (vn < 0.0f) {
+                        float invM = 1.0f / Math.max(body.getMass(), 0.01f);
+                        float invI = 1.0f / Math.max(body.getInertia(), 0.05f);
+                        Vector3 rXn = r.cross(normal);
+                        float invMEff = invM + (rXn.dot(rXn) * invI);
+                        float bounceThresh = body.getIsSphere() ? 1.2f : ((gravity * dt * 2.0f) + 4.0f);
+                        float e = (-vn > bounceThresh) ? elas : 0.0f;
+                        float jn = (-(1.0f + e) * vn) / Math.max(invMEff, 1.0E-5f);
+                        applyBodyImpulseAt(body, normal.times(jn), contactPt);
+
+                        // Tangential friction impulse (creates rolling on spheres & sliding/toppling on blocks)
+                        Vector3 vPost = body.getVel().plus(body.getAngVel().cross(r));
+                        Vector3 vt = vPost.minus(normal.times(vPost.dot(normal)));
+                        float vtMag = vt.getMagnitude();
+                        if (vtMag > 1.0E-4f) {
+                            Vector3 tDir = vt.div(vtMag);
+                            Vector3 rXt = r.cross(tDir);
+                            float invMT = invM + (rXt.dot(rXt) * invI);
+                            float jt = Math.min(vtMag / Math.max(invMT, 1.0E-5f), fric * jn);
+                            applyBodyImpulseAt(body, tDir.times(-jt), contactPt);
+                        }
+                        if (!overhanging && !body.getIsSphere() && normal.getY() > 0.7f && Math.abs(vn) < 4.0f) {
+                            body.setAngVel(body.getAngVel().times(Math.max(0.0f, 1.0f - (6.0f * dt))));
+                        }
+                    }
+
+                    // Sleep check (require both linear and angular velocities near zero and supported CoM)
+                    if (!overhanging && body.getVel().getMagnitude() < ((gravity * dt * 0.1f) + 0.4f) && body.getAngVel().getMagnitude() < 0.25f) {
+                        body.setRestTime(body.getRestTime() + dt);
+                        if (body.getRestTime() > 0.4f) {
+                            body.setSleeping(true);
+                            body.setVel(Vector3.INSTANCE.getZERO());
+                            body.setAngVel(Vector3.INSTANCE.getZERO());
+                        }
+                    } else {
+                        body.setRestTime(0.0f);
+                    }
+                } else {
+                    body.setRestTime(0.0f);
+                }
+
+                // FallenPartsDestroyHeight check
+                boolean allFallen = !body.getParts().isEmpty();
+                for (Instance p : body.getParts()) {
+                    if (PartData.INSTANCE.cframe(p).getY() >= destroyY) {
+                        allFallen = false;
+                        break;
+                    }
+                }
+                if (allFallen) {
+                    for (Instance p : body.getParts()) p.destroy();
+                    this.bodies.remove(body);
+                }
+            }
+
+            // 2. Dynamic-vs-Dynamic body collisions
+            int nBodies = this.bodies.size();
+            for (int i = 0; i < nBodies; i++) {
+                Body b0 = this.bodies.get(i);
+                if (!b0.getHasBox()) continue;
+                for (int j = i + 1; j < nBodies; j++) {
+                    Body b1 = this.bodies.get(j);
+                    if (!b1.getHasBox()) continue;
+                    if (b0.getSleeping() && b1.getSleeping()) continue;
+                    if (!Geometry.INSTANCE.aabbOverlap(b0.getMin(), b0.getMax(), b1.getMin(), b1.getMax(), 0.02f)) continue;
+                    Vector3 bestSep = null;
+                    Instance hitP0 = null, hitP1 = null;
+                    for (Instance p0 : b0.getParts()) {
+                        for (Instance p1 : b1.getParts()) {
+                            if (!canCollideParts(p0, p1)) continue;
+                            Pair<Vector3, Vector3> ab0 = Geometry.INSTANCE.partAabb(p0);
+                            Pair<Vector3, Vector3> ab1 = Geometry.INSTANCE.partAabb(p1);
+                            if (!Geometry.INSTANCE.aabbOverlap(ab0.getFirst(), ab0.getSecond(), ab1.getFirst(), ab1.getSecond(), 0.02f)) continue;
+                            Vector3 sep = null;
+                            if (PartData.INSTANCE.shape(p0) == 0) {
+                                Vector3 s0 = PartData.INSTANCE.size(p0);
+                                float r0 = Math.min(s0.getX(), Math.min(s0.getY(), s0.getZ())) * 0.5f;
+                                sep = spherePartContact(PartData.INSTANCE.cframe(p0).getPosition(), r0, p1);
+                            } else if (PartData.INSTANCE.shape(p1) == 0) {
+                                Vector3 s1 = PartData.INSTANCE.size(p1);
+                                float r1 = Math.min(s1.getX(), Math.min(s1.getY(), s1.getZ())) * 0.5f;
+                                Vector3 rev = spherePartContact(PartData.INSTANCE.cframe(p1).getPosition(), r1, p0);
+                                if (rev != null) sep = rev.unaryMinus();
                             } else {
-                                playSession = this;
-                                vector3 = vector3UnaryMinus;
-                                vector4 = vector7;
-                                arrayListEmptyList = new ArrayList();
+                                ConvexShape cs0 = Geometry.shapeOf$default(Geometry.INSTANCE, p0, null, 2, null);
+                                Pair<Vector3, Float> ct = Geometry.INSTANCE.contact(cs0, ab0.getFirst(), ab0.getSecond(), p1);
+                                if (ct != null) sep = ct.getFirst();
                             }
-                            if (!arrayListEmptyList.isEmpty()) {
-                                Iterator it3 = body.getParts().iterator();
-                                int r11 = z5 ? 1 : 0;
-                                while (it3.hasNext()) {
-                                    int r21 = r11;
-                                    r11++;
-                                    Instance instance4 = (Instance) it3.next();
-                                    if (!Intrinsics.areEqual(instance4.get(str), Boolean.valueOf(z5))) {
-                                        Object obj3 = arrayList3.get(r21);
-                                        Intrinsics.checkNotNullExpressionValue(obj3, "get(...)");
-                                        Pair pair = (Pair) obj3;
-                                        Vector3 vector8 = (Vector3) pair.component1();
-                                        Vector3 vector9 = (Vector3) pair.component2();
-                                        ConvexShape convexShape2 = null;
-                                        Iterator it4 = arrayListEmptyList.iterator();
-                                        while (it4.hasNext()) {
-                                            Pair pair2 = (Pair) it4.next();
-                                            Instance instance5 = (Instance) pair2.component1();
-                                            Pair pair3 = (Pair) pair2.component2();
-                                            boolean zAabbOverlap = Geometry.INSTANCE.aabbOverlap(vector8, vector9, (Vector3) pair3.getFirst(), (Vector3) pair3.getSecond(), 0.05f);
-                                            ConvexShape convexShape3 = convexShape2;
-                                            if (zAabbOverlap) {
-                                                if (convexShape3 == null) {
-                                                    try {
-                                                        convexShapeShapeOf$default = Geometry.shapeOf$default(Geometry.INSTANCE, instance4, null, 2, null);
-                                                        convexShape = convexShapeShapeOf$default;
-                                                    } catch (Throwable th4) {
-                                                        Throwable th = th4;
-                                                        playSession.writing = false;
-                                                        throw th;
-                                                    }
-                                                } else {
-                                                    convexShapeShapeOf$default = convexShape3;
-                                                    convexShape = convexShapeShapeOf$default;
-                                                }
-                                                ConvexShape convexShape4 = convexShape;
-                                                Pair<Vector3, Float> pairContact = Geometry.INSTANCE.contact(convexShapeShapeOf$default, vector8, vector9, instance5);
-                                                if (pairContact == null || (first = pairContact.getFirst()) == null) {
-                                                    convexShape2 = convexShape4;
-                                                } else {
-                                                    if (first.getMagnitude() > zero.getMagnitude()) {
-                                                        zero = first;
-                                                        instance2 = instance5;
-                                                    }
-                                                    playSession.touchBegin(instance4, instance5);
-                                                    convexShape2 = convexShape4;
-                                                }
-                                            } else {
-                                                convexShape2 = convexShape3;
-                                            }
-                                        }
-                                    }
+                            if (sep != null && sep.getMagnitude() > 1.0E-4f) {
+                                if (bestSep == null || sep.getMagnitude() > bestSep.getMagnitude()) {
+                                    bestSep = sep;
+                                    hitP0 = p0;
+                                    hitP1 = p1;
                                 }
+                                touchBegin(p0, p1);
                             }
-                            float f5 = gravity;
-                            Vector3 vector10 = zero;
-                            body.setMin(vector4.plus(vector10.getMagnitude() > 1.0E-4f ? vector10 : Vector3.INSTANCE.getZERO()));
-                            body.setMax(vector3.plus(vector10.getMagnitude() > 1.0E-4f ? vector10 : Vector3.INSTANCE.getZERO()));
-                            body.setHasBox(vector4.getX() <= vector3.getX() ? z3 : z5);
-                            if (vector10.getMagnitude() > 1.0E-4f) {
-                                for (Instance instance6 : body.getParts()) {
-                                    instance6.set("CFrame", PartData.INSTANCE.cframe(instance6).plus(vector10), z5);
-                                    z5 = false;
-                                }
-                                Vector3 unit = vector10.getUnit();
-                                float fDot = body.getVel().dot(unit);
-                                if (instance2 != null) {
-                                    Instance instance7 = instance2;
-                                    Object obj4 = instance7.get("CustomPhysicalProperties");
-                                    f = 1.0E-4f;
-                                    PhysicalProps physicalProps = obj4 instanceof PhysicalProps ? (PhysicalProps) obj4 : null;
-                                    if (physicalProps == null) {
-                                        f2 = 0.0f;
-                                        fArrPhysProps = playSession.physProps(PartData.INSTANCE.material(instance7));
-                                    } else {
-                                        if (!physicalProps.getCustom()) {
-                                            physicalProps = null;
-                                        }
-                                        if (physicalProps != null) {
-                                            float density = physicalProps.getDensity();
-                                            float friction = physicalProps.getFriction();
-                                            float elasticity = physicalProps.getElasticity();
-                                            f2 = 0.0f;
-                                            fArrPhysProps = new float[3];
-                                            fArrPhysProps[0] = density;
-                                            fArrPhysProps[z3 ? 1 : 0] = friction;
-                                            fArrPhysProps[2] = elasticity;
-                                        } else {
-                                            f2 = 0.0f;
-                                            fArrPhysProps = playSession.physProps(PartData.INSTANCE.material(instance7));
-                                        }
-                                    }
-                                } else {
-                                    f = 1.0E-4f;
-                                    f2 = 0.0f;
-                                    fArrPhysProps = null;
-                                }
-                                float friction2 = ((fArrPhysProps != null ? fArrPhysProps[z3 ? 1 : 0] : 0.3f) + body.getFriction()) / 2.0f;
-                                float elasticity2 = ((fArrPhysProps != null ? fArrPhysProps[2] : 0.5f) + body.getElasticity()) / 2.0f;
-                                if (fDot < f2) {
-                                    f3 = 0.5f;
-                                    body.setVel(body.getVel().minus(unit.times(fDot * (((-fDot) > ((f5 * dt) * 2.0f) + 6.0f ? elasticity2 : f2) + 1.0f))));
-                                    Vector3 vector3Minus = body.getVel().minus(unit.times(body.getVel().dot(unit)));
-                                    float magnitude = vector3Minus.getMagnitude();
-                                    if (magnitude > f) {
-                                        float f6 = (-fDot) * friction2;
-                                        body.setVel(body.getVel().minus(f6 >= magnitude ? vector3Minus : vector3Minus.times(f6 / magnitude)));
-                                    }
-                                } else {
-                                    f3 = 0.5f;
-                                }
-                                if (body.getVel().getMagnitude() < (f5 * dt * 0.1f) + f3) {
-                                    body.setRestTime(body.getRestTime() + dt);
-                                    if (body.getRestTime() > 0.4f) {
-                                        z3 = z3;
-                                        body.setSleeping(z3);
-                                        body.setVel(Vector3.INSTANCE.getZERO());
-                                    } else {
-                                        z3 = z3;
-                                    }
-                                } else {
-                                    z3 = z3;
-                                    body.setRestTime(f2);
-                                }
-                            } else {
-                                z3 = z3;
-                                body.setRestTime(0.0f);
+                        }
+                    }
+                    if (bestSep != null) {
+                        float invM0 = 1.0f / Math.max(b0.getMass(), 0.01f);
+                        float invM1 = 1.0f / Math.max(b1.getMass(), 0.01f);
+                        float invMSum = invM0 + invM1;
+                        translateBody(b0, bestSep.times(invM0 / invMSum));
+                        translateBody(b1, bestSep.times(-invM1 / invMSum));
+                        Vector3 n = bestSep.getUnit();
+                        Vector3 cp = b0.getCom().plus(b1.getCom()).times(0.5f);
+                        Vector3 relV = bodyVelAt(b0, cp).minus(bodyVelAt(b1, cp));
+                        float vn = relV.dot(n);
+                        if (vn < 0.0f) {
+                            float e = (b0.getElasticity() + b1.getElasticity()) * 0.5f;
+                            float fric = (b0.getFriction() + b1.getFriction()) * 0.5f;
+                            float jn = (-(1.0f + e) * vn) / invMSum;
+                            applyBodyImpulseAt(b0, n.times(jn), cp);
+                            applyBodyImpulseAt(b1, n.times(-jn), cp);
+                            Vector3 vt = relV.minus(n.times(vn));
+                            float vtMag = vt.getMagnitude();
+                            if (vtMag > 1.0E-4f) {
+                                Vector3 tDir = vt.div(vtMag);
+                                float jt = Math.min(vtMag / invMSum, fric * jn);
+                                applyBodyImpulseAt(b0, tDir.times(-jt), cp);
+                                applyBodyImpulseAt(b1, tDir.times(jt), cp);
                             }
-                            List<Instance> parts2 = body.getParts();
-                            if (!(parts2 instanceof Collection) || !parts2.isEmpty()) {
-                                Iterator it5 = parts2.iterator();
-                                while (true) {
-                                    if (it5.hasNext()) {
-                                        if ((PartData.INSTANCE.cframe((Instance) it5.next()).getY() < fFloatValue ? z3 ? 1 : 0 : 0) == 0) {
-                                            r2 = 0;
-                                            break;
-                                        }
-                                    } else {
-                                        r2 = z3 ? 1 : 0;
-                                        break;
-                                    }
-                                }
-                            } else {
-                                r2 = z3 ? 1 : 0;
-                            }
-                            if (r2 != 0) {
-                                Iterator it6 = body.getParts().iterator();
-                                while (it6.hasNext()) {
-                                    ((Instance) it6.next()).destroy();
-                                }
-                                playSession.bodies.remove(body);
-                            }
-                            f4 = dt;
-                            gravity = f5;
-                            z4 = false;
-                        } catch (Throwable th5) {
-                            Throwable th = th5;
-                            playSession = this;
-                            playSession.writing = false;
-                            throw th;
                         }
                     }
                 }
             }
-            playSession.solveDistanceConstraints();
-            playSession.writing = false;
-        } catch (Throwable th6) {
-            Throwable th = th6;
-        }
-    }
-        catch (Throwable _ktEx) {
-            throw com.goydevv.studrblx.util.KtCompat.sneakyThrow(_ktEx);
+
+            // 3. Character-vs-Dynamic body pushing
+            if (this.character != null && !this.dead && this.seated == null) {
+                Pair<Vector3, Vector3> cb = charBox();
+                Vector3 cc = cb.component1();
+                Vector3 ch = cb.component2();
+                Vector3 cLo = cc.minus(ch);
+                Vector3 cHi = cc.plus(ch);
+                for (Body b : this.bodies) {
+                    if (!b.getHasBox()) continue;
+                    if (!Geometry.INSTANCE.aabbOverlap(cLo, cHi, b.getMin(), b.getMax(), 0.1f)) continue;
+                    Vector3 pushDir = b.getCom().minus(cc);
+                    pushDir = new Vector3(pushDir.getX(), 0.0f, pushDir.getZ());
+                    if (pushDir.getMagnitude() < 1.0E-4f) pushDir = facingVec();
+                    else pushDir = pushDir.getUnit();
+                    float charSpeed = new Vector3(this.vel.getX(), 0.0f, this.vel.getZ()).dot(pushDir);
+                    if (charSpeed > 0.2f) {
+                        Vector3 pushImp = pushDir.times(charSpeed * Math.min(b.getMass(), 15.0f) * 0.6f);
+                        Vector3 hitPt = b.getCom().minus(pushDir.times(b.getIsSphere() ? b.getSphereRadius() : 0.5f));
+                        applyBodyImpulseAt(b, pushImp, hitPt);
+                    }
+                }
+            }
+
+            // 4. Solve all mechanical constraints
+            solveMechanicalConstraints(dt);
+        } finally {
+            this.writing = false;
         }
     }
 
@@ -6980,6 +7627,9 @@ public final class PlaySession implements TreeListener {
         LuaNumber luaNumberValueOf2 = LuaValue.valueOf(dt);
         Intrinsics.checkNotNullExpressionValue(luaNumberValueOf2, "valueOf(...)");
         luaRuntime2.fire(rs, "PreRender", luaNumberValueOf2);
+        LuaNumber preAnimDt = LuaValue.valueOf(dt);
+        Intrinsics.checkNotNullExpressionValue(preAnimDt, "valueOf(...)");
+        this.rt.fire(rs, "PreAnimation", preAnimDt);
         LuaRuntime luaRuntime3 = this.rt;
         LuaNumber luaNumberValueOf3 = LuaValue.valueOf(this.time);
         Intrinsics.checkNotNullExpressionValue(luaNumberValueOf3, "valueOf(...)");
@@ -7089,12 +7739,14 @@ public final class PlaySession implements TreeListener {
             Pair<Float, Float> pairZoomLimits = zoomLimits();
             float mn = pairZoomLimits.component1().floatValue();
             float mx = pairZoomLimits.component2().floatValue();
-            Instance instance = this.player;
-            Object obj4 = instance != null ? instance.get("CameraMode") : null;
-            EnumValue enumValue2 = obj4 instanceof EnumValue ? (EnumValue) obj4 : null;
-            boolean z2 = true;
-            boolean lockFirst = enumValue2 != null && enumValue2.getValue() == 1;
-            this.distTarget = lockFirst ? mn : RangesKt.coerceIn(this.distTarget, mn, mx);
+            boolean lockFirst = isLockFirstPerson();
+            if (lockFirst) {
+                this.camDist = 0.5f;
+                this.distTarget = 0.5f;
+                this.firstPerson = true;
+            } else {
+                this.distTarget = RangesKt.coerceIn(this.distTarget, mn, mx);
+            }
             if (!(this.keyTurn == 0.0f)) {
                 this.yawTarget += this.keyTurn * dt * 2.6f;
                 this.lastCamInput = this.time;
@@ -7115,14 +7767,13 @@ public final class PlaySession implements TreeListener {
             this.camYaw = this.yawTarget;
             this.camPitch = this.pitchTarget;
             f = 1.0f;
-            float f2 = this.camDist;
-            float f3 = this.distTarget - this.camDist;
-            fExp = 1.0f - ((float) Math.exp((-28.0f) * dt));
-            this.camDist = Math.abs(f3) < 0.02f ? this.distTarget : (f2 + (f3 * fExp));
-            if (!lockFirst && this.camDist >= f) {
-                z2 = false;
+            if (!lockFirst) {
+                float f2 = this.camDist;
+                float f3 = this.distTarget - this.camDist;
+                fExp = 1.0f - ((float) Math.exp((-28.0f) * dt));
+                this.camDist = Math.abs(f3) < 0.02f ? this.distTarget : (f2 + (f3 * fExp));
+                this.firstPerson = this.camDist < f;
             }
-            this.firstPerson = z2;
             Instance instance2 = this.hrp;
             if (instance2 == null || (position = PartData.INSTANCE.cframe(instance2).getPosition()) == null) {
                 position = this.pos;
@@ -7156,7 +7807,7 @@ public final class PlaySession implements TreeListener {
                 target = target2;
                 this.occluded = dist;
             }
-            cam.setPos(focus.minus(cam.getForward().times(dist)));
+            cam.setPos(this.firstPerson ? focus : focus.minus(cam.getForward().times(dist)));
             if (camInst != null) {
                 camInst2 = camInst;
                 z = false;
@@ -7243,6 +7894,12 @@ public final class PlaySession implements TreeListener {
     }
 
     public final void cameraZoom(float factor) {
+        if (isLockFirstPerson()) {
+            this.camDist = 0.5f;
+            this.distTarget = 0.5f;
+            this.firstPerson = true;
+            return;
+        }
         Pair<Float, Float> pairZoomLimits = zoomLimits();
         float mn = pairZoomLimits.component1().floatValue();
         float mx = pairZoomLimits.component2().floatValue();
@@ -7998,6 +8655,80 @@ public final class PlaySession implements TreeListener {
             body.setSleeping(false);
             body.setRestTime(0.0f);
         }
+    }
+
+    public final Vector3 angularVelocityOf(Instance p) {
+        Intrinsics.checkNotNullParameter(p, "p");
+        Body body = this.bodyOf.get(p);
+        if (body != null) {
+            return body.getAngVel();
+        }
+        return Vector3.INSTANCE.getZERO();
+    }
+
+    public final void setAngularVelocity(Instance p, Vector3 w) {
+        Intrinsics.checkNotNullParameter(p, "p");
+        Intrinsics.checkNotNullParameter(w, "w");
+        Body body = this.bodyOf.get(p);
+        if (body != null) {
+            body.setAngVel(w);
+            body.setSleeping(false);
+            body.setRestTime(0.0f);
+        }
+    }
+
+    public final void applyImpulse(Instance p, Vector3 impulse) {
+        Intrinsics.checkNotNullParameter(p, "p");
+        Intrinsics.checkNotNullParameter(impulse, "impulse");
+        if (isCharacterPart(p)) {
+            this.vel = this.vel.plus(impulse.div(15.0f));
+            if (impulse.getY() > 0.0f) {
+                this.grounded = false;
+                this.climbing = false;
+            }
+            return;
+        }
+        if (this.physicsDirty) rebuildPhysics();
+        Body body = this.bodyOf.get(p);
+        if (body != null) {
+            float invM = 1.0f / Math.max(body.getMass(), 0.01f);
+            body.setVel(body.getVel().plus(impulse.times(invM)));
+            body.setSleeping(false);
+            body.setRestTime(0.0f);
+        }
+    }
+
+    public final void applyAngularImpulse(Instance p, Vector3 impulse) {
+        Intrinsics.checkNotNullParameter(p, "p");
+        Intrinsics.checkNotNullParameter(impulse, "impulse");
+        if (this.physicsDirty) rebuildPhysics();
+        Body body = this.bodyOf.get(p);
+        if (body != null) {
+            float invI = 1.0f / Math.max(body.getInertia(), 0.05f);
+            body.setAngVel(body.getAngVel().plus(impulse.times(invI)));
+            body.setSleeping(false);
+            body.setRestTime(0.0f);
+        }
+    }
+
+    public final float assemblyMassOf(Instance p) {
+        Intrinsics.checkNotNullParameter(p, "p");
+        if (this.physicsDirty) rebuildPhysics();
+        Body body = this.bodyOf.get(p);
+        if (body != null) {
+            return body.getMass();
+        }
+        return partMassOf(p);
+    }
+
+    public final List<Instance> connectedPartsOf(Instance p) {
+        Intrinsics.checkNotNullParameter(p, "p");
+        if (this.physicsDirty) rebuildPhysics();
+        Body body = this.bodyOf.get(p);
+        if (body != null) {
+            return CollectionsKt.toList(body.getParts());
+        }
+        return CollectionsKt.listOf(p);
     }
 
     public final Vector3 moveDirection(Instance h) {

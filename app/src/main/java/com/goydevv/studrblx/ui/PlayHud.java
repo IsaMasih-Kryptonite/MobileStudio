@@ -281,8 +281,9 @@ public final class PlayHud extends FrameLayout {
 
     private final void hideKeyboard() {
         Object systemService = getContext().getSystemService("input_method");
-        Intrinsics.checkNotNull(systemService, "null cannot be cast to non-null type android.view.inputmethod.InputMethodManager");
-        ((InputMethodManager) systemService).hideSoftInputFromWindow(this.chatBar.getWindowToken(), 0);
+        if (systemService instanceof InputMethodManager) {
+            ((InputMethodManager) systemService).hideSoftInputFromWindow(this.chatBar.getWindowToken(), 0);
+        }
     }
 
     public final void onPlayStateChanged() {
@@ -304,7 +305,7 @@ public final class PlayHud extends FrameLayout {
 
     private final void updateChatVisibility() {
         PlaySession p = this.studio.getPlay();
-        boolean enabled = !((p == null || p.getCoreChat()) ? false : true);
+        boolean enabled = (p == null || p.getCoreChat());
         this.chatBtn.setVisibility(enabled ? 0 : 8);
         this.chatBox.setVisibility((enabled && this.chatOpen) ? 0 : 8);
         this.chatBtn.setActive(this.chatOpen);
@@ -491,7 +492,7 @@ public final class PlayHud extends FrameLayout {
 
     public final void focusChat() {
         PlaySession play = this.studio.getPlay();
-        if ((play == null || play.getCoreChat()) ? false : true) {
+        if (play != null && !play.getCoreChat()) {
             return;
         }
         this.chatOpen = true;
@@ -499,8 +500,9 @@ public final class PlayHud extends FrameLayout {
         updateChatVisibility();
         this.chatBar.requestFocus();
         Object systemService = getContext().getSystemService("input_method");
-        Intrinsics.checkNotNull(systemService, "null cannot be cast to non-null type android.view.inputmethod.InputMethodManager");
-        ((InputMethodManager) systemService).showSoftInput(this.chatBar, 0);
+        if (systemService instanceof InputMethodManager) {
+            ((InputMethodManager) systemService).showSoftInput(this.chatBar, 0);
+        }
     }
 
     public final boolean handleBack() {
@@ -722,37 +724,32 @@ public final class PlayHud extends FrameLayout {
             invalidate();
         }
 
-        /* JADX WARN: Multi-variable type inference failed */
-        /* JADX WARN: Type inference failed for: r14v0 */
-        /* JADX WARN: Type inference failed for: r14v1, types: [boolean, int] */
-        /* JADX WARN: Type inference failed for: r14v8 */
         private final void build() {
-            int r14;
             int w = getWidth() - this.this$0.dp(4.0f);
             if (w <= 0) {
                 this.layouts = CollectionsKt.emptyList();
                 return;
             }
             this.lastW = getWidth();
-            Iterable<PlaySession.ChatLine> iterable = this.lines;
-            Collection arrayList = new ArrayList(CollectionsKt.collectionSizeOrDefault(iterable, 10));
-            for (PlaySession.ChatLine chatLine : iterable) {
-                SpannableStringBuilder spannableStringBuilder = new SpannableStringBuilder();
+            ArrayList<StaticLayout> arrayList = new ArrayList<>(this.lines.size());
+            for (PlaySession.ChatLine chatLine : this.lines) {
+                SpannableStringBuilder sb = new SpannableStringBuilder();
                 if (chatLine.getFrom() != null) {
-                    int length = spannableStringBuilder.length();
-                    spannableStringBuilder.append((CharSequence) ("[" + chatLine.getFrom() + "]: "));
-                    spannableStringBuilder.setSpan(new ForegroundColorSpan(chatLine.getColor()), length, spannableStringBuilder.length(), 33);
-                    spannableStringBuilder.setSpan(new StyleSpan(1), length, spannableStringBuilder.length(), 33);
-                    spannableStringBuilder.append((CharSequence) chatLine.getText());
-                    r14 = 0;
+                    int start = sb.length();
+                    sb.append("[").append(chatLine.getFrom()).append("]: ");
+                    sb.setSpan(new ForegroundColorSpan(chatLine.getColor()), start, sb.length(), 33);
+                    sb.setSpan(new StyleSpan(1), start, sb.length(), 33);
+                    sb.append(chatLine.getText());
                 } else {
-                    spannableStringBuilder.append((CharSequence) chatLine.getText());
-                    r14 = 0;
-                    spannableStringBuilder.setSpan(new ForegroundColorSpan(chatLine.getColor()), 0, spannableStringBuilder.length(), 33);
+                    sb.append(chatLine.getText());
+                    sb.setSpan(new ForegroundColorSpan(chatLine.getColor()), 0, sb.length(), 33);
                 }
-                arrayList.add(StaticLayout.Builder.obtain(spannableStringBuilder, r14, spannableStringBuilder.length(), this.tp, w).setAlignment(Layout.Alignment.ALIGN_NORMAL).setIncludePad(r14 != 0).build());
+                arrayList.add(StaticLayout.Builder.obtain(sb, 0, sb.length(), this.tp, w)
+                        .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+                        .setIncludePad(false)
+                        .build());
             }
-            this.layouts = (List) arrayList;
+            this.layouts = arrayList;
         }
 
         @Override // android.view.View
@@ -831,114 +828,78 @@ public final class PlayHud extends FrameLayout {
             }
         }
 
-        /* JADX WARN: Multi-variable type inference failed */
-        /* JADX WARN: Type inference failed for: r13v10 */
-        /* JADX WARN: Type inference failed for: r13v3 */
-        /* JADX WARN: Type inference failed for: r13v4, types: [boolean, int] */
-        /* JADX WARN: Type inference failed for: r26v0 */
-        /* JADX WARN: Type inference failed for: r26v1 */
-        /* JADX WARN: Type inference failed for: r26v2 */
-        /* JADX WARN: Type inference failed for: r26v3 */
-        /* JADX WARN: Type inference failed for: r26v4 */
-        /* JADX WARN: Type inference failed for: r26v5 */
-        /* JADX WARN: Type inference failed for: r26v6 */
-        /* JADX WARN: Type inference failed for: r26v7 */
-        /* JADX WARN: Type inference failed for: r3v10, types: [android.text.StaticLayout$Builder] */
         private final void drawBubbles(Canvas c, PlaySession p) {
-            ArrayList arrayList;
             if (p.getBubbles().isEmpty()) {
                 return;
             }
-            int iDp = this.this$0.dp(220.0f);
-            ArrayList<PlaySession.Bubble> bubbles = p.getBubbles();
-            LinkedHashMap linkedHashMap = new LinkedHashMap();
-            for (Object obj : bubbles) {
-                Instance part = ((PlaySession.Bubble) obj).getPart();
-                Object obj2 = linkedHashMap.get(part);
-                if (obj2 == null) {
-                    arrayList = new ArrayList();
-                    linkedHashMap.put(part, arrayList);
-                } else {
-                    arrayList = (ArrayList) obj2;
+            int maxW = this.this$0.dp(220.0f);
+            LinkedHashMap<Instance, List<PlaySession.Bubble>> grouped = new LinkedHashMap<>();
+            for (PlaySession.Bubble b : p.getBubbles()) {
+                Instance part = b.getPart();
+                List<PlaySession.Bubble> list = grouped.get(part);
+                if (list == null) {
+                    list = new ArrayList<>();
+                    grouped.put(part, list);
                 }
-                ((List) arrayList).add(obj);
+                list.add(b);
             }
-            Iterator it = linkedHashMap.entrySet().iterator();
-            while (it.hasNext()) {
-                Map.Entry entry = (Map.Entry) it.next();
-                Instance instance = (Instance) entry.getKey();
-                List list = (List) entry.getValue();
-                float f = 2.0f;
-                float f2 = 0.0f;
-                Vector3 vector3Plus = PartData.INSTANCE.cframe(instance).getPosition().plus(new Vector3(0.0f, (PartData.INSTANCE.size(instance).getY() / 2.0f) + 1.6f, 0.0f));
-                float[] fArrProject = this.this$0.studio.getView().project(vector3Plus);
-                if (fArrProject != null) {
-                    int i = 1065353216;
-                    if (fArrProject[2] <= 1.0f) {
-                        float fDistTo = this.this$0.studio.getView().distTo(vector3Plus);
-                        if (fDistTo <= 100.0f) {
-                            float fDp = fArrProject[1];
-                            int r13 = 0;
-                            int i2 = 0;
-                            for (Object _bObj : CollectionsKt.asReversed(list)) {
-                                PlaySession.Bubble bubble = (PlaySession.Bubble) _bObj;
-                                int i3 = i2;
-                                i2++;
-                                float f3 = f;
-                                float fCoerceIn = RangesKt.coerceIn(bubble.getAge() > 11.0f ? 12.0f - bubble.getAge() : i, f2, (float) i) * (i3 == 0 ? i : 1061997773);
-                                int i4 = i;
-                                this.tp.setColor((((int) (fCoerceIn * 255.0f)) << 24) | 3750717);
-                                Iterator it2 = it;
-                                StaticLayout staticLayoutBuild = StaticLayout.Builder.obtain(bubble.getText(), r13, bubble.getText().length(), this.tp, iDp).setAlignment(Layout.Alignment.ALIGN_CENTER).setIncludePad(r13 != 0).build();
-                                Intrinsics.checkNotNullExpressionValue(staticLayoutBuild, "build(...)");
-                                float fMax = 0.0f;
-                                int i5 = 0;
-                                int r26 = r13;
-                                int lineCount = staticLayoutBuild.getLineCount();
-                                while (i5 < lineCount) {
-                                    fMax = Math.max(fMax, staticLayoutBuild.getLineWidth(i5));
-                                    i5++;
-                                }
-                                List list2 = list;
-                                int iDp2 = this.this$0.dp(10.0f);
-                                int iDp3 = this.this$0.dp(6.0f);
-                                float f4 = (iDp2 * 2) + fMax;
-                                LinkedHashMap linkedHashMap2 = linkedHashMap;
-                                Instance instance2 = instance;
-                                Vector3 vector3 = vector3Plus;
-                                float[] fArr = fArrProject;
-                                float f5 = fDistTo;
-                                RectF rectF = new RectF(fArrProject[r26] - (f4 / f3), (fDp - (staticLayoutBuild.getHeight() + (iDp3 * f3))) - this.this$0.dp(10.0f), fArrProject[r26] + (f4 / f3), fDp - this.this$0.dp(10.0f));
-                                this.fill.setColor((((int) ((0.92f * fCoerceIn) * 255.0f)) << 24) | ViewCompat.MEASURED_SIZE_MASK);
-                                c.drawRoundRect(rectF, this.this$0.dp(12.0f), this.this$0.dp(12.0f), this.fill);
-                                if (i3 == 0) {
-                                    Path path = new Path();
-                                    PlayHud playHud = this.this$0;
-                                    path.moveTo(fArr[r26] - playHud.dp(7.0f), rectF.bottom - i4);
-                                    path.lineTo(fArr[r26], rectF.bottom + playHud.dp(8.0f));
-                                    path.lineTo(fArr[r26] + playHud.dp(7.0f), rectF.bottom - i4);
-                                    path.close();
-                                    c.drawPath(path, this.fill);
-                                }
-                                c.save();
-                                c.translate(fArr[r26] - (iDp / f3), rectF.top + iDp3);
-                                staticLayoutBuild.draw(c);
-                                c.restore();
-                                fDp = rectF.top - this.this$0.dp(f3);
-                                f = f3;
-                                i = i4;
-                                it = it2;
-                                r13 = r26;
-                                list = list2;
-                                fDistTo = f5;
-                                instance = instance2;
-                                linkedHashMap = linkedHashMap2;
-                                vector3Plus = vector3;
-                                fArrProject = fArr;
-                                f2 = 0.0f;
-                            }
-                        }
+            int padX = this.this$0.dp(10.0f);
+            int padY = this.this$0.dp(6.0f);
+            for (Map.Entry<Instance, List<PlaySession.Bubble>> entry : grouped.entrySet()) {
+                Instance part = entry.getKey();
+                List<PlaySession.Bubble> list = entry.getValue();
+                Vector3 worldPos = PartData.INSTANCE.cframe(part).getPosition()
+                        .plus(new Vector3(0.0f, (PartData.INSTANCE.size(part).getY() / 2.0f) + 1.6f, 0.0f));
+                float[] proj = this.this$0.studio.getView().project(worldPos);
+                if (proj == null || proj[2] > 1.0f) {
+                    continue;
+                }
+                float dist = this.this$0.studio.getView().distTo(worldPos);
+                if (dist > 100.0f) {
+                    continue;
+                }
+                float curY = proj[1];
+                int idx = 0;
+                for (int bi = list.size() - 1; bi >= 0; bi--) {
+                    PlaySession.Bubble bubble = list.get(bi);
+                    float ageFade = RangesKt.coerceIn(bubble.getAge() > 11.0f ? 12.0f - bubble.getAge() : 1.0f, 0.0f, 1.0f);
+                    float alphaMul = ageFade * (idx == 0 ? 1.0f : 0.8f);
+                    this.tp.setColor((((int) (alphaMul * 255.0f)) << 24) | 0x393B3D);
+                    StaticLayout layout = StaticLayout.Builder.obtain(bubble.getText(), 0, bubble.getText().length(), this.tp, maxW)
+                            .setAlignment(Layout.Alignment.ALIGN_CENTER)
+                            .setIncludePad(false)
+                            .build();
+                    float textW = 0.0f;
+                    int lineCount = layout.getLineCount();
+                    for (int li = 0; li < lineCount; li++) {
+                        textW = Math.max(textW, layout.getLineWidth(li));
                     }
+                    float boxW = (padX * 2) + textW;
+                    float boxH = layout.getHeight() + (padY * 2.0f);
+                    float tailOffset = this.this$0.dp(10.0f);
+                    RectF rectF = new RectF(
+                            proj[0] - (boxW / 2.0f),
+                            (curY - boxH) - tailOffset,
+                            proj[0] + (boxW / 2.0f),
+                            curY - tailOffset
+                    );
+                    this.fill.setStyle(Paint.Style.FILL);
+                    this.fill.setColor((((int) ((0.92f * alphaMul) * 255.0f)) << 24) | ViewCompat.MEASURED_SIZE_MASK);
+                    c.drawRoundRect(rectF, this.this$0.dp(12.0f), this.this$0.dp(12.0f), this.fill);
+                    if (idx == 0) {
+                        Path path = new Path();
+                        path.moveTo(proj[0] - this.this$0.dp(7.0f), rectF.bottom - 1.0f);
+                        path.lineTo(proj[0], rectF.bottom + this.this$0.dp(8.0f));
+                        path.lineTo(proj[0] + this.this$0.dp(7.0f), rectF.bottom - 1.0f);
+                        path.close();
+                        c.drawPath(path, this.fill);
+                    }
+                    c.save();
+                    c.translate(proj[0] - (maxW / 2.0f), rectF.top + padY);
+                    layout.draw(c);
+                    c.restore();
+                    curY = rectF.top - this.this$0.dp(2.0f);
+                    idx++;
                 }
             }
         }
@@ -1429,9 +1390,9 @@ public final class PlayHud extends FrameLayout {
         LinearLayout linearLayout = new LinearLayout(getContext());
         linearLayout.setOrientation(1);
         PlaySession play = this.studio.getPlay();
-        boolean objArr = ((play != null && !play.getShiftLockAllowed()) && Settings.INSTANCE.getShiftLockSwitch()) ? false : true;
-        Instance instanceFindService = this.studio.getModel().findService("StarterPlayer");
-        if (!(instanceFindService != null ? Intrinsics.areEqual(instanceFindService.get("EnableMouseLockOption"), (Object) false) : false)) {
+        boolean shiftLockBlocked = (play != null && !play.getShiftLockAllowed()) && Settings.INSTANCE.getShiftLockSwitch();
+        Instance starterPlayer = this.studio.getModel().findService("StarterPlayer");
+        if (starterPlayer == null || !Boolean.FALSE.equals(starterPlayer.get("EnableMouseLockOption"))) {
             settingsPage$row(this, linearLayout, "Shift Lock Switch", settingsPage$selector(this, CollectionsKt.listOf(new String[]{"Off", "On"}), Settings.INSTANCE.getShiftLockSwitch() ? 1 : 0, new Function1() { // from class: com.goydevv.studrblx.ui.PlayHud$$ExternalSyntheticLambda9
                 @Override // kotlin.jvm.functions.Function1
                 public final Object invoke(Object obj) {
@@ -1439,7 +1400,7 @@ public final class PlayHud extends FrameLayout {
                 }
             }));
         }
-        if (objArr == false) {
+        if (shiftLockBlocked) {
             linearLayout.addView(label$default(this, "This experience turned shift lock off.", 12.0f, -1711276033, false, 8, null));
         }
         settingsPage$row(this, linearLayout, "Camera Mode", settingsPage$selector(this, CollectionsKt.listOf(new String[]{"Classic", "Follow"}), !Intrinsics.areEqual(Settings.INSTANCE.getCameraMode(), "Classic") ? 1 : 0, new Function1() { // from class: com.goydevv.studrblx.ui.PlayHud$$ExternalSyntheticLambda10

@@ -171,7 +171,7 @@ public final class Enums {
         types$lambda$11$e(map, "HumanoidRigType", TuplesKt.to("R6", 0), TuplesKt.to("R15", 1));
         types$lambda$11$e(map, "GameAvatarType", TuplesKt.to("R6", 0), TuplesKt.to("R15", 1), TuplesKt.to("PlayerChoice", 2));
         types$lambda$11$e(map, "R15CollisionType", TuplesKt.to("OuterBox", 0), TuplesKt.to("InnerBox", 1));
-        types$lambda$11$e(map, "AnimationPriority", TuplesKt.to("Idle", 0), TuplesKt.to("Movement", 1), TuplesKt.to("Action", 2), TuplesKt.to("Core", 1000));
+        types$lambda$11$e(map, "AnimationPriority", TuplesKt.to("Idle", 0), TuplesKt.to("Movement", 1), TuplesKt.to("Action", 2), TuplesKt.to("Action2", 3), TuplesKt.to("Action3", 4), TuplesKt.to("Action4", 5), TuplesKt.to("Core", 1000));
         types$lambda$11$e(map, "CoreGuiType", TuplesKt.to("PlayerList", 0), TuplesKt.to("Health", 1), TuplesKt.to("Backpack", 2), TuplesKt.to("Chat", 3), TuplesKt.to("All", 4), TuplesKt.to("EmotesMenu", 5), TuplesKt.to("SelfView", 6), TuplesKt.to("Captures", 7));
         types$lambda$11$e(map, "CameraMode", TuplesKt.to("Classic", 0), TuplesKt.to("LockFirstPerson", 1));
         types$lambda$11$e(map, "TextChatMessageStatus", TuplesKt.to("Unknown", 0), TuplesKt.to("Success", 1), TuplesKt.to("Sending", 2));
@@ -181,6 +181,10 @@ public final class Enums {
         types$lambda$11$e(map, "RollOffMode", TuplesKt.to("Inverse", 0), TuplesKt.to("Linear", 1), TuplesKt.to("LinearSquare", 2), TuplesKt.to("InverseTapered", 3));
         types$lambda$11$e(map, "ReverbType", TuplesKt.to("NoReverb", 0), TuplesKt.to("GenericReverb", 1), TuplesKt.to("PaddedCell", 2), TuplesKt.to("Room", 3), TuplesKt.to("Bathroom", 4), TuplesKt.to("LivingRoom", 5), TuplesKt.to("StoneRoom", 6), TuplesKt.to("Auditorium", 7), TuplesKt.to("ConcertHall", 8), TuplesKt.to("Cave", 9), TuplesKt.to("Arena", 10), TuplesKt.to("Hangar", 11), TuplesKt.to("CarpettedHallway", 12), TuplesKt.to("Hallway", 13), TuplesKt.to("StoneCorridor", 14), TuplesKt.to("Alley", 15), TuplesKt.to("Forest", 16), TuplesKt.to("City", 17), TuplesKt.to("Mountains", 18), TuplesKt.to("Quarry", 19), TuplesKt.to("Plain", 20), TuplesKt.to("ParkingLot", 21), TuplesKt.to("SewerPipe", 22), TuplesKt.to("UnderWater", 23));
         types$lambda$11$e(map, "ListenerType", TuplesKt.to("Camera", 0), TuplesKt.to("CFrame", 1), TuplesKt.to("ObjectPosition", 2), TuplesKt.to("ObjectCFrame", 3));
+        types$lambda$11$e(map, "DevCameraOcclusionMode", TuplesKt.to("Zoom", 0), TuplesKt.to("Invisicam", 1));
+        types$lambda$11$e(map, "DevTouchMovementMode", TuplesKt.to("UserChoice", 0), TuplesKt.to("Thumbstick", 1), TuplesKt.to("DPad", 2), TuplesKt.to("Thumbpad", 3), TuplesKt.to("ClickToMove", 4), TuplesKt.to("Scriptable", 5), TuplesKt.to("DynamicThumbstick", 6));
+        types$lambda$11$e(map, "DevComputerMovementMode", TuplesKt.to("UserChoice", 0), TuplesKt.to("KeyboardMouse", 1), TuplesKt.to("ClickToMove", 2), TuplesKt.to("Scriptable", 3));
+        types$lambda$11$e(map, "MouseBehavior", TuplesKt.to("Default", 0), TuplesKt.to("LockCenter", 1), TuplesKt.to("LockCurrentPosition", 2));
         types = map;
     }
 
@@ -230,7 +234,7 @@ public final class Enums {
     public final java.lang.String typeForProp(java.lang.String cls, java.lang.String prop) {
         if (prop == null) return null;
         switch (prop) {
-            case "Material": case "BaseMaterial": return "Material";
+            case "Material": case "BaseMaterial": case "FloorMaterial": return "Material";
             case "Shape": return "PartType";
             case "TopSurface": case "BottomSurface": case "LeftSurface": case "RightSurface": case "FrontSurface": case "BackSurface": return "SurfaceType";
             case "Font": return "Font";
@@ -252,6 +256,15 @@ public final class Enums {
             case "Face": return "NormalId";
             case "RollOffMode": return "RollOffMode";
             case "AmbientReverb": return "ReverbType";
+            case "CameraMode": return "CameraMode";
+            case "CameraType": return "CameraType";
+            case "DevCameraOcclusionMode": return "DevCameraOcclusionMode";
+            case "DevTouchMovementMode": return "DevTouchMovementMode";
+            case "DevComputerMovementMode": return "DevComputerMovementMode";
+            case "MouseBehavior": return "MouseBehavior";
+            case "AnimationPriority": case "Priority": return "AnimationPriority";
+            case "ZIndexBehavior": return "ZIndexBehavior";
+            case "ScreenInsets": return "ScreenInsets";
             default: return null;
         }
     }

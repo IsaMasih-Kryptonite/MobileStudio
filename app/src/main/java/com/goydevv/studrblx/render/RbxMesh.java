@@ -34,8 +34,29 @@ public final class RbxMesh {
     private RbxMesh() {
     }
 
-    public final MeshData parse(byte[] bytes) throws UnsupportedMesh {
-        Intrinsics.checkNotNullParameter(bytes, "bytes");
+    private final byte[] maybeGunzip(byte[] bytes) {
+        if (bytes.length >= 2 && (bytes[0] & 255) == 0x1F && (bytes[1] & 255) == 0x8B) {
+            try (java.util.zip.GZIPInputStream gz = new java.util.zip.GZIPInputStream(new java.io.ByteArrayInputStream(bytes));
+                 java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream(bytes.length * 2)) {
+                byte[] buf = new byte[8192];
+                int n;
+                while ((n = gz.read(buf)) > 0) {
+                    out.write(buf, 0, n);
+                }
+                return out.toByteArray();
+            } catch (Exception ignored) {
+                return bytes;
+            }
+        }
+        return bytes;
+    }
+
+    public final MeshData parse(byte[] rawBytes) throws UnsupportedMesh {
+        Intrinsics.checkNotNullParameter(rawBytes, "bytes");
+        byte[] bytes = maybeGunzip(rawBytes);
+        if (bytes.length < 12) {
+            throw new UnsupportedMesh("not a mesh file");
+        }
         String head = new String(bytes, 0, Math.min(bytes.length, 13), Charsets.ISO_8859_1);
         if (!StringsKt.startsWith(head, "version ", false)) {
             throw new UnsupportedMesh("not a mesh file");
@@ -65,31 +86,73 @@ public final class RbxMesh {
         throw new UnsupportedMesh("mesh version " + ver);
     }
 
-    private final MeshData build(float[] pos, float[] nrm, float[] uv, int[] faces, int f0, int f1) {
+    private final MeshData build(float[] pos, float[] nrmIn, float[] uv, int[] faces, int f0, int f1) {
         float[] mx;
         int n = pos.length / 3;
-        float[] out = new float[(f1 - f0) * 24];
+        float[] nrm = nrmIn;
+        if (n > 0) {
+            int badN = 0;
+            for (int i = 0; i < n; i++) {
+                float nx = nrm[i * 3], ny = nrm[(i * 3) + 1], nz = nrm[(i * 3) + 2];
+                float l2 = (nx * nx) + (ny * ny) + (nz * nz);
+                if (l2 < 1.0E-4f || Float.isNaN(l2)) {
+                    badN++;
+                }
+            }
+            if (badN > n / 4) {
+                nrm = smoothNormals(pos, faces);
+            }
+        }
+        float[] out = new float[Math.max(0, f1 - f0) * 24];
         float[] mn = {Float.MAX_VALUE, Float.MAX_VALUE, Float.MAX_VALUE};
         float[] mx2 = {-3.4028235E38f, -3.4028235E38f, -3.4028235E38f};
         int o = 0;
         for (int f = f0; f < f1; f++) {
+            int i0 = faces[f * 3];
+            int i1 = faces[(f * 3) + 1];
+            int i2 = faces[(f * 3) + 2];
+            float fnx = 0.0f, fny = 1.0f, fnz = 0.0f;
+            if (i0 >= 0 && i0 < n && i1 >= 0 && i1 < n && i2 >= 0 && i2 < n) {
+                float ux = pos[i1 * 3] - pos[i0 * 3];
+                float uy = pos[(i1 * 3) + 1] - pos[(i0 * 3) + 1];
+                float uz = pos[(i1 * 3) + 2] - pos[(i0 * 3) + 2];
+                float vx = pos[i2 * 3] - pos[i0 * 3];
+                float vy = pos[(i2 * 3) + 1] - pos[(i0 * 3) + 1];
+                float vz = pos[(i2 * 3) + 2] - pos[(i0 * 3) + 2];
+                float cx = (uy * vz) - (uz * vy);
+                float cy = (uz * vx) - (ux * vz);
+                float cz = (ux * vy) - (uy * vx);
+                float cl = (float) Math.sqrt((cx * cx) + (cy * cy) + (cz * cz));
+                if (cl > 1.0E-7f) {
+                    fnx = cx / cl; fny = cy / cl; fnz = cz / cl;
+                }
+            }
             for (int k = 0; k < 3; k++) {
                 int v = faces[(f * 3) + k];
                 if (v >= 0 && v < n) {
                     for (int c = 0; c < 3; c++) {
-                        float p = pos[(v * 3) + c];
-                        out[o + c] = p;
-                        if (p < mn[c]) {
-                            mn[c] = p;
+                        float pv = pos[(v * 3) + c];
+                        out[o + c] = pv;
+                        if (pv < mn[c]) {
+                            mn[c] = pv;
                         }
-                        if (p > mx2[c]) {
-                            mx2[c] = p;
+                        if (pv > mx2[c]) {
+                            mx2[c] = pv;
                         }
                     }
-                    int c2 = o + 3;
-                    out[c2] = nrm[v * 3];
-                    out[o + 4] = nrm[(v * 3) + 1];
-                    out[o + 5] = nrm[(v * 3) + 2];
+                    float nx = nrm[v * 3];
+                    float ny = nrm[(v * 3) + 1];
+                    float nz = nrm[(v * 3) + 2];
+                    float nl = (float) Math.sqrt((nx * nx) + (ny * ny) + (nz * nz));
+                    if (nl > 1.0E-5f && !Float.isNaN(nl)) {
+                        out[o + 3] = nx / nl;
+                        out[o + 4] = ny / nl;
+                        out[o + 5] = nz / nl;
+                    } else {
+                        out[o + 3] = fnx;
+                        out[o + 4] = fny;
+                        out[o + 5] = fnz;
+                    }
                     out[o + 6] = uv[v * 2];
                     out[o + 7] = uv[(v * 2) + 1];
                 }
@@ -329,8 +392,13 @@ public final class RbxMesh {
         for (int i = 0; i < nl; i++) {
             lods[i] = bb.getInt();
         }
-        int end = nl >= 2 ? RangesKt.coerceIn(lods[1], 1, nf) : nf;
-        return build(v.getPos(), v.getNrm(), v.getUv(), f, nl >= 2 ? RangesKt.coerceIn(lods[0], 0, end) : 0, end);
+        int startFace = 0;
+        int end = nf;
+        if (nl >= 2 && lods[1] > lods[0] && lods[1] <= nf) {
+            startFace = RangesKt.coerceIn(lods[0], 0, nf);
+            end = RangesKt.coerceIn(lods[1], startFace + 1, nf);
+        }
+        return build(v.getPos(), v.getNrm(), v.getUv(), f, startFace, end);
     }
 
     private final MeshData parseV4(byte[] b, int at) {
@@ -352,8 +420,13 @@ public final class RbxMesh {
         for (int i = 0; i < nl; i++) {
             lods[i] = bb.getInt();
         }
-        int end = nl >= 2 ? RangesKt.coerceIn(lods[1], 1, nf) : nf;
-        return build(v.getPos(), v.getNrm(), v.getUv(), f, nl >= 2 ? RangesKt.coerceIn(lods[0], 0, end) : 0, end);
+        int startFace = 0;
+        int end = nf;
+        if (nl >= 2 && lods[1] > lods[0] && lods[1] <= nf) {
+            startFace = RangesKt.coerceIn(lods[0], 0, nf);
+            end = RangesKt.coerceIn(lods[1], startFace + 1, nf);
+        }
+        return build(v.getPos(), v.getNrm(), v.getUv(), f, startFace, end);
     }
 
     /* JADX WARN: Code duplicated, block: B:45:0x00da  */
@@ -449,6 +522,10 @@ public final class RbxMesh {
                 bb.getShort();
                 bb.get();
                 int nLods = bb.getInt();
+                if (nLods < 0 || nLods > 64 || bb.remaining() < nLods * 4) {
+                    bb.position(start + size);
+                    continue;
+                }
                 int[] arr = new int[nLods];
                 for (int i = 0; i < nLods; i++) {
                     arr[i] = bb.getInt();

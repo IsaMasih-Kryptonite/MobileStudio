@@ -1062,7 +1062,7 @@ public final class StaticBatches {
                     ux = px + (sx2 * 0.5f);
                     uy = py + (sy2 * 0.5f);
                     uz = pz + (sz2 * 0.5f);
-                    if (yF && xF) {
+                    if (!yF && xF) {
                         u = uz;
                     } else {
                         u = ux;
@@ -1117,8 +1117,8 @@ public final class StaticBatches {
                 ux = px2 + (sx2 * 0.5f);
                 uy = py2 + (sy2 * 0.5f);
                 uz = pz2 + (sz2 * 0.5f);
-                if (yF) {
-                    u = ux;
+                if (!yF && xF) {
+                    u = uz;
                 } else {
                     u = ux;
                 }

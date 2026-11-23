@@ -72,26 +72,27 @@ import kotlin.text.StringsKt;
 /* JADX INFO: loaded from: classes8.dex */
 public final class SceneRenderer implements GLSurfaceView.Renderer {
     public static final long BASEPLATE_GRID_ID = 6372755229L;
-    private static final String DECAL_FS = "\nprecision mediump float;\n\nvarying vec2 vUv;\nuniform sampler2D uTex; uniform vec4 uTint; uniform vec3 uNormal; uniform vec3 uLight; uniform vec3 uSun; uniform float uAmbient;\nvoid main() {\n  vec4 t = texture2D(uTex, vUv);\n  float diff = max(dot(normalize(uNormal), uLight), 0.0);\n  vec3 light = vec3(uAmbient) + uSun * diff;\n  gl_FragColor = vec4(t.rgb * uTint.rgb * light, t.a) * uTint.a;\n}";
+    private static final String DECAL_FS = "\nprecision mediump float;\n\nvarying vec2 vUv;\nuniform sampler2D uTex; uniform vec4 uTint; uniform vec3 uNormal; uniform vec3 uLight; uniform vec3 uSun; uniform float uAmbient; uniform float uHdrScale;\nvoid main() {\n  vec4 t = texture2D(uTex, vUv);\n  float diff = max(dot(normalize(uNormal), uLight), 0.0);\n  vec3 light = vec3(uAmbient) + uSun * diff;\n  float hs = uHdrScale > 0.001 ? uHdrScale : 1.0;\n  gl_FragColor = vec4(t.rgb * uTint.rgb * light * uTint.a * hs, t.a * uTint.a);\n}";
     private static final String DECAL_VS = "\nuniform mat4 uVP; uniform mat4 uModel; uniform vec4 uUv;\nattribute vec3 aPos; attribute vec2 aUv;\nvarying vec2 vUv;\nvoid main() { vUv = aUv * uUv.xy + uUv.zw; gl_Position = uVP * uModel * vec4(aPos, 1.0); }";
     private static final String DEPTH_FS = "\n#ifdef GL_FRAGMENT_PRECISION_HIGH\nprecision highp float;\n#else\nprecision mediump float;\n#endif\n\nvoid main() {\n  vec4 enc = vec4(1.0, 255.0, 65025.0, 16581375.0) * gl_FragCoord.z;\n  enc = fract(enc);\n  enc -= enc.yzww * vec4(1.0 / 255.0, 1.0 / 255.0, 1.0 / 255.0, 0.0);\n  gl_FragColor = enc;\n}";
     private static final String DEPTH_VS = "\nuniform mat4 uVP; uniform mat4 uModel;\nattribute vec3 aPos;\nvoid main() { gl_Position = uVP * uModel * vec4(aPos, 1.0); }";
     private static final int GL_MAX_ANISOTROPY = 34047;
     private static final int GL_TEXTURE_MAX_ANISOTROPY = 34046;
-    private static final String LINE_FS = "\nprecision mediump float;\nuniform vec4 uColor;\nvoid main() { gl_FragColor = uColor; }";
+    private static final String LINE_FS = "\nprecision mediump float;\nuniform vec4 uColor; uniform float uHdrScale;\nvoid main() { float hs = uHdrScale > 0.001 ? uHdrScale : 1.0; gl_FragColor = vec4(uColor.rgb * hs, uColor.a); }";
     private static final String LINE_VS = "\nuniform mat4 uVP; uniform mat4 uModel;\nattribute vec3 aPos;\nvoid main() { gl_Position = uVP * uModel * vec4(aPos, 1.0); }";
-    private static final String LIT_FS = "\nprecision mediump float;\n\n#ifdef BATCH\nvarying vec3 vN; varying vec3 vW; varying vec4 vS; varying vec3 vA; varying vec4 vCol; varying vec4 vMat;\n#else\nvarying vec3 vN; varying vec3 vW; varying vec3 vL; varying vec3 vLN; varying vec4 vS;\n#endif\nuniform vec4 uColor; uniform vec3 uLight; uniform vec3 uCam; uniform float uEmissive;\nuniform float uGrid; uniform vec3 uSize; uniform vec3 uHorizon; uniform vec3 uZenith; uniform vec3 uSun;\nuniform float uAmbient; uniform vec3 uFogColor; uniform vec3 uFog; uniform vec4 uMat; uniform vec3 uSurfA; uniform vec3 uSurfB;\nuniform sampler2D uShadow; uniform float uShadowOn; uniform vec2 uShadowTexel; uniform float uShadowSoft; uniform vec3 uShiftBot; uniform float uEnvSpec; uniform int uPtCount; uniform vec4 uPtPos[8]; uniform vec4 uPtCol[8]; uniform vec4 uPtDir[8]; uniform vec4 uCCParams; uniform vec3 uCCTint; uniform vec4 uBloom; uniform vec4 uDof; uniform vec3 uAmbRgb; uniform vec4 uLightingFlags; uniform vec3 uIndoorAmb; uniform vec4 uAtmo; uniform vec3 uAtmoDecay; uniform float uExposure; uniform float uTime; uniform float uTruss;\nuniform sampler2D uSurfTex; uniform float uHasSurfTex;\n#ifdef TEXTURED\nvarying vec3 vT; varying vec3 vB;\nuniform sampler2D uMatTex; uniform sampler2D uMatNrm; uniform float uTexScale; uniform float uHasNrm;\n#endif\n\nfloat hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }\nvec2 hash2(vec2 p) { return fract(sin(vec2(dot(p, vec2(127.1, 311.7)), dot(p, vec2(269.5, 183.3)))) * 43758.5453); }\nfloat noise(vec2 p) {\n  vec2 i = floor(p); vec2 f = fract(p); f = f * f * (3.0 - 2.0 * f);\n  return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x), mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y);\n}\nfloat fbm(vec2 p) { return noise(p) * 0.5 + noise(p * 2.03 + 7.1) * 0.3 + noise(p * 4.1 + 3.3) * 0.2; }\n#ifdef ADVANCED\n// Cellular noise: x = distance to the nearest cell point, y = distance to the cell edge (approx).\nvec3 voro(vec2 x) {\n  vec2 n = floor(x); vec2 f = fract(x);\n  float d1 = 8.0; float d2 = 8.0; vec2 id = n;\n  for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++) {\n    vec2 g = vec2(float(i), float(j));\n    vec2 r = g + hash2(n + g) - f;\n    float d = dot(r, r);\n    if (d < d1) { d2 = d1; d1 = d; id = n + g; } else if (d < d2) { d2 = d; }\n  }\n  return vec3(sqrt(d1), sqrt(d2) - sqrt(d1), hash(id));\n}\n#endif\n// Roblox surface types on one face (sp = stud coordinates on the face, fsz = face size).\n// Roblox's stud look: a raised disc lit from the upper left with a soft shadow to the lower right.\nfloat studShade(vec2 f, float R) {\n  vec2 L = vec2(-0.62, 0.78);\n  float r = length(f);\n  float inside = smoothstep(R + 0.012, R - 0.012, r);\n  float rim = smoothstep(R - 0.09, R, r) * inside;\n  float side = dot(f / max(r, 0.001), L);\n  float shadow = smoothstep(R + 0.1, R, length(f + L * 0.05)) * (1.0 - inside);\n  return 1.0 + inside * 0.05 + rim * side * 0.22 - shadow * 0.2;\n}\nvec3 surface(vec3 c, float s, vec2 sp, vec2 fsz) {\n  if (s < 0.5 || s > 9.5) return c;\n  if (uHasSurfTex > 0.5 && s < 5.5) {\n    // Roblox's own surface textures: one 2x8-stud tile per type, shaded around grey 128\n    // (R = studs, G = weld/glue, B = inlet). Sampled with repeat (no fract) so mipmapping\n    // never sees a seam. s is the same for a whole face, so this branch is uniform per triangle.\n    vec2 st = vec2(sp.x * 0.5, -sp.y * 0.125);\n    vec3 t = texture2D(uSurfTex, st).rgb;\n    float k;\n    if (s < 2.5) k = t.g;\n    else if (s < 3.5) k = t.r;\n    else if (s < 4.5) k = t.b;\n    else { vec2 cell = floor(fract(st) * vec2(2.0, 8.0)); k = mod(cell.x + cell.y, 2.0) < 0.5 ? t.r : t.b; }\n    return c * (k * 2.0);\n  }\n  vec2 f = fract(sp) - 0.5; float r = length(f);\n  if (s > 2.5 && s < 3.5) { // Studs\n    c *= studShade(f, 0.29);\n  } else if (s > 3.5 && s < 4.5) { // Inlet: a sunken hole, shaded the opposite way\n    vec2 L = vec2(-0.62, 0.78);\n    float inside = smoothstep(0.302, 0.278, r);\n    float rim = smoothstep(0.2, 0.29, r) * inside;\n    c *= 1.0 - inside * 0.16 - rim * dot(f / max(r, 0.001), L) * 0.2 + smoothstep(0.36, 0.3, r) * (1.0 - inside) * 0.05;\n  } else if (s > 4.5 && s < 5.5) { // Universal: a stud with a hole in it\n    c *= studShade(f, 0.29) * (1.0 - smoothstep(0.14, 0.12, r) * 0.18);\n  } else if (s > 1.5 && s < 2.5) { // Weld: diagonal hatching\n    float l = fract((sp.x + sp.y) * 1.25);\n    c *= mix(1.0, 0.84, smoothstep(0.82, 0.88, l) * smoothstep(1.0, 0.94, l));\n  } else if (s > 0.5 && s < 1.5) { // Glue: grid of small crosses\n    vec2 g = abs(fract(sp * 2.0) - 0.5);\n    float cr = max(step(g.x, 0.05) * step(g.y, 0.22), step(g.y, 0.05) * step(g.x, 0.22));\n    c *= 1.0 - 0.14 * cr;\n  } else { // Hinge / Motor / SteppingMotor: a yellow joint in the middle of the face\n    float rr = length(sp - fsz * 0.5);\n    vec3 yellow = vec3(0.96, 0.8, 0.16);\n    if (s > 6.5) {\n      if (rr < 0.75) c = mix(c, vec3(0.45, 0.45, 0.47), smoothstep(0.75, 0.7, rr));\n      if (s > 7.5 && rr < 0.75 && rr > 0.5) { float a = atan(sp.y - fsz.y * 0.5, sp.x - fsz.x * 0.5); c *= 0.75 + 0.25 * step(0.5, fract(a * 1.273)); }\n    }\n    if (rr < 0.45) c = mix(c, yellow, smoothstep(0.45, 0.4, rr));\n  }\n  return c;\n}\nfloat unpackDepth(vec4 c) { return dot(c, vec4(1.0, 1.0 / 255.0, 1.0 / 65025.0, 1.0 / 16581375.0)); }\nfloat sampleShadow(vec2 uv, float z) { return z > unpackDepth(texture2D(uShadow, uv)) ? 0.0 : 1.0; }\nfloat shadowAt(float ndl) {\n  if (uShadowOn < 0.5 || ndl <= 0.0) return 1.0;\n  vec3 p = vS.xyz / vS.w * 0.5 + 0.5;\n  if (p.x <= 0.001 || p.x >= 0.999 || p.y <= 0.001 || p.y >= 0.999 || p.z >= 1.0) return 1.0; float shEdge = smoothstep(0.78, 1.0, max(abs(p.x - 0.5) * 2.0, abs(p.y - 0.5) * 2.0));\n  float z = p.z - (0.00025 + 0.00085 * (1.0 - ndl));\n  vec2 t = uShadowTexel * mix(0.65, 2.85, clamp(uShadowSoft, 0.0, 1.0));\n  float s = sampleShadow(p.xy, z) * 2.0;\n  s += sampleShadow(p.xy + vec2(-t.x, -t.y), z);\n  s += sampleShadow(p.xy + vec2(t.x, -t.y), z);\n  s += sampleShadow(p.xy + vec2(-t.x, t.y), z);\n  s += sampleShadow(p.xy + vec2(t.x, t.y), z);\n  s /= 6.0;\n  return mix(s, 1.0, shEdge);\n}\nvoid main() {\n  vec3 n = normalize(vN);\n  if (!gl_FrontFacing) n = -n;\n#ifdef BATCH\n  vec3 c = vCol.rgb; vec4 mat = vMat; float emis = vCol.a; float alpha = 1.0;\n  vec2 uv = vA.xy; vec2 fsz = vec2(1.0); float sf = vA.z;\n#else\n  vec3 c = uColor.rgb; vec4 mat = uMat; float emis = uEmissive; float alpha = uColor.a;\n  vec3 a = abs(vLN);\n  vec3 p = vL * uSize + uSize * 0.5;\n  bool yFace = a.y > a.x && a.y > a.z; bool xFace = !yFace && a.x > a.z;\n  vec2 uv = yFace ? p.xz : (xFace ? p.zy : p.xy);\n  vec2 fsz = yFace ? uSize.xz : (xFace ? uSize.zy : uSize.xy);\n  // Surface types (studs, inlets, welds, hinges...) on whichever face this is.\n  float sf = yFace ? (vLN.y > 0.0 ? uSurfA.y : uSurfB.y) : (xFace ? (vLN.x > 0.0 ? uSurfA.x : uSurfB.x) : (vLN.z > 0.0 ? uSurfA.z : uSurfB.z));\n  if (uTruss > 0.5) {\n    // Lattice: frame and diagonals per 2-stud cell; everything else is see-through.\n    vec2 cell = fract(uv / 2.0);\n    float e = min(min(cell.x, cell.y), min(1.0 - cell.x, 1.0 - cell.y));\n    float dg = min(abs(cell.x - cell.y), abs(cell.x + cell.y - 1.0));\n    if (e > 0.11 && dg > 0.07) discard;\n  }\n#endif\n  vec3 glow = vec3(0.0);\n  float type = mat.x;\n#ifdef TEXTURED\n  // Roblox material textures: the color map tints the part color; the normal map bends the light.\n  vec2 tuv = vec2(uv.x, -uv.y) * uTexScale;\n  c *= texture2D(uMatTex, tuv).rgb * 1.08;\n  if (uHasNrm > 0.5) {\n    vec3 tn = texture2D(uMatNrm, tuv).xyz * 2.0 - 1.0;\n    n = normalize(normalize(vT) * tn.x + normalize(vB) * tn.y + n * max(tn.z, 0.25));\n  }\n  type = 0.0;\n#endif\n  if (type > 0.5) {\n    float amt = mat.y; float sc = mat.z;\n#ifdef ADVANCED\n    if (type > 10.5) {\n      if (type < 11.5) { // Marble veins\n        float v = abs(sin((uv.x * 0.6 + uv.y * 0.25 + fbm(uv * 0.35) * 5.0) * 1.7));\n        c *= mix(0.8, 1.05, pow(v, 0.35)) + (noise(uv * 3.0) - 0.5) * 0.04;\n      } else if (type < 12.5) { // Slate / sandstone: layered plates\n        float layer = floor(uv.y * sc * 2.0 + fbm(uv * 0.3) * 2.5);\n        c *= 0.9 + hash(vec2(layer, 3.0)) * 0.16 + (noise(uv * 5.0) - 0.5) * amt;\n      } else if (type < 13.5) { // Cobblestone / pebble / basalt: cells with dark gaps\n        vec3 v = voro(uv * sc);\n        c *= mix(0.62, 0.92 + v.z * 0.16, smoothstep(0.03, 0.12, v.y)) * (1.0 - v.x * 0.12);\n      } else if (type < 14.5) { // Cracked lava: dark rock with glowing cracks\n        vec3 v = voro(uv * sc);\n        c *= 0.55 + fbm(uv * 1.5) * 0.25;\n        glow = vec3(1.0, 0.36, 0.05) * smoothstep(0.08, 0.0, v.y) * (0.7 + 0.3 * sin(uTime * 1.5 + v.z * 6.0));\n      } else if (type < 15.5) { // Corroded metal: rust patches\n        float rust = smoothstep(0.42, 0.66, fbm(uv * sc));\n        c = mix(c * (0.95 + (noise(uv * vec2(18.0, 0.8)) - 0.5) * 0.08), c * vec3(0.7, 0.42, 0.24) + vec3(0.14, 0.05, 0.0), rust * 0.8);\n      } else if (type < 16.5) { // Tiles (ceramic / pavement)\n        vec2 tf = fract(uv / sc); float grout = step(0.035, tf.x) * step(0.035, tf.y);\n        c *= mix(0.72, 1.0 + (hash(floor(uv / sc)) - 0.5) * amt * 2.0 + (noise(uv * 3.0) - 0.5) * 0.04, grout);\n      } else if (type < 17.5) { // Roof tiles / shingles: overlapping rows\n        float row = floor(uv.y / (0.8 * sc));\n        vec2 q = vec2(uv.x / sc + mod(row, 2.0) * 0.5, fract(uv.y / (0.8 * sc)));\n        float edge = smoothstep(0.0, 0.08, fract(q.x)) * smoothstep(1.0, 0.92, fract(q.x));\n        c *= (0.8 + 0.25 * q.y) * mix(0.82, 1.0, edge) * (0.94 + hash(vec2(floor(q.x), row)) * 0.12);\n      } else if (type < 18.5) { // Cardboard corrugation\n        c *= 0.95 + 0.05 * sin(uv.x * 22.0) + (noise(uv * 8.0) - 0.5) * 0.06;\n      } else if (type < 19.5) { // ForceField: moving bands\n        float s = sin((uv.x + uv.y) * 2.5 - uTime * 2.2) * 0.5 + 0.5;\n        c = c * (0.55 + 0.45 * s) + vec3(0.12) * s;\n      } else if (type < 20.5) { // Leather: small creased cells\n        vec3 v = voro(uv * 6.0);\n        c *= 0.9 + 0.1 * smoothstep(0.0, 0.12, v.y) + (v.z - 0.5) * 0.04;\n      } else if (type < 21.5) { // Carpet: dense fibres\n        c *= 0.9 + hash(floor(uv * 28.0)) * 0.12 + (noise(uv * 6.0) - 0.5) * 0.1;\n      } else if (type < 22.5) { // Asphalt: speckled\n        c *= 0.9 + (hash(floor(uv * 16.0)) - 0.5) * 0.25 + (noise(uv * 2.0) - 0.5) * 0.08;\n      } else if (type < 23.5) { // Concrete: blotchy with pores\n        c *= 1.0 + (fbm(uv * sc) - 0.5) * amt * 2.4 - step(0.985, hash(floor(uv * 20.0))) * 0.18;\n      } else if (type < 24.5) { // Granite: mixed grains\n        float g = hash(floor(uv * 12.0));\n        c *= 0.88 + g * 0.22 - step(0.9, g) * 0.3 + (fbm(uv * 1.5) - 0.5) * 0.1;\n      } else { // Sand / snow / salt: fine grain with sparkle\n        float g = hash(floor(uv * 30.0));\n        c *= 1.0 + (g - 0.5) * amt * 2.0 + (fbm(uv * sc) - 0.5) * 0.1;\n        c += vec3(step(0.996, g) * 0.15);\n      }\n    } else\n    if (type < 1.5) { c *= 1.0 + (noise(uv * 2.2) - 0.5) * amt * 2.0; }\n    else if (type < 2.5) {\n      float g = sin((uv.x * 1.3 + fbm(uv * vec2(0.35, 2.2)) * 4.0) * 5.0);\n      c *= 1.0 + g * amt * 0.6 - amt * 0.2;\n    } else if (type < 3.5) {\n      float plank = floor(uv.y);\n      float seamY = smoothstep(0.0, 0.05, fract(uv.y)) * smoothstep(1.0, 0.95, fract(uv.y));\n      float off = hash(vec2(plank, 3.0)) * 8.0;\n      float seamX = smoothstep(0.0, 0.04, fract((uv.x + off) / 6.0) * 6.0);\n      float g = sin((uv.x * 1.6 + fbm(vec2(uv.x * 0.3, uv.y * 3.0 + plank)) * 3.0) * 6.0);\n      c *= (0.9 + hash(vec2(plank, 1.0)) * 0.18) * (1.0 + g * amt * 0.35) * mix(0.72, 1.0, seamY * seamX);\n    } else if (type < 4.5) {\n      // Brick: running bond with light grey mortar, like Roblox's brick material.\n      vec2 b = vec2(uv.x / 1.6, uv.y / 0.66);\n      float row = floor(b.y);\n      b.x += mod(row, 2.0) * 0.5;\n      vec2 f = fract(b);\n      float mortar = smoothstep(0.05, 0.09, f.y) * smoothstep(0.025, 0.05, f.x) * smoothstep(1.0, 0.985, f.x);\n      vec3 brick = c * (0.9 + (hash(floor(b)) - 0.5) * amt * 2.2 + (noise(uv * 7.0) - 0.5) * 0.08);\n      vec3 grout = mix(vec3(dot(c, vec3(0.3, 0.59, 0.11))), vec3(0.82), 0.55);\n      c = mix(grout, brick, mortar);\n    } else if (type < 5.5) { c *= 1.0 + (fbm(uv * sc) - 0.5) * amt * 2.6; }\n    else if (type < 6.5) {\n      vec2 q = vec2(uv.x + uv.y, uv.x - uv.y) * 1.4;\n      vec2 f = fract(q) - 0.5;\n      float bump = smoothstep(0.18, 0.05, abs(f.x) * 0.35 + abs(f.y));\n      c *= 0.92 + bump * 0.22 + (noise(uv * 8.0) - 0.5) * 0.05;\n    } else if (type < 7.5) { c *= 1.0 + (noise(uv * vec2(24.0, 0.6)) - 0.5) * amt * 2.0; }\n    else if (type < 8.5) {\n      float f = fbm(uv * sc);\n      c *= 1.0 + (f - 0.5) * amt * 2.4 + (noise(uv * 9.0) - 0.5) * 0.05;\n      c.r += (noise(uv * 0.25) - 0.5) * 0.04;\n    } else if (type < 9.5) { c *= 1.0 + sin(uv.x * 30.0) * sin(uv.y * 30.0) * amt; }\n    else { c *= 1.0 + (fbm(uv * sc) - 0.5) * amt * 2.0; }\n#else\n    // Lean variant: plastic grain only (other materials use the ADVANCED program).\n    c *= 1.0 + (noise(uv * 2.2) - 0.5) * amt * 2.0;\n#endif\n  }\n  c = surface(c, sf, uv, fsz);\n#ifndef BATCH\n  if (uGrid > 0.5) {\n    vec2 f = abs(fract(uv / 4.0 + 0.5) - 0.5) * 4.0;\n    float d = min(f.x, f.y);\n    c *= mix(0.84, 1.0, smoothstep(0.04, 0.09, d));\n  }\n#endif\n  vec3 col;\n  if (emis > 0.5) {\n    col = c * 1.15 + vec3(0.06);\n  } else {\n    float ndl = dot(n, uLight);\n    float diff = max(ndl, 0.0);\n    float sh = shadowAt(ndl);\n    vec3 skyTop = mix(vec3(1.0), mix(uHorizon, uZenith, 0.5), 0.22);\n    vec3 groundBounce = mix(vec3(0.58, 0.59, 0.62), uHorizon * 0.72, 0.18);\n    float hemi = clamp(n.y * 0.5 + 0.5, 0.0, 1.0);\n    float skyVis = uAmbient > 0.5 ? clamp(mix(0.25, 1.0, hemi) * mix(0.20, 1.0, sh), 0.0, 1.0) : 0.0;\n    vec3 amb = mix(uIndoorAmb, uAmbRgb, skyVis) * mix(groundBounce, skyTop, hemi);\n    float wrap = max(0.0, (-ndl) * 0.14);\n    col = c * (amb + uSun * (diff * sh + wrap * 0.35) + uShiftBot * max(-ndl, 0.0) * 0.35);\n    vec3 v = normalize(uCam - vW);\n    vec3 h = normalize(uLight + v);\n    float rough = clamp(1.0 - mat.w * 0.78, 0.14, 0.94);\n    float ndh = max(dot(n, h), 0.0);\n    float a2 = rough * rough * rough * rough;\n    float dDen = (ndh * ndh) * (a2 - 1.0) + 1.0;\n    float ggx = a2 / max(3.14159 * dDen * dDen, 0.002);\n    float schlick = 0.04 + 0.96 * pow(1.0 - max(dot(h, v), 0.0), 5.0);\n    float spec = min(ggx * schlick * (0.28 + mat.w * 0.95), 2.2) * diff * sh * uLightingFlags.w;\n    col += uSun * spec;\n    if (uPtCount > 0) for (int li = 0; li < 8; li++) {\n      if (li >= uPtCount) break;\n      vec3 L = uPtPos[li].xyz - vW;\n      float d = length(L);\n      float r = uPtPos[li].w;\n      if (d < r) {\n        vec3 ldir = L / max(d, 0.001);\n        float areaR = uPtDir[li].w > 1.5 ? (uPtDir[li].w - 2.0) : 0.0;\n        float effD = max(d - areaR * 0.45, 0.25);\n        float tt = clamp(1.0 - (d / r) * (d / r), 0.0, 1.0);\n        float att = (tt * tt) / (1.0 + 0.04 * effD * effD);\n        if (uPtDir[li].w > 0.5) {\n          float ca = dot(-ldir, uPtDir[li].xyz);\n          att *= smoothstep(uPtCol[li].w, min(uPtCol[li].w + 0.14, 0.999), ca);\n        }\n        float pndl = max(dot(n, ldir), 0.0);\n        float pspec = 0.0;\n        if (uLightingFlags.x >= 3.5 && uLightingFlags.w > 0.5 && pndl > 0.0) {\n          vec3 ph = normalize(ldir + v);\n          float pndh = max(dot(n, ph), 0.0);\n          float pdDen = (pndh * pndh) * (a2 - 1.0) + 1.0;\n          float pggx = a2 / max(3.14159 * pdDen * pdDen, 0.002);\n          float psch = 0.04 + 0.96 * pow(1.0 - max(dot(ph, v), 0.0), 5.0);\n          pspec = min(pggx * psch * (0.28 + mat.w * 0.95), 2.0) * pndl;\n        }\n        col += (c * pndl + vec3(pspec)) * uPtCol[li].rgb * att;\n      }\n    }\n    float fres = pow(1.0 - max(dot(n, v), 0.0), 4.5) * (0.04 + mat.w * 0.26) * uLightingFlags.z;\n    col = mix(col, mix(uHorizon, uZenith, 0.5), fres);\n  }\n  col += glow;\n  col *= uExposure;\n  if (uBloom.x > 0.001) { float blum = dot(col, vec3(0.2126, 0.7152, 0.0722)); float knee = smoothstep(uBloom.y * 0.75, uBloom.y + 0.65, blum); col += mix(col, vec3(blum), 0.35) * knee * uBloom.x * 0.20; }\n  if (uLightingFlags.y > 0.5) {\n    col = col / (vec3(1.0) + col * 0.28);\n    col = clamp((col - 0.5) * 1.08 + 0.5, 0.0, 1.0);\n  } else {\n    vec3 x = col * 0.82;\n    col = clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0);\n  }\n  if (uCCParams.w > 0.5) {\n    col = clamp(col + vec3(uCCParams.x), 0.0, 1.0);\n    col = clamp((col - 0.5) * (1.0 + uCCParams.y) + 0.5, 0.0, 1.0);\n    float luma = dot(col, vec3(0.2126, 0.7152, 0.0722));\n    col = clamp(mix(vec3(luma), col, 1.0 + uCCParams.z) * uCCTint, 0.0, 1.0);\n  }\n  float dist = length(uCam - vW);\n  if (uDof.z > 0.001 || uDof.w > 0.001) {\n    float coc = max(0.0, (dist - (uDof.x + uDof.y)) / max(uDof.y + 12.0, 1.0)) * uDof.z + max(0.0, ((uDof.x - uDof.y) - dist) / max(uDof.x, 1.0)) * uDof.w;\n    col = mix(col, mix(uHorizon, uFogColor, 0.5), clamp(coc * 0.42, 0.0, 0.55));\n  }\n  float fog;\n  vec3 fogCol = uFogColor;\n  vec3 viewDir = normalize(vW - uCam);\n  float sunAlign = max(dot(viewDir, uLight), 0.0);\n  if (uFog.z > 1.5) {\n    float effDist = max(dist - uAtmo.z * 90.0, 0.0);\n    fog = (1.0 - exp(-effDist * uFog.x)) * uFog.y;\n    if (uAtmo.w > 0.5 && uAtmo.x > 0.01 && uAtmo.y > 0.01) {\n      fogCol = mix(uFogColor, uAtmoDecay, clamp((1.0 - sunAlign) * 0.65, 0.0, 1.0));\n      fogCol += uSun * pow(sunAlign, 6.0) * clamp(uAtmo.y * 0.10, 0.0, 0.75);\n    } else {\n      fogCol += uSun * pow(sunAlign, 6.0) * 0.16;\n    }\n  } else if (uFog.z > 0.5) {\n    fog = clamp((dist - uFog.x) / max(uFog.y - uFog.x, 1.0), 0.0, 1.0);\n  } else {\n    fog = smoothstep(140.0, 950.0, dist) * 0.88;\n    fogCol += uSun * pow(sunAlign, 6.0) * 0.16;\n  }\n  col = mix(col, fogCol, fog);\n  gl_FragColor = vec4(col, alpha);\n}";
+    private static final String LIT_FS = "\nprecision mediump float;\n\n#ifdef BATCH\nvarying vec3 vN; varying vec3 vW; varying vec4 vS; varying vec3 vA; varying vec4 vCol; varying vec4 vMat;\n#else\nvarying vec3 vN; varying vec3 vW; varying vec3 vL; varying vec3 vLN; varying vec4 vS;\n#endif\nuniform vec4 uColor; uniform vec3 uLight; uniform vec3 uCam; uniform float uEmissive;\nuniform float uGrid; uniform vec3 uSize; uniform vec3 uHorizon; uniform vec3 uZenith; uniform vec3 uSun;\nuniform float uAmbient; uniform vec3 uFogColor; uniform vec3 uFog; uniform vec4 uMat; uniform vec3 uSurfA; uniform vec3 uSurfB;\nuniform sampler2D uShadow; uniform float uShadowOn; uniform vec2 uShadowTexel; uniform float uShadowSoft; uniform vec3 uShiftBot; uniform float uEnvSpec; uniform int uPtCount; uniform vec4 uPtPos[8]; uniform vec4 uPtCol[8]; uniform vec4 uPtDir[8]; uniform vec4 uCCParams; uniform vec3 uCCTint; uniform vec4 uBloom; uniform vec4 uDof; uniform vec3 uAmbRgb; uniform vec4 uLightingFlags; uniform vec3 uIndoorAmb; uniform vec4 uAtmo; uniform vec3 uAtmoDecay; uniform float uExposure; uniform float uTime; uniform float uTruss;\nuniform sampler2D uSurfTex; uniform float uHasSurfTex;\n#ifdef TEXTURED\nvarying vec3 vT; varying vec3 vB;\nuniform sampler2D uMatTex; uniform sampler2D uMatNrm; uniform float uTexScale; uniform float uHasNrm;\n#endif\n\nfloat hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }\nvec2 hash2(vec2 p) { return fract(sin(vec2(dot(p, vec2(127.1, 311.7)), dot(p, vec2(269.5, 183.3)))) * 43758.5453); }\nfloat noise(vec2 p) {\n  vec2 i = floor(p); vec2 f = fract(p); f = f * f * (3.0 - 2.0 * f);\n  return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x), mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y);\n}\nfloat fbm(vec2 p) { return noise(p) * 0.5 + noise(p * 2.03 + 7.1) * 0.3 + noise(p * 4.1 + 3.3) * 0.2; }\n#ifdef ADVANCED\n// Cellular noise: x = distance to the nearest cell point, y = distance to the cell edge (approx).\nvec3 voro(vec2 x) {\n  vec2 n = floor(x); vec2 f = fract(x);\n  float d1 = 8.0; float d2 = 8.0; vec2 id = n;\n  for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++) {\n    vec2 g = vec2(float(i), float(j));\n    vec2 r = g + hash2(n + g) - f;\n    float d = dot(r, r);\n    if (d < d1) { d2 = d1; d1 = d; id = n + g; } else if (d < d2) { d2 = d; }\n  }\n  return vec3(sqrt(d1), sqrt(d2) - sqrt(d1), hash(id));\n}\n#endif\n// Roblox surface types on one face (sp = stud coordinates on the face, fsz = face size).\n// Roblox's stud look: a raised disc lit from the upper left with a soft shadow to the lower right.\nfloat studShade(vec2 f, float R) {\n  vec2 L = vec2(-0.62, 0.78);\n  float r = length(f);\n  float inside = smoothstep(R + 0.012, R - 0.012, r);\n  float rim = smoothstep(R - 0.09, R, r) * inside;\n  float side = dot(f / max(r, 0.001), L);\n  float shadow = smoothstep(R + 0.1, R, length(f + L * 0.05)) * (1.0 - inside);\n  return 1.0 + inside * 0.05 + rim * side * 0.22 - shadow * 0.2;\n}\nvec3 surface(vec3 c, float s, vec2 sp, vec2 fsz) {\n  if (s < 0.5 || s > 9.5) return c;\n  if (uHasSurfTex > 0.5 && s < 5.5) {\n    // Roblox's own surface textures: one 2x8-stud tile per type, shaded around grey 128\n    // (R = studs, G = weld/glue, B = inlet). Sampled with repeat (no fract) so mipmapping\n    // never sees a seam. s is the same for a whole face, so this branch is uniform per triangle.\n    vec2 st = vec2(sp.x * 0.5, -sp.y * 0.125);\n    vec3 t = texture2D(uSurfTex, st).rgb;\n    float k;\n    if (s < 2.5) k = t.g;\n    else if (s < 3.5) k = t.r;\n    else if (s < 4.5) k = t.b;\n    else { vec2 cell = floor(fract(st) * vec2(2.0, 8.0)); k = mod(cell.x + cell.y, 2.0) < 0.5 ? t.r : t.b; }\n    return c * (k * 2.0);\n  }\n  vec2 f = fract(sp) - 0.5; float r = length(f);\n  if (s > 2.5 && s < 3.5) { // Studs\n    c *= studShade(f, 0.29);\n  } else if (s > 3.5 && s < 4.5) { // Inlet: a sunken hole, shaded the opposite way\n    vec2 L = vec2(-0.62, 0.78);\n    float inside = smoothstep(0.302, 0.278, r);\n    float rim = smoothstep(0.2, 0.29, r) * inside;\n    c *= 1.0 - inside * 0.16 - rim * dot(f / max(r, 0.001), L) * 0.2 + smoothstep(0.36, 0.3, r) * (1.0 - inside) * 0.05;\n  } else if (s > 4.5 && s < 5.5) { // Universal: a stud with a hole in it\n    c *= studShade(f, 0.29) * (1.0 - smoothstep(0.14, 0.12, r) * 0.18);\n  } else if (s > 1.5 && s < 2.5) { // Weld: diagonal hatching\n    float l = fract((sp.x + sp.y) * 1.25);\n    c *= mix(1.0, 0.84, smoothstep(0.82, 0.88, l) * smoothstep(1.0, 0.94, l));\n  } else if (s > 0.5 && s < 1.5) { // Glue: grid of small crosses\n    vec2 g = abs(fract(sp * 2.0) - 0.5);\n    float cr = max(step(g.x, 0.05) * step(g.y, 0.22), step(g.y, 0.05) * step(g.x, 0.22));\n    c *= 1.0 - 0.14 * cr;\n  } else { // Hinge / Motor / SteppingMotor: a yellow joint in the middle of the face\n    float rr = length(sp - fsz * 0.5);\n    vec3 yellow = vec3(0.96, 0.8, 0.16);\n    if (s > 6.5) {\n      if (rr < 0.75) c = mix(c, vec3(0.45, 0.45, 0.47), smoothstep(0.75, 0.7, rr));\n      if (s > 7.5 && rr < 0.75 && rr > 0.5) { float a = atan(sp.y - fsz.y * 0.5, sp.x - fsz.x * 0.5); c *= 0.75 + 0.25 * step(0.5, fract(a * 1.273)); }\n    }\n    if (rr < 0.45) c = mix(c, yellow, smoothstep(0.45, 0.4, rr));\n  }\n  return c;\n}\nfloat unpackDepth(vec4 c) { return dot(c, vec4(1.0, 1.0 / 255.0, 1.0 / 65025.0, 1.0 / 16581375.0)); }\nfloat sampleShadow(vec2 uv, float z) { return z > unpackDepth(texture2D(uShadow, uv)) ? 0.0 : 1.0; }\nfloat shadowAt(float ndl) {\n  if (uShadowOn < 0.5 || ndl <= 0.0) return 1.0;\n  vec3 p = vS.xyz / vS.w * 0.5 + 0.5;\n  if (p.x <= 0.001 || p.x >= 0.999 || p.y <= 0.001 || p.y >= 0.999 || p.z >= 1.0) return 1.0; float shEdge = smoothstep(0.78, 1.0, max(abs(p.x - 0.5) * 2.0, abs(p.y - 0.5) * 2.0));\n  float z = p.z - (0.00025 + 0.00085 * (1.0 - ndl));\n  vec2 t = uShadowTexel * mix(0.65, 2.85, clamp(uShadowSoft, 0.0, 1.0));\n  float s = sampleShadow(p.xy, z) * 2.0;\n  s += sampleShadow(p.xy + vec2(-t.x, -t.y), z);\n  s += sampleShadow(p.xy + vec2(0.0, -t.y), z);\n  s += sampleShadow(p.xy + vec2(t.x, -t.y), z);\n  s += sampleShadow(p.xy + vec2(-t.x, 0.0), z);\n  s += sampleShadow(p.xy + vec2(t.x, 0.0), z);\n  s += sampleShadow(p.xy + vec2(-t.x, t.y), z);\n  s += sampleShadow(p.xy + vec2(0.0, t.y), z);\n  s += sampleShadow(p.xy + vec2(t.x, t.y), z);\n  s /= 10.0;\n  return mix(s, 1.0, shEdge);\n}\nvoid main() {\n  vec3 n = normalize(vN);\n  if (!gl_FrontFacing) n = -n;\n#ifdef BATCH\n  vec3 c = vCol.rgb; vec4 mat = vMat; float emis = vCol.a; float alpha = 1.0;\n  vec2 uv = vA.xy; vec2 fsz = vec2(1.0); float sf = vA.z;\n#else\n  vec3 c = uColor.rgb; vec4 mat = uMat; float emis = uEmissive; float alpha = uColor.a;\n  vec3 a = abs(vLN);\n  vec3 p = vL * uSize + uSize * 0.5;\n  bool yFace = a.y > a.x && a.y > a.z; bool xFace = !yFace && a.x > a.z;\n  vec2 uv = yFace ? p.xz : (xFace ? p.zy : p.xy);\n  vec2 fsz = yFace ? uSize.xz : (xFace ? uSize.zy : uSize.xy);\n  // Surface types (studs, inlets, welds, hinges...) on whichever face this is.\n  float sf = yFace ? (vLN.y > 0.0 ? uSurfA.y : uSurfB.y) : (xFace ? (vLN.x > 0.0 ? uSurfA.x : uSurfB.x) : (vLN.z > 0.0 ? uSurfA.z : uSurfB.z));\n  if (uTruss > 0.5) {\n    // Lattice: frame and diagonals per 2-stud cell; everything else is see-through.\n    vec2 cell = fract(uv / 2.0);\n    float e = min(min(cell.x, cell.y), min(1.0 - cell.x, 1.0 - cell.y));\n    float dg = min(abs(cell.x - cell.y), abs(cell.x + cell.y - 1.0));\n    if (e > 0.11 && dg > 0.07) discard;\n  }\n#endif\n  vec3 glow = vec3(0.0);\n  float type = mat.x;\n#ifdef TEXTURED\n  // Roblox material textures: the color map tints the part color; the normal map bends the light.\n  vec2 tuv = vec2(uv.x, -uv.y) * uTexScale;\n  c *= texture2D(uMatTex, tuv).rgb * 1.08;\n  if (uHasNrm > 0.5) {\n    vec3 tn = texture2D(uMatNrm, tuv).xyz * 2.0 - 1.0;\n    n = normalize(normalize(vT) * tn.x + normalize(vB) * tn.y + n * max(tn.z, 0.25));\n  }\n  type = 0.0;\n#endif\n  if (type > 0.5) {\n    float amt = mat.y; float sc = mat.z;\n#ifdef ADVANCED\n    if (type > 10.5) {\n      if (type < 11.5) { // Marble veins\n        float v = abs(sin((uv.x * 0.6 + uv.y * 0.25 + fbm(uv * 0.35) * 5.0) * 1.7));\n        c *= mix(0.8, 1.05, pow(v, 0.35)) + (noise(uv * 3.0) - 0.5) * 0.04;\n      } else if (type < 12.5) { // Slate / sandstone: layered plates\n        float layer = floor(uv.y * sc * 2.0 + fbm(uv * 0.3) * 2.5);\n        c *= 0.9 + hash(vec2(layer, 3.0)) * 0.16 + (noise(uv * 5.0) - 0.5) * amt;\n      } else if (type < 13.5) { // Cobblestone / pebble / basalt: cells with dark gaps\n        vec3 v = voro(uv * sc);\n        c *= mix(0.62, 0.92 + v.z * 0.16, smoothstep(0.03, 0.12, v.y)) * (1.0 - v.x * 0.12);\n      } else if (type < 14.5) { // Cracked lava: dark rock with glowing cracks\n        vec3 v = voro(uv * sc);\n        c *= 0.55 + fbm(uv * 1.5) * 0.25;\n        glow = vec3(1.0, 0.36, 0.05) * smoothstep(0.08, 0.0, v.y) * (0.7 + 0.3 * sin(uTime * 1.5 + v.z * 6.0));\n      } else if (type < 15.5) { // Corroded metal: rust patches\n        float rust = smoothstep(0.42, 0.66, fbm(uv * sc));\n        c = mix(c * (0.95 + (noise(uv * vec2(18.0, 0.8)) - 0.5) * 0.08), c * vec3(0.7, 0.42, 0.24) + vec3(0.14, 0.05, 0.0), rust * 0.8);\n      } else if (type < 16.5) { // Tiles (ceramic / pavement)\n        vec2 tf = fract(uv / sc); float grout = step(0.035, tf.x) * step(0.035, tf.y);\n        c *= mix(0.72, 1.0 + (hash(floor(uv / sc)) - 0.5) * amt * 2.0 + (noise(uv * 3.0) - 0.5) * 0.04, grout);\n      } else if (type < 17.5) { // Roof tiles / shingles: overlapping rows\n        float row = floor(uv.y / (0.8 * sc));\n        vec2 q = vec2(uv.x / sc + mod(row, 2.0) * 0.5, fract(uv.y / (0.8 * sc)));\n        float edge = smoothstep(0.0, 0.08, fract(q.x)) * smoothstep(1.0, 0.92, fract(q.x));\n        c *= (0.8 + 0.25 * q.y) * mix(0.82, 1.0, edge) * (0.94 + hash(vec2(floor(q.x), row)) * 0.12);\n      } else if (type < 18.5) { // Cardboard corrugation\n        c *= 0.95 + 0.05 * sin(uv.x * 22.0) + (noise(uv * 8.0) - 0.5) * 0.06;\n      } else if (type < 19.5) { // ForceField: moving bands\n        float s = sin((uv.x + uv.y) * 2.5 - uTime * 2.2) * 0.5 + 0.5;\n        c = c * (0.55 + 0.45 * s) + vec3(0.12) * s;\n      } else if (type < 20.5) { // Leather: small creased cells\n        vec3 v = voro(uv * 6.0);\n        c *= 0.9 + 0.1 * smoothstep(0.0, 0.12, v.y) + (v.z - 0.5) * 0.04;\n      } else if (type < 21.5) { // Carpet: dense fibres\n        c *= 0.9 + hash(floor(uv * 28.0)) * 0.12 + (noise(uv * 6.0) - 0.5) * 0.1;\n      } else if (type < 22.5) { // Asphalt: speckled\n        c *= 0.9 + (hash(floor(uv * 16.0)) - 0.5) * 0.25 + (noise(uv * 2.0) - 0.5) * 0.08;\n      } else if (type < 23.5) { // Concrete: blotchy with pores\n        c *= 1.0 + (fbm(uv * sc) - 0.5) * amt * 2.4 - step(0.985, hash(floor(uv * 20.0))) * 0.18;\n      } else if (type < 24.5) { // Granite: mixed grains\n        float g = hash(floor(uv * 12.0));\n        c *= 0.88 + g * 0.22 - step(0.9, g) * 0.3 + (fbm(uv * 1.5) - 0.5) * 0.1;\n      } else { // Sand / snow / salt: fine grain with sparkle\n        float g = hash(floor(uv * 30.0));\n        c *= 1.0 + (g - 0.5) * amt * 2.0 + (fbm(uv * sc) - 0.5) * 0.1;\n        c += vec3(step(0.996, g) * 0.15);\n      }\n    } else\n    if (type < 1.5) { c *= 1.0 + (noise(uv * 2.2) - 0.5) * amt * 2.0; }\n    else if (type < 2.5) {\n      float g = sin((uv.x * 1.3 + fbm(uv * vec2(0.35, 2.2)) * 4.0) * 5.0);\n      c *= 1.0 + g * amt * 0.6 - amt * 0.2;\n    } else if (type < 3.5) {\n      float plank = floor(uv.y);\n      float seamY = smoothstep(0.0, 0.05, fract(uv.y)) * smoothstep(1.0, 0.95, fract(uv.y));\n      float off = hash(vec2(plank, 3.0)) * 8.0;\n      float seamX = smoothstep(0.0, 0.04, fract((uv.x + off) / 6.0) * 6.0);\n      float g = sin((uv.x * 1.6 + fbm(vec2(uv.x * 0.3, uv.y * 3.0 + plank)) * 3.0) * 6.0);\n      c *= (0.9 + hash(vec2(plank, 1.0)) * 0.18) * (1.0 + g * amt * 0.35) * mix(0.72, 1.0, seamY * seamX);\n    } else if (type < 4.5) {\n      // Brick: running bond with light grey mortar, like Roblox's brick material.\n      vec2 b = vec2(uv.x / 1.6, uv.y / 0.66);\n      float row = floor(b.y);\n      b.x += mod(row, 2.0) * 0.5;\n      vec2 f = fract(b);\n      float mortar = smoothstep(0.05, 0.09, f.y) * smoothstep(0.025, 0.05, f.x) * smoothstep(1.0, 0.985, f.x);\n      vec3 brick = c * (0.9 + (hash(floor(b)) - 0.5) * amt * 2.2 + (noise(uv * 7.0) - 0.5) * 0.08);\n      vec3 grout = mix(vec3(dot(c, vec3(0.3, 0.59, 0.11))), vec3(0.82), 0.55);\n      c = mix(grout, brick, mortar);\n    } else if (type < 5.5) { c *= 1.0 + (fbm(uv * sc) - 0.5) * amt * 2.6; }\n    else if (type < 6.5) {\n      vec2 q = vec2(uv.x + uv.y, uv.x - uv.y) * 1.4;\n      vec2 f = fract(q) - 0.5;\n      float bump = smoothstep(0.18, 0.05, abs(f.x) * 0.35 + abs(f.y));\n      c *= 0.92 + bump * 0.22 + (noise(uv * 8.0) - 0.5) * 0.05;\n    } else if (type < 7.5) { c *= 1.0 + (noise(uv * vec2(24.0, 0.6)) - 0.5) * amt * 2.0; }\n    else if (type < 8.5) {\n      float f = fbm(uv * sc);\n      c *= 1.0 + (f - 0.5) * amt * 2.4 + (noise(uv * 9.0) - 0.5) * 0.05;\n      c.r += (noise(uv * 0.25) - 0.5) * 0.04;\n    } else if (type < 9.5) { c *= 1.0 + sin(uv.x * 30.0) * sin(uv.y * 30.0) * amt; }\n    else { c *= 1.0 + (fbm(uv * sc) - 0.5) * amt * 2.0; }\n#else\n    // Lean variant: plastic grain only (other materials use the ADVANCED program).\n    c *= 1.0 + (noise(uv * 2.2) - 0.5) * amt * 2.0;\n#endif\n  }\n  c = surface(c, sf, uv, fsz);\n#ifndef BATCH\n  if (uGrid > 0.5) {\n    vec2 f = abs(fract(uv / 4.0 + 0.5) - 0.5) * 4.0;\n    float d = min(f.x, f.y);\n    c *= mix(0.84, 1.0, smoothstep(0.04, 0.09, d));\n  }\n#endif\n  vec3 col;\n  if (emis > 0.5) {\n    col = uBloom.w > 0.001 ? (c * 2.55 + vec3(0.15)) : (c * 1.45 + vec3(0.08));\n  } else {\n    float ndl = dot(n, uLight);\n    float diff = max(ndl, 0.0);\n    float sh = shadowAt(ndl);\n    vec3 skyTop = mix(vec3(1.0), mix(uHorizon, uZenith, 0.5), 0.22);\n    vec3 groundBounce = mix(vec3(0.58, 0.59, 0.62), uHorizon * 0.72, 0.18);\n    float hemi = clamp(n.y * 0.5 + 0.5, 0.0, 1.0);\n    float skyVis = uAmbient > 0.5 ? clamp(mix(0.25, 1.0, hemi) * mix(0.20, 1.0, sh), 0.0, 1.0) : 0.0;\n    vec3 amb = mix(uIndoorAmb, uAmbRgb, skyVis) * mix(groundBounce, skyTop, hemi);\n    float wrap = max(0.0, (-ndl) * 0.14);\n    col = c * (amb + uSun * (diff * sh + wrap * 0.35) + uShiftBot * max(-ndl, 0.0) * 0.35);\n    vec3 v = normalize(uCam - vW);\n    vec3 h = normalize(uLight + v);\n    float rough = clamp(1.0 - mat.w * 0.78, 0.14, 0.94);\n    float ndh = max(dot(n, h), 0.0);\n    float a2 = rough * rough * rough * rough;\n    float dDen = (ndh * ndh) * (a2 - 1.0) + 1.0;\n    float ggx = a2 / max(3.14159 * dDen * dDen, 0.002);\n    float schlick = 0.04 + 0.96 * pow(1.0 - max(dot(h, v), 0.0), 5.0);\n    float metalness = smoothstep(0.68, 0.92, mat.w);\n    vec3 specTint = mix(uSun, c * uSun * 1.25, metalness);\n    float spec = min(ggx * schlick * (0.30 + mat.w * 1.05), 2.5) * diff * sh * uLightingFlags.w;\n    col += specTint * spec;\n    if (uPtCount > 0) for (int li = 0; li < 8; li++) {\n      if (li >= uPtCount) break;\n      vec3 L = uPtPos[li].xyz - vW;\n      float d = length(L);\n      float r = uPtPos[li].w;\n      if (d < r) {\n        vec3 ldir = L / max(d, 0.001);\n        float areaR = uPtDir[li].w > 1.5 ? (uPtDir[li].w - 2.0) : 0.0;\n        float effD = max(d - areaR * 0.45, 0.25);\n        float tt = clamp(1.0 - (d / r) * (d / r), 0.0, 1.0);\n        float att = (tt * tt) / (1.0 + 0.04 * effD * effD);\n        if (uPtDir[li].w > 0.5) {\n          float ca = dot(-ldir, uPtDir[li].xyz);\n          att *= smoothstep(uPtCol[li].w, min(uPtCol[li].w + 0.14, 0.999), ca);\n        }\n        float pndl = max(dot(n, ldir), 0.0);\n        float pspec = 0.0;\n        if (uLightingFlags.x >= 3.5 && uLightingFlags.w > 0.5 && pndl > 0.0) {\n          vec3 ph = normalize(ldir + v);\n          float pndh = max(dot(n, ph), 0.0);\n          float pdDen = (pndh * pndh) * (a2 - 1.0) + 1.0;\n          float pggx = a2 / max(3.14159 * pdDen * pdDen, 0.002);\n          float psch = 0.04 + 0.96 * pow(1.0 - max(dot(ph, v), 0.0), 5.0);\n          pspec = min(pggx * psch * (0.28 + mat.w * 0.95), 2.0) * pndl;\n        }\n        col += (c * pndl + vec3(pspec)) * uPtCol[li].rgb * att;\n      }\n    }\n    float fres = pow(1.0 - max(dot(n, v), 0.0), 4.2) * (0.04 + mat.w * 0.30) * uLightingFlags.z;\n    vec3 envRefl = mix(uHorizon, uZenith, 0.52) * mix(vec3(1.0), c * 1.15, metalness);\n    col = mix(col, envRefl, clamp(fres, 0.0, 0.72));\n  }\n  col += glow * (uBloom.w > 0.001 ? 2.2 : 1.0);\n  col *= uExposure;\n  float dist = length(uCam - vW);\n  float fog;\n  vec3 fogCol = uFogColor;\n  vec3 viewDir = normalize(vW - uCam);\n  float sunAlign = max(dot(viewDir, uLight), 0.0);\n  if (uFog.z > 1.5) {\n    float effDist = max(dist - uAtmo.z * 90.0, 0.0);\n    fog = (1.0 - exp(-effDist * uFog.x)) * uFog.y;\n    if (uAtmo.w > 0.5 && (uAtmo.x > 0.01 || uAtmo.y > 0.01)) {\n      fogCol = mix(uFogColor, uAtmoDecay, clamp((1.0 - sunAlign) * 0.65, 0.0, 1.0));\n      fogCol += uSun * pow(sunAlign, 6.0) * clamp(uAtmo.y * 0.10, 0.0, 0.75);\n    } else {\n      fogCol += uSun * pow(sunAlign, 6.0) * 0.16;\n    }\n  } else if (uFog.z > 0.5) {\n    fog = clamp((dist - uFog.x) / max(uFog.y - uFog.x, 1.0), 0.0, 1.0);\n  } else {\n    fog = smoothstep(140.0, 950.0, dist) * 0.88;\n    fogCol += uSun * pow(sunAlign, 6.0) * 0.16;\n  }\n  col = mix(col, fogCol, fog);\n  if (uDof.z > 0.001 || uDof.w > 0.001) {\n    float coc = max(0.0, (dist - (uDof.x + uDof.y)) / max(uDof.y + 12.0, 1.0)) * uDof.z + max(0.0, ((uDof.x - uDof.y) - dist) / max(uDof.x, 1.0)) * uDof.w;\n    col = mix(col, mix(uHorizon, uFogColor, 0.5), clamp(coc * 0.42, 0.0, 0.55));\n  }\n  if (uBloom.w > 0.001) {\n    gl_FragColor = vec4(clamp(col * uBloom.w, 0.0, 1.0), alpha);\n    return;\n  }\n  if (uLightingFlags.y > 0.5) {\n    col = col / (vec3(1.0) + col * 0.28);\n    col = clamp((col - 0.5) * 1.08 + 0.5, 0.0, 1.0);\n  } else {\n    vec3 x = col * 0.92;\n    col = clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0);\n  }\n  if (uCCParams.w > 0.5) {\n    col = clamp(col + vec3(uCCParams.x), 0.0, 1.0);\n    col = clamp((col - 0.5) * (1.0 + uCCParams.y) + 0.5, 0.0, 1.0);\n    float luma = dot(col, vec3(0.2126, 0.7152, 0.0722));\n    col = clamp(mix(vec3(luma), col, 1.0 + uCCParams.z) * uCCTint, 0.0, 1.0);\n  }\n  gl_FragColor = vec4(col, alpha);\n}";
     private static final String LIT_VS = "\nuniform mat4 uVP; uniform mat4 uModel; uniform mat3 uNrm; uniform mat4 uShadowVP;\n#ifdef BATCH\n// Static batches: vertices are already in world space and carry the part's look.\nattribute vec3 aPos; attribute vec4 aNrm; attribute vec2 aUv; attribute vec4 aCol; attribute vec4 aMat;\nvarying vec3 vN; varying vec3 vW; varying vec4 vS; varying vec3 vA; varying vec4 vCol; varying vec4 vMat;\n#ifdef TEXTURED\nattribute vec3 aTan; attribute vec3 aBit;\nvarying vec3 vT; varying vec3 vB;\n#endif\nvoid main() {\n  vW = aPos; vN = aNrm.xyz;\n  vS = uShadowVP * vec4(aPos, 1.0);\n  vA = vec3(aUv, floor(aNrm.w * 127.0 + 0.5));\n  vCol = aCol;\n  vMat = vec4(aMat.x, aMat.y / 1000.0, aMat.z / 50.0, aMat.w / 120.0);\n#ifdef TEXTURED\n  vT = aTan; vB = aBit;\n#endif\n  gl_Position = uVP * vec4(aPos, 1.0);\n}\n#else\nattribute vec3 aPos; attribute vec3 aNrm;\nvarying vec3 vN; varying vec3 vW; varying vec3 vL; varying vec3 vLN; varying vec4 vS;\n#ifdef TEXTURED\nvarying vec3 vT; varying vec3 vB;\n#endif\nvoid main() {\n  vec4 w = uModel * vec4(aPos, 1.0);\n  vW = w.xyz; vN = uNrm * aNrm; vL = aPos; vLN = aNrm;\n  vS = uShadowVP * w;\n#ifdef TEXTURED\n  // World directions of the face's texture axes (same box projection the fragment shader uses).\n  vec3 an = abs(aNrm);\n  bool yF = an.y > an.x && an.y > an.z; bool xF = !yF && an.x > an.z;\n  vT = (uModel * vec4(yF ? vec3(1.0, 0.0, 0.0) : (xF ? vec3(0.0, 0.0, 1.0) : vec3(1.0, 0.0, 0.0)), 0.0)).xyz;\n  vB = (uModel * vec4(yF ? vec3(0.0, 0.0, 1.0) : vec3(0.0, 1.0, 0.0), 0.0)).xyz;\n#endif\n  gl_Position = uVP * w;\n}\n#endif";
-    private static final String MESH_FS = "\nprecision mediump float;\nvarying vec3 vN; varying vec3 vW; varying vec2 vUv; varying vec4 vS;\nuniform vec4 uColor; uniform vec3 uTint; uniform vec3 uLight; uniform vec3 uSun; uniform float uAmbient; uniform vec3 uCam;\nuniform sampler2D uTex; uniform float uHasTex; uniform sampler2D uShadow; uniform float uShadowOn; uniform vec2 uShadowTexel; uniform float uShadowSoft; uniform vec3 uShiftBot; uniform float uEnvSpec; uniform int uPtCount; uniform vec4 uPtPos[8]; uniform vec4 uPtCol[8]; uniform vec4 uPtDir[8]; uniform vec4 uCCParams; uniform vec3 uCCTint; uniform vec4 uBloom; uniform vec4 uDof; uniform vec3 uAmbRgb; uniform vec4 uLightingFlags; uniform vec3 uIndoorAmb; uniform vec4 uAtmo; uniform vec3 uAtmoDecay; uniform sampler2D uPbrNrm; uniform sampler2D uPbrRough; uniform sampler2D uPbrMetal; uniform vec4 uPbrFlags; uniform vec4 uPbrEmis;\nuniform vec3 uFogColor; uniform vec3 uFog; uniform float uExposure; uniform float uEmissive; uniform vec3 uHorizon; uniform vec3 uZenith;\nfloat unpackDepth(vec4 c) { return dot(c, vec4(1.0, 1.0 / 255.0, 1.0 / 65025.0, 1.0 / 16581375.0)); }\nfloat sampleShadow(vec2 uv, float z) { return z > unpackDepth(texture2D(uShadow, uv)) ? 0.0 : 1.0; }\nfloat shadowAt(float ndl) {\n  if (uShadowOn < 0.5 || ndl <= 0.0) return 1.0;\n  vec3 p = vS.xyz / vS.w * 0.5 + 0.5;\n  if (p.x <= 0.001 || p.x >= 0.999 || p.y <= 0.001 || p.y >= 0.999 || p.z >= 1.0) return 1.0; float shEdge = smoothstep(0.78, 1.0, max(abs(p.x - 0.5) * 2.0, abs(p.y - 0.5) * 2.0));\n  float z = p.z - (0.00030 + 0.00095 * (1.0 - ndl));\n  vec2 t = uShadowTexel * mix(0.65, 2.85, clamp(uShadowSoft, 0.0, 1.0));\n  float s = sampleShadow(p.xy, z) * 2.0;\n  s += sampleShadow(p.xy + vec2(-t.x, -t.y), z);\n  s += sampleShadow(p.xy + vec2(t.x, -t.y), z);\n  s += sampleShadow(p.xy + vec2(-t.x, t.y), z);\n  s += sampleShadow(p.xy + vec2(t.x, t.y), z);\n  return mix(s / 6.0, 1.0, shEdge);\n}\n#ifdef BATCH\nvarying vec4 vCol;\n#endif\nvoid main() {\n  vec3 n = normalize(vN);\n  if (!gl_FrontFacing) n = -n;\n#ifdef BATCH\n  vec3 c = vCol.rgb; float a = 1.0; float emis = vCol.a; vec3 tint = vec3(1.0);\n#else\n  vec3 c = uColor.rgb; float a = uColor.a; float emis = uEmissive; vec3 tint = uTint;\n#endif\n  if (uHasTex > 0.5) {\n    vec4 t = texture2D(uTex, vUv);\n    float am = uPbrFlags.w;\n    if (am > 1.5) { c = mix(t.rgb, t.rgb * c, t.a); }\n    else if (am > 0.5) { if (t.a < 0.04) discard; c = t.rgb; a *= t.a; }\n    else if (uPbrFlags.x + uPbrFlags.y + uPbrFlags.z > 0.5) { c = mix(c, t.rgb, t.a); }\n    else { if (t.a < 0.12) discard; c = t.rgb / max(t.a, 0.001); }\n  }\n  c *= tint;\n  float pbrRough = uPbrFlags.y > 0.5 ? clamp(texture2D(uPbrRough, vUv).r, 0.06, 0.98) : 0.65;\n  float pbrMetal = uPbrFlags.z > 0.5 ? clamp(texture2D(uPbrMetal, vUv).r, 0.0, 1.0) : 0.0;\n  if (uPbrFlags.x > 0.5) {\n    vec3 tn = texture2D(uPbrNrm, vUv).xyz * 2.0 - 1.0;\n    vec3 upRef = abs(n.y) < 0.99 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);\n    vec3 tang = normalize(cross(upRef, n));\n    vec3 bitang = cross(n, tang);\n    n = normalize(tang * tn.x + bitang * tn.y + n * max(tn.z, 0.25));\n  }\n  vec3 col;\n  if (emis > 0.5) col = c * 1.15;\n  else {\n    float ndl = dot(n, uLight);\n    float sh = shadowAt(ndl);\n    vec3 skyTop = mix(vec3(1.0), mix(uHorizon, uZenith, 0.5), 0.22);\n    vec3 groundBounce = mix(vec3(0.58, 0.59, 0.62), uHorizon * 0.72, 0.18);\n    float hemi = clamp(n.y * 0.5 + 0.5, 0.0, 1.0);\n    float skyVis = uAmbient > 0.5 ? clamp(mix(0.25, 1.0, hemi) * mix(0.20, 1.0, sh), 0.0, 1.0) : 0.0;\n    vec3 amb = mix(uIndoorAmb, uAmbRgb, skyVis) * mix(groundBounce, skyTop, hemi);\n    float wrap = max(0.0, (-ndl) * 0.14);\n    float diffScale = 1.0 - pbrMetal * 0.72;\n    col = c * diffScale * (amb + uSun * (max(ndl, 0.0) * sh + wrap * 0.35) + uShiftBot * max(-ndl, 0.0) * 0.35);\n    vec3 v = normalize(uCam - vW);\n    vec3 h = normalize(uLight + v);\n    float specPow = mix(128.0, 10.0, pbrRough * pbrRough);\n    vec3 specCol = mix(uSun, c * uSun, pbrMetal);\n    float specInt = mix(0.12, 0.82, (1.0 - pbrRough) * 0.65 + pbrMetal * 0.35);\n    col += specCol * pow(max(dot(n, h), 0.0), specPow) * specInt * sh * uLightingFlags.w;\n    if (uPbrFlags.y + uPbrFlags.z > 0.5) {\n      float fres = pow(1.0 - max(dot(n, v), 0.0), 4.0) * (0.04 + (1.0 - pbrRough) * 0.24 + pbrMetal * 0.38) * uLightingFlags.z;\n      col = mix(col, mix(uHorizon, uZenith, 0.5) * mix(vec3(1.0), c, pbrMetal), clamp(fres, 0.0, 0.75));\n    }\n    col += uPbrEmis.rgb * uPbrEmis.w;\n    if (uPtCount > 0) for (int li = 0; li < 8; li++) {\n      if (li >= uPtCount) break;\n      vec3 L = uPtPos[li].xyz - vW;\n      float d = length(L);\n      float r = uPtPos[li].w;\n      if (d < r) {\n        vec3 ldir = L / max(d, 0.001);\n        float areaR = uPtDir[li].w > 1.5 ? (uPtDir[li].w - 2.0) : 0.0;\n        float effD = max(d - areaR * 0.45, 0.25);\n        float tt = clamp(1.0 - (d / r) * (d / r), 0.0, 1.0);\n        float att = (tt * tt) / (1.0 + 0.04 * effD * effD);\n        if (uPtDir[li].w > 0.5) {\n          float ca = dot(-ldir, uPtDir[li].xyz);\n          att *= smoothstep(uPtCol[li].w, min(uPtCol[li].w + 0.14, 0.999), ca);\n        }\n        float pndl = max(dot(n, ldir), 0.0);\n        vec3 pspec = vec3(0.0);\n        if (uLightingFlags.x >= 3.5 && uLightingFlags.w > 0.5 && pndl > 0.0) {\n          vec3 ph = normalize(ldir + v);\n          float pndh = max(dot(n, ph), 0.0);\n          float ma2 = pbrRough * pbrRough * pbrRough * pbrRough;\n          float pdDen = (pndh * pndh) * (ma2 - 1.0) + 1.0;\n          float pggx = ma2 / max(3.14159 * pdDen * pdDen, 0.002);\n          vec3 f0 = mix(vec3(0.04), c, pbrMetal);\n          vec3 psch = f0 + (1.0 - f0) * pow(1.0 - max(dot(ph, v), 0.0), 5.0);\n          pspec = min(pggx * psch * (0.32 + (1.0 - pbrRough) * 0.85), vec3(2.0)) * pndl;\n        }\n        col += (c * diffScale * pndl + pspec) * uPtCol[li].rgb * att;\n      }\n    }\n  }\n  col *= uExposure;\n  if (uBloom.x > 0.001) { float blum = dot(col, vec3(0.2126, 0.7152, 0.0722)); float knee = smoothstep(uBloom.y * 0.75, uBloom.y + 0.65, blum); col += mix(col, vec3(blum), 0.35) * knee * uBloom.x * 0.20; }\n  if (uLightingFlags.y > 0.5) {\n    col = col / (vec3(1.0) + col * 0.28);\n    col = clamp((col - 0.5) * 1.08 + 0.5, 0.0, 1.0);\n  } else {\n    vec3 x = col * 0.82;\n    col = clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0);\n  }\n  if (uCCParams.w > 0.5) {\n    col = clamp(col + vec3(uCCParams.x), 0.0, 1.0);\n    col = clamp((col - 0.5) * (1.0 + uCCParams.y) + 0.5, 0.0, 1.0);\n    float luma = dot(col, vec3(0.2126, 0.7152, 0.0722));\n    col = clamp(mix(vec3(luma), col, 1.0 + uCCParams.z) * uCCTint, 0.0, 1.0);\n  }\n  float dist = length(uCam - vW);\n  if (uDof.z > 0.001 || uDof.w > 0.001) {\n    float coc = max(0.0, (dist - (uDof.x + uDof.y)) / max(uDof.y + 12.0, 1.0)) * uDof.z + max(0.0, ((uDof.x - uDof.y) - dist) / max(uDof.x, 1.0)) * uDof.w;\n    col = mix(col, mix(uHorizon, uFogColor, 0.5), clamp(coc * 0.42, 0.0, 0.55));\n  }\n  float fog;\n  vec3 fogCol = uFogColor;\n  vec3 viewDir = normalize(vW - uCam);\n  float sunAlign = max(dot(viewDir, uLight), 0.0);\n  if (uFog.z > 1.5) {\n    float effDist = max(dist - uAtmo.z * 90.0, 0.0);\n    fog = (1.0 - exp(-effDist * uFog.x)) * uFog.y;\n    if (uAtmo.w > 0.5 && uAtmo.x > 0.01 && uAtmo.y > 0.01) {\n      fogCol = mix(uFogColor, uAtmoDecay, clamp((1.0 - sunAlign) * 0.65, 0.0, 1.0));\n      fogCol += uSun * pow(sunAlign, 6.0) * clamp(uAtmo.y * 0.10, 0.0, 0.75);\n    } else {\n      fogCol += uSun * pow(sunAlign, 6.0) * 0.16;\n    }\n  } else if (uFog.z > 0.5) {\n    fog = clamp((dist - uFog.x) / max(uFog.y - uFog.x, 1.0), 0.0, 1.0);\n  } else {\n    fog = smoothstep(140.0, 950.0, dist) * 0.88;\n    fogCol += uSun * pow(sunAlign, 6.0) * 0.16;\n  }\n  gl_FragColor = vec4(mix(col, fogCol, fog), a);\n}";
+    private static final String MESH_FS = "\nprecision mediump float;\nvarying vec3 vN; varying vec3 vW; varying vec2 vUv; varying vec4 vS;\nuniform vec4 uColor; uniform vec3 uTint; uniform vec3 uLight; uniform vec3 uSun; uniform float uAmbient; uniform vec3 uCam;\nuniform sampler2D uTex; uniform float uHasTex; uniform sampler2D uShadow; uniform float uShadowOn; uniform vec2 uShadowTexel; uniform float uShadowSoft; uniform vec3 uShiftBot; uniform float uEnvSpec; uniform int uPtCount; uniform vec4 uPtPos[8]; uniform vec4 uPtCol[8]; uniform vec4 uPtDir[8]; uniform vec4 uCCParams; uniform vec3 uCCTint; uniform vec4 uBloom; uniform vec4 uDof; uniform vec3 uAmbRgb; uniform vec4 uLightingFlags; uniform vec3 uIndoorAmb; uniform vec4 uAtmo; uniform vec3 uAtmoDecay; uniform sampler2D uPbrNrm; uniform sampler2D uPbrRough; uniform sampler2D uPbrMetal; uniform vec4 uPbrFlags; uniform vec4 uPbrEmis;\nuniform vec3 uFogColor; uniform vec3 uFog; uniform float uExposure; uniform float uEmissive; uniform vec3 uHorizon; uniform vec3 uZenith;\nfloat unpackDepth(vec4 c) { return dot(c, vec4(1.0, 1.0 / 255.0, 1.0 / 65025.0, 1.0 / 16581375.0)); }\nfloat sampleShadow(vec2 uv, float z) { return z > unpackDepth(texture2D(uShadow, uv)) ? 0.0 : 1.0; }\nfloat shadowAt(float ndl) {\n  if (uShadowOn < 0.5 || ndl <= 0.0) return 1.0;\n  vec3 p = vS.xyz / vS.w * 0.5 + 0.5;\n  if (p.x <= 0.001 || p.x >= 0.999 || p.y <= 0.001 || p.y >= 0.999 || p.z >= 1.0) return 1.0; float shEdge = smoothstep(0.78, 1.0, max(abs(p.x - 0.5) * 2.0, abs(p.y - 0.5) * 2.0));\n  float z = p.z - (0.00030 + 0.00095 * (1.0 - ndl));\n  vec2 t = uShadowTexel * mix(0.65, 2.85, clamp(uShadowSoft, 0.0, 1.0));\n  float s = sampleShadow(p.xy, z) * 2.0;\n  s += sampleShadow(p.xy + vec2(-t.x, -t.y), z);\n  s += sampleShadow(p.xy + vec2(0.0, -t.y), z);\n  s += sampleShadow(p.xy + vec2(t.x, -t.y), z);\n  s += sampleShadow(p.xy + vec2(-t.x, 0.0), z);\n  s += sampleShadow(p.xy + vec2(t.x, 0.0), z);\n  s += sampleShadow(p.xy + vec2(-t.x, t.y), z);\n  s += sampleShadow(p.xy + vec2(0.0, t.y), z);\n  s += sampleShadow(p.xy + vec2(t.x, t.y), z);\n  return mix(s / 10.0, 1.0, shEdge);\n}\n#ifdef BATCH\nvarying vec4 vCol;\n#endif\nvoid main() {\n  vec3 n = normalize(vN);\n  if (!gl_FrontFacing) n = -n;\n#ifdef BATCH\n  vec3 c = vCol.rgb; float a = 1.0; float emis = vCol.a; vec3 tint = vec3(1.0);\n#else\n  vec3 c = uColor.rgb; float a = uColor.a; float emis = uEmissive; vec3 tint = uTint;\n#endif\n  if (uHasTex > 0.5) {\n    vec4 t = texture2D(uTex, vUv);\n    float am = uPbrFlags.w;\n    if (am > 1.5) { c = mix(t.rgb, t.rgb * c, t.a); }\n    else if (am > 0.5) { if (t.a < 0.04) discard; c = t.rgb; a *= t.a; }\n    else { c = mix(c, t.rgb, t.a); }\n  }\n  c *= tint;\n  float pbrRough = uPbrFlags.y > 0.5 ? clamp(texture2D(uPbrRough, vUv).r, 0.06, 0.98) : 0.65;\n  float pbrMetal = uPbrFlags.z > 0.5 ? clamp(texture2D(uPbrMetal, vUv).r, 0.0, 1.0) : 0.0;\n  if (uPbrFlags.x > 0.5) {\n    vec3 tn = texture2D(uPbrNrm, vUv).xyz * 2.0 - 1.0;\n    vec3 upRef = abs(n.y) < 0.99 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);\n    vec3 tang = normalize(cross(upRef, n));\n    vec3 bitang = cross(n, tang);\n    n = normalize(tang * tn.x + bitang * tn.y + n * max(tn.z, 0.25));\n  }\n  vec3 col;\n  if (emis > 0.5) col = uBloom.w > 0.001 ? (c * 2.55 + vec3(0.12)) : (c * 1.40 + vec3(0.06));\n  else {\n    float ndl = dot(n, uLight);\n    float sh = shadowAt(ndl);\n    vec3 skyTop = mix(vec3(1.0), mix(uHorizon, uZenith, 0.5), 0.22);\n    vec3 groundBounce = mix(vec3(0.58, 0.59, 0.62), uHorizon * 0.72, 0.18);\n    float hemi = clamp(n.y * 0.5 + 0.5, 0.0, 1.0);\n    float skyVis = uAmbient > 0.5 ? clamp(mix(0.25, 1.0, hemi) * mix(0.20, 1.0, sh), 0.0, 1.0) : 0.0;\n    vec3 amb = mix(uIndoorAmb, uAmbRgb, skyVis) * mix(groundBounce, skyTop, hemi);\n    float wrap = max(0.0, (-ndl) * 0.14);\n    float diffScale = 1.0 - pbrMetal * 0.72;\n    col = c * diffScale * (amb + uSun * (max(ndl, 0.0) * sh + wrap * 0.35) + uShiftBot * max(-ndl, 0.0) * 0.35);\n    vec3 v = normalize(uCam - vW);\n    vec3 h = normalize(uLight + v);\n    float specPow = mix(128.0, 10.0, pbrRough * pbrRough);\n    vec3 specCol = mix(uSun, c * uSun, pbrMetal);\n    float specInt = mix(0.12, 0.82, (1.0 - pbrRough) * 0.65 + pbrMetal * 0.35);\n    col += specCol * pow(max(dot(n, h), 0.0), specPow) * specInt * sh * uLightingFlags.w;\n    if (uPbrFlags.y + uPbrFlags.z > 0.5) {\n      float fres = pow(1.0 - max(dot(n, v), 0.0), 4.0) * (0.04 + (1.0 - pbrRough) * 0.24 + pbrMetal * 0.38) * uLightingFlags.z;\n      col = mix(col, mix(uHorizon, uZenith, 0.5) * mix(vec3(1.0), c, pbrMetal), clamp(fres, 0.0, 0.75));\n    }\n    col += uPbrEmis.rgb * uPbrEmis.w;\n    if (uPtCount > 0) for (int li = 0; li < 8; li++) {\n      if (li >= uPtCount) break;\n      vec3 L = uPtPos[li].xyz - vW;\n      float d = length(L);\n      float r = uPtPos[li].w;\n      if (d < r) {\n        vec3 ldir = L / max(d, 0.001);\n        float areaR = uPtDir[li].w > 1.5 ? (uPtDir[li].w - 2.0) : 0.0;\n        float effD = max(d - areaR * 0.45, 0.25);\n        float tt = clamp(1.0 - (d / r) * (d / r), 0.0, 1.0);\n        float att = (tt * tt) / (1.0 + 0.04 * effD * effD);\n        if (uPtDir[li].w > 0.5) {\n          float ca = dot(-ldir, uPtDir[li].xyz);\n          att *= smoothstep(uPtCol[li].w, min(uPtCol[li].w + 0.14, 0.999), ca);\n        }\n        float pndl = max(dot(n, ldir), 0.0);\n        vec3 pspec = vec3(0.0);\n        if (uLightingFlags.x >= 3.5 && uLightingFlags.w > 0.5 && pndl > 0.0) {\n          vec3 ph = normalize(ldir + v);\n          float pndh = max(dot(n, ph), 0.0);\n          float ma2 = pbrRough * pbrRough * pbrRough * pbrRough;\n          float pdDen = (pndh * pndh) * (ma2 - 1.0) + 1.0;\n          float pggx = ma2 / max(3.14159 * pdDen * pdDen, 0.002);\n          vec3 f0 = mix(vec3(0.04), c, pbrMetal);\n          vec3 psch = f0 + (1.0 - f0) * pow(1.0 - max(dot(ph, v), 0.0), 5.0);\n          pspec = min(pggx * psch * (0.32 + (1.0 - pbrRough) * 0.85), vec3(2.0)) * pndl;\n        }\n        col += (c * diffScale * pndl + pspec) * uPtCol[li].rgb * att;\n      }\n    }\n  }\n  col *= uExposure;\n  float dist = length(uCam - vW);\n  float fog;\n  vec3 fogCol = uFogColor;\n  vec3 viewDir = normalize(vW - uCam);\n  float sunAlign = max(dot(viewDir, uLight), 0.0);\n  if (uFog.z > 1.5) {\n    float effDist = max(dist - uAtmo.z * 90.0, 0.0);\n    fog = (1.0 - exp(-effDist * uFog.x)) * uFog.y;\n    if (uAtmo.w > 0.5 && (uAtmo.x > 0.01 || uAtmo.y > 0.01)) {\n      fogCol = mix(uFogColor, uAtmoDecay, clamp((1.0 - sunAlign) * 0.65, 0.0, 1.0));\n      fogCol += uSun * pow(sunAlign, 6.0) * clamp(uAtmo.y * 0.10, 0.0, 0.75);\n    } else {\n      fogCol += uSun * pow(sunAlign, 6.0) * 0.16;\n    }\n  } else if (uFog.z > 0.5) {\n    fog = clamp((dist - uFog.x) / max(uFog.y - uFog.x, 1.0), 0.0, 1.0);\n  } else {\n    fog = smoothstep(140.0, 950.0, dist) * 0.88;\n    fogCol += uSun * pow(sunAlign, 6.0) * 0.16;\n  }\n  col = mix(col, fogCol, fog);\n  if (uDof.z > 0.001 || uDof.w > 0.001) {\n    float coc = max(0.0, (dist - (uDof.x + uDof.y)) / max(uDof.y + 12.0, 1.0)) * uDof.z + max(0.0, ((uDof.x - uDof.y) - dist) / max(uDof.x, 1.0)) * uDof.w;\n    col = mix(col, mix(uHorizon, uFogColor, 0.5), clamp(coc * 0.42, 0.0, 0.55));\n  }\n  if (uBloom.w > 0.001) {\n    gl_FragColor = vec4(clamp(col * uBloom.w, 0.0, 1.0), a);\n    return;\n  }\n  if (uLightingFlags.y > 0.5) {\n    col = col / (vec3(1.0) + col * 0.28);\n    col = clamp((col - 0.5) * 1.08 + 0.5, 0.0, 1.0);\n  } else {\n    vec3 x = col * 0.92;\n    col = clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0);\n  }\n  if (uCCParams.w > 0.5) {\n    col = clamp(col + vec3(uCCParams.x), 0.0, 1.0);\n    col = clamp((col - 0.5) * (1.0 + uCCParams.y) + 0.5, 0.0, 1.0);\n    float luma = dot(col, vec3(0.2126, 0.7152, 0.0722));\n    col = clamp(mix(vec3(luma), col, 1.0 + uCCParams.z) * uCCTint, 0.0, 1.0);\n  }\n  gl_FragColor = vec4(col, a);\n}";
     private static final String MESH_VS = "\nuniform mat4 uVP; uniform mat4 uModel; uniform mat3 uNrm; uniform mat4 uShadowVP;\nvarying vec3 vN; varying vec3 vW; varying vec2 vUv; varying vec4 vS;\n#ifdef BATCH\nattribute vec3 aPos; attribute vec4 aNrm; attribute vec2 aUv; attribute vec4 aCol;\nvarying vec4 vCol;\nvoid main() {\n  vW = aPos; vN = aNrm.xyz; vUv = aUv; vS = uShadowVP * vec4(aPos, 1.0); vCol = aCol;\n  gl_Position = uVP * vec4(aPos, 1.0);\n}\n#else\nattribute vec3 aPos; attribute vec3 aNrm; attribute vec2 aUv;\nvoid main() {\n  vec4 w = uModel * vec4(aPos, 1.0);\n  vW = w.xyz; vN = uNrm * aNrm; vUv = aUv; vS = uShadowVP * w;\n  gl_Position = uVP * w;\n}\n#endif";
     private static final String PRECISION = "\n#ifdef GL_FRAGMENT_PRECISION_HIGH\nprecision highp float;\n#else\nprecision mediump float;\n#endif\n";
-    private static final String SKYBOX_FS = "\nprecision mediump float;\nvarying vec2 vUv; varying vec3 vDir; uniform sampler2D uTex; uniform vec3 uTint; uniform vec4 uAtmo; uniform vec3 uAtmoColor; uniform vec3 uAtmoDecay; uniform vec3 uSunDir; uniform vec3 uSunColor; uniform float uDay;\nvoid main() {\n  vec3 col = texture2D(uTex, vUv).rgb * uTint;\n  if (uAtmo.w > 0.5 && uAtmo.x > 0.01) {\n    vec3 dir = normalize(vDir);\n    float hBand = exp(-abs(dir.y) * mix(7.0, 1.8, clamp(uAtmo.x * 0.15, 0.0, 1.0)));\n    float sunDot = max(dot(dir, uSunDir), 0.0);\n    vec3 hazeCol = (uAtmo.y > 0.01) ? mix(uAtmoColor, uAtmoDecay, clamp((1.0 - sunDot) * 0.65, 0.0, 1.0)) : uAtmoColor;\n    float hazeAmt = clamp(hBand * clamp(uAtmo.x * 0.22, 0.0, 0.92), 0.0, 0.92);\n    col = mix(col, hazeCol, hazeAmt);\n    if (uAtmo.y > 0.01) {\n      col += uSunColor * pow(sunDot, 8.0) * clamp(uAtmo.y * 0.12, 0.0, 0.85) * hBand * (0.25 + 0.75 * uDay);\n    }\n  }\n  gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0);\n}";
+    private static final String SKYBOX_FS = "\nprecision mediump float;\nvarying vec2 vUv; varying vec3 vDir; uniform sampler2D uTex; uniform vec3 uTint; uniform vec4 uAtmo; uniform vec3 uAtmoColor; uniform vec3 uAtmoDecay; uniform vec3 uSunDir; uniform vec3 uSunColor; uniform float uDay; uniform float uHdrScale; uniform vec4 uCCParams; uniform vec3 uCCTint;\nvoid main() {\n  vec3 col = texture2D(uTex, vUv).rgb * uTint;\n  vec3 dir = normalize(vDir);\n  float sunDot = max(dot(dir, uSunDir), 0.0);\n  if (uAtmo.w > 0.5 && (uAtmo.x > 0.01 || uAtmo.y > 0.01)) {\n    float hBand = exp(-abs(dir.y) * mix(7.0, 1.8, clamp(uAtmo.x * 0.15, 0.0, 1.0)));\n    vec3 hazeCol = (uAtmo.y > 0.01) ? mix(uAtmoColor, uAtmoDecay, clamp((1.0 - sunDot) * 0.65, 0.0, 1.0)) : uAtmoColor;\n    float hazeAmt = clamp(hBand * clamp(uAtmo.x * 0.22, 0.0, 0.92), 0.0, 0.92);\n    col = mix(col, hazeCol, hazeAmt);\n    if (uAtmo.y > 0.01) {\n      col += uSunColor * pow(sunDot, 8.0) * clamp(uAtmo.y * 0.12, 0.0, 0.85) * hBand * (0.25 + 0.75 * uDay);\n    }\n  }\n  if (uHdrScale > 0.001) {\n    gl_FragColor = vec4(clamp(col * uHdrScale, 0.0, 1.0), 1.0);\n    return;\n  }\n  if (uCCParams.w > 0.5) {\n    col = clamp(col + vec3(uCCParams.x), 0.0, 1.0);\n    col = clamp((col - 0.5) * (1.0 + uCCParams.y) + 0.5, 0.0, 1.0);\n    float luma = dot(col, vec3(0.2126, 0.7152, 0.0722));\n    col = clamp(mix(vec3(luma), col, 1.0 + uCCParams.z) * uCCTint, 0.0, 1.0);\n  }\n  gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0);\n}";
     private static final String SKYBOX_VS = "\nuniform mat4 uVP; uniform vec3 uCam; uniform mat3 uRot;\nattribute vec3 aPos; attribute vec2 aUv; varying vec2 vUv; varying vec3 vDir;\nvoid main() {\n  vUv = aUv;\n  vDir = normalize(uRot * aPos);\n  vec4 p = uVP * vec4(uCam + uRot * aPos * 400.0, 1.0);\n  gl_Position = vec4(p.xy, p.w, p.w);\n}";
-    private static final String SKY_FS = "\n#ifdef GL_FRAGMENT_PRECISION_HIGH\nprecision highp float;\n#else\nprecision mediump float;\n#endif\n\nvarying vec2 vNdc;\nuniform mat4 uInvVP; uniform vec3 uCam; uniform vec3 uSunDir; uniform vec3 uZenith; uniform vec3 uHorizon;\nuniform vec3 uSunColor; uniform float uTime; uniform float uDay; uniform vec2 uSunRays; uniform vec4 uCCParams; uniform vec3 uCCTint; uniform vec4 uAtmo; uniform vec3 uAtmoColor; uniform vec3 uAtmoDecay;\nfloat hash(vec2 p) { p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }\nfloat noise(vec2 p) {\n  vec2 i = floor(p); vec2 f = fract(p); f = f * f * (3.0 - 2.0 * f);\n  return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x), mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y);\n}\nfloat fbm(vec2 p) {\n  float v = 0.0; float a = 0.52;\n  mat2 rot = mat2(0.80, -0.60, 0.60, 0.80);\n  for (int i = 0; i < 4; i++) { v += noise(p) * a; p = rot * p * 2.04 + vec2(17.1, 31.7); a *= 0.48; }\n  return v;\n}\nvoid main() {\n  vec4 far = uInvVP * vec4(vNdc, 1.0, 1.0);\n  vec3 dir = normalize(far.xyz / far.w - uCam);\n  float y = dir.y;\n  vec3 rbxZenith = mix(uZenith, vec3(0.28, 0.58, 0.91), 0.55 * uDay);\n  vec3 rbxMid = mix(uHorizon, vec3(0.58, 0.80, 0.98), 0.55 * uDay);\n  vec3 rbxHoriz = mix(uHorizon, vec3(0.87, 0.94, 1.00), 0.50 * uDay);\n  vec3 col = mix(rbxHoriz, rbxMid, smoothstep(0.0, 0.24, max(y, 0.0)));\n  col = mix(col, rbxZenith, smoothstep(0.18, 0.88, max(y, 0.0)));\n  if (y < 0.0) {\n    col = mix(rbxHoriz, mix(uHorizon * 0.78, vec3(0.64, 0.78, 0.90), 0.45 * uDay), smoothstep(0.0, 0.35, -y));\n  }\n  float sd = max(dot(dir, uSunDir), 0.0);\n  col += uSunColor * (smoothstep(0.99935, 0.99975, sd) * 2.4 + pow(sd, 140.0) * 0.26 + pow(sd, 12.0) * 0.09) * uDay;\n  if (y > 0.02) {\n    vec2 uv = dir.xz / (y + 0.24) * 1.15 + vec2(uTime * 0.0025, uTime * 0.0012);\n    float warp = fbm(uv * 0.7 + vec2(3.1, 7.4));\n    float cBase = fbm(uv + vec2(warp * 0.38, -warp * 0.26));\n    float cl = smoothstep(0.54, 0.78, cBase);\n    float cRim = smoothstep(0.46, 0.74, fbm(uv - uSunDir.xz * 0.06));\n    float fade = smoothstep(0.02, 0.28, y) * smoothstep(0.98, 0.55, y);\n    vec3 cDark = mix(vec3(0.45, 0.52, 0.64), vec3(0.84, 0.90, 0.97), uDay);\n    vec3 cLit = mix(vec3(0.62, 0.68, 0.78), vec3(1.00, 1.00, 1.00), uDay);\n    vec3 cloudCol = mix(cDark, cLit, clamp(0.45 + 0.45 * cRim + 0.18 * pow(sd, 4.0), 0.0, 1.0));\n    col = mix(col, cloudCol, cl * fade * 0.82 * (0.25 + 0.75 * uDay));\n  }\n  if (uDay < 0.6 && y > 0.0) {\n    float nFade = clamp(1.0 - uDay * 1.8, 0.0, 1.0);\n    vec2 suv = dir.xz / (y + 0.30) * 260.0;\n    float st = step(0.9972, hash(floor(suv)));\n    float tw = 0.68 + 0.32 * sin(uTime * 2.0 + hash(floor(suv * 0.5)) * 20.0);\n    col += vec3(0.88, 0.93, 1.0) * st * tw * nFade * smoothstep(0.03, 0.30, y);\n    float md = max(dot(dir, normalize(vec3(-uSunDir.x, max(abs(uSunDir.y), 0.28), -uSunDir.z))), 0.0);\n    col += vec3(0.82, 0.88, 1.0) * (smoothstep(0.9988, 0.9994, md) * 1.15 + pow(md, 48.0) * 0.16) * nFade;\n  }\n  if (uSunRays.x > 0.001 && uDay > 0.05) {\n    float srPow = mix(28.0, 2.5, clamp(uSunRays.y, 0.0, 1.0));\n    float ang = atan(dir.y - uSunDir.y, dir.x - uSunDir.x);\n    float shafts = 0.72 + 0.28 * sin(ang * 12.0 + uTime * 0.35) * cos(ang * 7.0 - uTime * 0.2);\n    col += uSunColor * pow(sd, srPow) * uSunRays.x * shafts * 0.45 * uDay;\n  }\n  if (uAtmo.w > 0.5 && uAtmo.x > 0.01) {\n    float hBand = exp(-abs(y) * mix(7.0, 1.8, clamp(uAtmo.x * 0.15, 0.0, 1.0)));\n    vec3 hazeCol = (uAtmo.y > 0.01) ? mix(uAtmoColor, uAtmoDecay, clamp((1.0 - sd) * 0.65, 0.0, 1.0)) : uAtmoColor;\n    float hazeAmt = clamp(hBand * clamp(uAtmo.x * 0.22, 0.0, 0.92), 0.0, 0.92);\n    col = mix(col, hazeCol, hazeAmt);\n    if (uAtmo.y > 0.01) {\n      col += uSunColor * pow(sd, 8.0) * clamp(uAtmo.y * 0.12, 0.0, 0.85) * hBand * (0.25 + 0.75 * uDay);\n    }\n  }\n  col = clamp(col + vec3(uCCParams.x), 0.0, 1.0);\n  col = clamp((col - 0.5) * (1.0 + uCCParams.y) + 0.5, 0.0, 1.0);\n  float sluma = dot(col, vec3(0.2126, 0.7152, 0.0722));\n  col = clamp(mix(vec3(sluma), col, 1.0 + uCCParams.z) * uCCTint, 0.0, 1.0);\n  gl_FragColor = vec4(col, 1.0);\n}";
+    private static final String SKY_FS = "\n#ifdef GL_FRAGMENT_PRECISION_HIGH\nprecision highp float;\n#else\nprecision mediump float;\n#endif\n\nvarying vec2 vNdc;\nuniform mat4 uInvVP; uniform vec3 uCam; uniform vec3 uSunDir; uniform vec3 uZenith; uniform vec3 uHorizon;\nuniform vec3 uSunColor; uniform float uTime; uniform float uDay; uniform vec2 uSunRays; uniform vec4 uCCParams; uniform vec3 uCCTint; uniform vec4 uAtmo; uniform vec3 uAtmoColor; uniform vec3 uAtmoDecay; uniform float uHdrScale; uniform vec4 uClouds; uniform vec3 uCloudColor; uniform vec4 uSkyParams;\nfloat hash(vec2 p) { p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }\nfloat noise(vec2 p) {\n  vec2 i = floor(p); vec2 f = fract(p); f = f * f * (3.0 - 2.0 * f);\n  return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x), mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y);\n}\nfloat fbm(vec2 p) {\n  float v = 0.0; float a = 0.52;\n  mat2 rot = mat2(0.80, -0.60, 0.60, 0.80);\n  for (int i = 0; i < 4; i++) { v += noise(p) * a; p = rot * p * 2.04 + vec2(17.1, 31.7); a *= 0.48; }\n  return v;\n}\nvoid main() {\n  vec4 far = uInvVP * vec4(vNdc, 1.0, 1.0);\n  vec3 dir = normalize(far.xyz / far.w - uCam);\n  float y = dir.y;\n  vec3 rbxZenith = mix(uZenith, vec3(0.28, 0.58, 0.91), 0.55 * uDay);\n  vec3 rbxMid = mix(uHorizon, vec3(0.58, 0.80, 0.98), 0.55 * uDay);\n  vec3 rbxHoriz = mix(uHorizon, vec3(0.87, 0.94, 1.00), 0.50 * uDay);\n  vec3 col = mix(rbxHoriz, rbxMid, smoothstep(0.0, 0.24, max(y, 0.0)));\n  col = mix(col, rbxZenith, smoothstep(0.18, 0.88, max(y, 0.0)));\n  if (y < 0.0) {\n    col = mix(rbxHoriz, mix(uHorizon * 0.78, vec3(0.64, 0.78, 0.90), 0.45 * uDay), smoothstep(0.0, 0.35, -y));\n  }\n  float sd = max(dot(dir, uSunDir), 0.0);\n  if (uSkyParams.x > 0.5) {\n    float sEdge = mix(0.99975, 0.9960, clamp(uSkyParams.z, 0.0, 1.0));\n    float sunBoost = uHdrScale > 0.001 ? 3.4 : 2.4;\n    col += uSunColor * (smoothstep(sEdge - 0.0004, sEdge, sd) * sunBoost + pow(sd, 140.0) * 0.30 + pow(sd, 12.0) * 0.10) * uDay;\n  }\n  if (y > 0.02 && uClouds.z > 0.5 && uClouds.x > 0.01) {\n    vec2 uv = dir.xz / (y + 0.24) * 1.15 + vec2(uTime * 0.0025, uTime * 0.0012);\n    float warp = fbm(uv * 0.7 + vec2(3.1, 7.4));\n    float cBase = fbm(uv + vec2(warp * 0.38, -warp * 0.26));\n    float covLow = mix(0.76, 0.22, clamp(uClouds.x, 0.0, 1.0));\n    float cl = smoothstep(covLow, covLow + 0.22, cBase);\n    float cRim = smoothstep(0.46, 0.74, fbm(uv - uSunDir.xz * 0.06));\n    float fade = smoothstep(0.02, 0.28, y) * smoothstep(0.98, 0.55, y);\n    vec3 cDark = mix(vec3(0.45, 0.52, 0.64), vec3(0.84, 0.90, 0.97), uDay) * uCloudColor;\n    vec3 cLit = mix(vec3(0.62, 0.68, 0.78), vec3(1.00, 1.00, 1.00), uDay) * uCloudColor;\n    vec3 cloudCol = mix(cDark, cLit, clamp(0.45 + 0.45 * cRim + 0.18 * pow(sd, 4.0), 0.0, 1.0));\n    col = mix(col, cloudCol, cl * fade * clamp(uClouds.y, 0.0, 1.0) * 0.88 * (0.25 + 0.75 * uDay));\n  }\n  if (uSkyParams.x > 0.5 && uDay < 0.6 && y > 0.0) {\n    float nFade = clamp(1.0 - uDay * 1.8, 0.0, 1.0);\n    vec2 suv = dir.xz / (y + 0.30) * 260.0;\n    float st = step(uSkyParams.y, hash(floor(suv)));\n    float tw = 0.68 + 0.32 * sin(uTime * 2.0 + hash(floor(suv * 0.5)) * 20.0);\n    col += vec3(0.88, 0.93, 1.0) * st * tw * nFade * smoothstep(0.03, 0.30, y);\n    float md = max(dot(dir, normalize(vec3(-uSunDir.x, max(abs(uSunDir.y), 0.28), -uSunDir.z))), 0.0);\n    float mEdge = mix(0.9994, 0.9970, clamp(uSkyParams.w, 0.0, 1.0));\n    col += vec3(0.82, 0.88, 1.0) * (smoothstep(mEdge - 0.0005, mEdge, md) * 1.35 + pow(md, 48.0) * 0.16) * nFade;\n  }\n  if (uAtmo.w > 0.5 && (uAtmo.x > 0.01 || uAtmo.y > 0.01)) {\n    float hBand = exp(-abs(y) * mix(7.0, 1.8, clamp(uAtmo.x * 0.15, 0.0, 1.0)));\n    vec3 hazeCol = (uAtmo.y > 0.01) ? mix(uAtmoColor, uAtmoDecay, clamp((1.0 - sd) * 0.65, 0.0, 1.0)) : uAtmoColor;\n    float hazeAmt = clamp(hBand * clamp(uAtmo.x * 0.22, 0.0, 0.92), 0.0, 0.92);\n    col = mix(col, hazeCol, hazeAmt);\n    if (uAtmo.y > 0.01) {\n      col += uSunColor * pow(sd, 8.0) * clamp(uAtmo.y * 0.12, 0.0, 0.85) * hBand * (0.25 + 0.75 * uDay);\n    }\n  }\n  if (uHdrScale > 0.001) {\n    gl_FragColor = vec4(clamp(col * uHdrScale, 0.0, 1.0), 1.0);\n    return;\n  }\n  if (uSunRays.x > 0.001 && uDay > 0.05) {\n    float srPow = mix(28.0, 2.5, clamp(uSunRays.y, 0.0, 1.0));\n    col += uSunColor * pow(sd, srPow) * uSunRays.x * 0.45 * uDay;\n  }\n  if (uCCParams.w > 0.5) {\n    col = clamp(col + vec3(uCCParams.x), 0.0, 1.0);\n    col = clamp((col - 0.5) * (1.0 + uCCParams.y) + 0.5, 0.0, 1.0);\n    float sluma = dot(col, vec3(0.2126, 0.7152, 0.0722));\n    col = clamp(mix(vec3(sluma), col, 1.0 + uCCParams.z) * uCCTint, 0.0, 1.0);\n  }\n  gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0);\n}";
     private static final String SKY_VS = "\nattribute vec2 aPos; varying vec2 vNdc;\nvoid main() { vNdc = aPos; gl_Position = vec4(aPos, 1.0, 1.0); }";
     private final Set<String> BATCH_CLASSES;
     private final float[] FLOAT4_ZERO;
     private final String[] SKY_FACES;
+    private final String[] SKY_CONTENT_FACES = new String[]{"SkyboxFtContent", "SkyboxBkContent", "SkyboxRtContent", "SkyboxLfContent", "SkyboxUpContent", "SkyboxDnContent"};
     private final String[] SURFACES;
     private final float TH;
     private final float TW;
@@ -380,26 +381,42 @@ public final class SceneRenderer implements GLSurfaceView.Renderer {
     private float decalAmbient = 0.5f;
     private int shadowDepth = 0;
     private int maxTexSize = 1024;
+    private static final float HDR_SCALE = 0.25f;
+    private static final float HDR_INV_SCALE = 4.0f;
+    private float frameHdrScale = 0.0f;
+    private int lHdrScale = -1;
+    private int cHdrScale = -1;
+    private int sHdrScale = -1, sClouds = -1, sCloudColor = -1, sSkyParams = -1;
+    private int kHdrScale = -1, kCCParams = -1, kCCTint = -1;
+    private float cloudCover = 0.5f, cloudDensity = 0.7f, cloudsEnabled = 1.0f;
+    private final float[] cloudColor = new float[]{1.0f, 1.0f, 1.0f};
+    private float skyCelestial = 1.0f, skyStarThresh = 0.9972f, skySunSize = 0.25f, skyMoonSize = 0.25f;
     private static final String POST_VS = "attribute vec2 aPos; varying vec2 vUv; void main() { vUv = aPos * 0.5 + 0.5; gl_Position = vec4(aPos, 0.0, 1.0); }";
-    private static final String BLOOM_EXT_FS = "precision mediump float; varying vec2 vUv; uniform sampler2D uTex; uniform float uThresh; uniform float uBlurOnly; void main() { vec3 c = texture2D(uTex, vUv).rgb; if (uBlurOnly > 0.5) { gl_FragColor = vec4(c, 1.0); return; } float lum = dot(c, vec3(0.2126, 0.7152, 0.0722)); float soft = smoothstep(uThresh * 0.65, uThresh + 0.35, lum); gl_FragColor = vec4(c * soft, 1.0); }";
+    private static final String BLOOM_DOWN_FS = "\nprecision mediump float;\nvarying vec2 vUv;\nuniform sampler2D uTex;\nuniform vec2 uTexel;\nuniform float uThresh;\nuniform float uFirstPass;\nuniform float uHdrInv;\nfloat luma(vec3 c) { return dot(c, vec3(0.2126, 0.7152, 0.0722)); }\nvec3 karisAvg(vec3 a, vec3 b, vec3 c, vec3 d) {\n  float wa = 1.0 / (1.0 + luma(a));\n  float wb = 1.0 / (1.0 + luma(b));\n  float wc = 1.0 / (1.0 + luma(c));\n  float wd = 1.0 / (1.0 + luma(d));\n  return (a * wa + b * wb + c * wc + d * wd) / max(wa + wb + wc + wd, 0.0001);\n}\nvoid main() {\n  vec2 t = uTexel;\n  vec3 a = texture2D(uTex, vUv + vec2(-2.0 * t.x,  2.0 * t.y)).rgb * uHdrInv;\n  vec3 b = texture2D(uTex, vUv + vec2( 0.0,        2.0 * t.y)).rgb * uHdrInv;\n  vec3 c = texture2D(uTex, vUv + vec2( 2.0 * t.x,  2.0 * t.y)).rgb * uHdrInv;\n  vec3 d = texture2D(uTex, vUv + vec2(-2.0 * t.x,  0.0      )).rgb * uHdrInv;\n  vec3 e = texture2D(uTex, vUv).rgb * uHdrInv;\n  vec3 f = texture2D(uTex, vUv + vec2( 2.0 * t.x,  0.0      )).rgb * uHdrInv;\n  vec3 g = texture2D(uTex, vUv + vec2(-2.0 * t.x, -2.0 * t.y)).rgb * uHdrInv;\n  vec3 h = texture2D(uTex, vUv + vec2( 0.0,       -2.0 * t.y)).rgb * uHdrInv;\n  vec3 i = texture2D(uTex, vUv + vec2( 2.0 * t.x, -2.0 * t.y)).rgb * uHdrInv;\n  vec3 j = texture2D(uTex, vUv + vec2(-t.x,  t.y)).rgb * uHdrInv;\n  vec3 k = texture2D(uTex, vUv + vec2( t.x,  t.y)).rgb * uHdrInv;\n  vec3 l = texture2D(uTex, vUv + vec2(-t.x, -t.y)).rgb * uHdrInv;\n  vec3 m = texture2D(uTex, vUv + vec2( t.x, -t.y)).rgb * uHdrInv;\n  vec3 res;\n  if (uFirstPass > 0.5) {\n    vec3 g0 = karisAvg(j, k, l, m);\n    vec3 g1 = karisAvg(a, b, d, e);\n    vec3 g2 = karisAvg(b, c, e, f);\n    vec3 g3 = karisAvg(d, e, g, h);\n    vec3 g4 = karisAvg(e, f, h, i);\n    res = g0 * 0.5 + (g1 + g2 + g3 + g4) * 0.125;\n    float br = max(max(res.r, res.g), res.b) * 0.65 + luma(res) * 0.35;\n    float knee = max(uThresh * 0.5, 0.001);\n    float soft = clamp(br - uThresh + knee, 0.0, 2.0 * knee);\n    soft = (soft * soft) / (4.0 * knee + 0.00001);\n    float contrib = max(soft, br - uThresh) / max(br, 0.0001);\n    res *= clamp(contrib, 0.0, 1.0);\n  } else {\n    res = e * 0.125 + (a + c + g + i) * 0.03125 + (b + d + f + h) * 0.0625 + (j + k + l + m) * 0.125;\n  }\n  gl_FragColor = vec4(clamp(res / max(uHdrInv, 0.001), 0.0, 1.0), 1.0);\n}";
+    private static final String BLOOM_UP_FS = "\nprecision mediump float;\nvarying vec2 vUv;\nuniform sampler2D uLowTex;\nuniform sampler2D uHighTex;\nuniform vec2 uTexel;\nuniform float uRadius;\nuniform vec2 uWeights;\nvoid main() {\n  vec2 t = uTexel * uRadius;\n  vec3 s = texture2D(uLowTex, vUv + vec2(-t.x,  t.y)).rgb * 1.0;\n  s += texture2D(uLowTex, vUv + vec2( 0.0,  t.y)).rgb * 2.0;\n  s += texture2D(uLowTex, vUv + vec2( t.x,  t.y)).rgb * 1.0;\n  s += texture2D(uLowTex, vUv + vec2(-t.x,  0.0)).rgb * 2.0;\n  s += texture2D(uLowTex, vUv).rgb * 4.0;\n  s += texture2D(uLowTex, vUv + vec2( t.x,  0.0)).rgb * 2.0;\n  s += texture2D(uLowTex, vUv + vec2(-t.x, -t.y)).rgb * 1.0;\n  s += texture2D(uLowTex, vUv + vec2( 0.0, -t.y)).rgb * 2.0;\n  s += texture2D(uLowTex, vUv + vec2( t.x, -t.y)).rgb * 1.0;\n  vec3 up = s * 0.0625;\n  vec3 hi = texture2D(uHighTex, vUv).rgb;\n  gl_FragColor = vec4(clamp(hi * uWeights.x + up * uWeights.y, 0.0, 1.0), 1.0);\n}";
     private static final String GAUSS_FS = "precision mediump float; varying vec2 vUv; uniform sampler2D uTex; uniform vec2 uDir; void main() { vec3 s = texture2D(uTex, vUv).rgb * 0.227027; s += (texture2D(uTex, vUv + uDir * 1.0).rgb + texture2D(uTex, vUv - uDir * 1.0).rgb) * 0.1945946; s += (texture2D(uTex, vUv + uDir * 2.0).rgb + texture2D(uTex, vUv - uDir * 2.0).rgb) * 0.1216216; s += (texture2D(uTex, vUv + uDir * 3.0).rgb + texture2D(uTex, vUv - uDir * 3.0).rgb) * 0.054054; s += (texture2D(uTex, vUv + uDir * 4.0).rgb + texture2D(uTex, vUv - uDir * 4.0).rgb) * 0.016216; gl_FragColor = vec4(s, 1.0); }";
-    private static final String POST_COMP_FS = "precision mediump float; varying vec2 vUv; uniform sampler2D uScene; uniform sampler2D uBloomTex; uniform float uBloomInt; uniform float uBlurMix; void main() { vec3 base = texture2D(uScene, vUv).rgb; vec3 bl = texture2D(uBloomTex, vUv).rgb; vec3 col = uBlurMix > 0.001 ? mix(base, bl, clamp(uBlurMix, 0.0, 1.0)) : (base + bl * uBloomInt); gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0); }";
+    private static final String POST_COMP_FS = "\nprecision mediump float;\nvarying vec2 vUv;\nuniform sampler2D uScene;\nuniform sampler2D uBloomTex;\nuniform sampler2D uBlurTex;\nuniform float uBloomInt;\nuniform float uBlurMix;\nuniform float uHdrInv;\nuniform float uRetroTonemap;\nuniform vec4 uCCParams;\nuniform vec3 uCCTint;\nuniform vec4 uSunRaysParams;\nuniform vec3 uSunRaysColor;\nvoid main() {\n  vec3 base = texture2D(uScene, vUv).rgb * uHdrInv;\n  if (uBlurMix > 0.001) {\n    vec3 blr = texture2D(uBlurTex, vUv).rgb * uHdrInv;\n    base = mix(base, blr, clamp(uBlurMix, 0.0, 1.0));\n  }\n  vec3 col = base;\n  if (uBloomInt > 0.001) {\n    vec3 bl = texture2D(uBloomTex, vUv).rgb * uHdrInv;\n    col += bl * uBloomInt;\n  }\n  if (uSunRaysParams.z > 0.001) {\n    vec2 sunUv = uSunRaysParams.xy;\n    vec2 delta = (vUv - sunUv) * (0.85 / 12.0);\n    vec2 suv = vUv;\n    float decay = 1.0;\n    float weight = 0.11;\n    float spread = clamp(uSunRaysParams.w, 0.05, 1.0);\n    vec3 rays = vec3(0.0);\n    for (int i = 0; i < 12; i++) {\n      suv -= delta;\n      vec3 sc = texture2D(uScene, clamp(suv, vec2(0.001), vec2(0.999))).rgb * uHdrInv;\n      float sl = dot(sc, vec3(0.2126, 0.7152, 0.0722));\n      rays += sc * smoothstep(1.1, 2.6, sl) * decay * weight;\n      decay *= mix(0.86, 0.96, spread);\n    }\n    float distFade = exp(-length(vUv - sunUv) * mix(3.2, 0.9, spread));\n    col += rays * uSunRaysColor * uSunRaysParams.z * distFade;\n  }\n  if (uRetroTonemap > 0.5) {\n    col = col / (vec3(1.0) + col * 0.28);\n    col = clamp((col - 0.5) * 1.08 + 0.5, 0.0, 1.0);\n  } else {\n    vec3 x = col * 0.92;\n    col = clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0);\n  }\n  if (uCCParams.w > 0.5) {\n    col = clamp(col + vec3(uCCParams.x), 0.0, 1.0);\n    col = clamp((col - 0.5) * (1.0 + uCCParams.y) + 0.5, 0.0, 1.0);\n    float luma = dot(col, vec3(0.2126, 0.7152, 0.0722));\n    col = clamp(mix(vec3(luma), col, 1.0 + uCCParams.z) * uCCTint, 0.0, 1.0);\n  }\n  gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0);\n}";
     private int postSceneFbo = 0;
     private int postSceneTex = 0;
     private int postSceneDepth = 0;
-    private int postFboA = 0;
-    private int postTexA = 0;
-    private int postFboB = 0;
-    private int postTexB = 0;
+    private int bloomFbo1 = 0, bloomTex1 = 0;
+    private int bloomPingFbo1 = 0, bloomPingTex1 = 0;
+    private int bloomFbo2 = 0, bloomTex2 = 0;
+    private int bloomPingFbo2 = 0, bloomPingTex2 = 0;
+    private int bloomFbo3 = 0, bloomTex3 = 0;
+    private int blurFboA = 0, blurTexA = 0;
+    private int blurFboB = 0, blurTexB = 0;
     private int postW = 0;
     private int postH = 0;
     private boolean postOk = false;
-    private int postExtProg = 0;
+    private int postDownProg = 0;
+    private int postUpProg = 0;
     private int postBlurProg = 0;
     private int postCompProg = 0;
-    private int p1Pos = -1, p1Tex = -1, p1Thresh = -1, p1BlurOnly = -1;
+    private int pdPos = -1, pdTex = -1, pdTexel = -1, pdThresh = -1, pdFirstPass = -1, pdHdrInv = -1;
+    private int puPos = -1, puLowTex = -1, puHighTex = -1, puTexel = -1, puRadius = -1, puWeights = -1;
     private int p2Pos = -1, p2Tex = -1, p2Dir = -1;
-    private int p4Pos = -1, p4Scene = -1, p4BloomTex = -1, p4BloomInt = -1, p4BlurMix = -1;
+    private int p4Pos = -1, p4Scene = -1, p4BloomTex = -1, p4BlurTex = -1, p4BloomInt = -1, p4BlurMix = -1, p4HdrInv = -1, p4RetroTonemap = -1, p4CCParams = -1, p4CCTint = -1, p4SunRaysParams = -1, p4SunRaysColor = -1;
     private final ArrayList<Draw> scratchTransparent = new ArrayList<>();
     private final ArrayList<Instance> scratchAdvanced = new ArrayList<>();
     private final ArrayList<Triple<Instance, Geo, TexBind>> scratchTextured = new ArrayList<>();
@@ -751,8 +768,16 @@ public final class SceneRenderer implements GLSurfaceView.Renderer {
 
     /* JADX INFO: Access modifiers changed from: private */
     public final boolean isBatchable(Instance p) {
-        if (!this.BATCH_CLASSES.contains(p.getClassName()) || PartData.INSTANCE.transparency(p) > 0.001f || Intrinsics.areEqual(p.get("CastShadow"), (Object) false)) {
+        if (!this.BATCH_CLASSES.contains(p.getClassName()) || Intrinsics.areEqual(p.getClassName(), "MeshPart") || PartData.INSTANCE.transparency(p) > 0.001f || Intrinsics.areEqual(p.get("CastShadow"), (Object) false)) {
             return false;
+        }
+        for (Instance ch : p.getChildren()) {
+            String cn = ch.getClassName();
+            if (Intrinsics.areEqual(cn, "FileMesh") || Intrinsics.areEqual(cn, "SpecialMesh")) {
+                if (Intrinsics.areEqual(cn, "FileMesh") || PartData.INSTANCE.meshContent(ch) != null || PartData.INSTANCE.textureContent(ch) != null) {
+                    return false;
+                }
+            }
         }
         int mat = PartData.INSTANCE.material(p);
         switch (mat) {
@@ -844,7 +869,8 @@ public final class SceneRenderer implements GLSurfaceView.Renderer {
             return null;
         }
         boolean isCube = (m == this.cube && g.getKind() == 0);
-        return CollectionsKt.listOf(spec(p, cpu, m.getStride(), isCube, g, baseCol, false));
+        boolean unionPending = p.isA("PartOperation") && UnionMeshes.INSTANCE.isStored(p) && UnionMeshes.INSTANCE.get(p) == null;
+        return CollectionsKt.listOf(spec(p, cpu, m.getStride(), isCube, g, baseCol, unionPending));
     }
 
     private final int meshBatchProgram() {
@@ -882,8 +908,8 @@ public final class SceneRenderer implements GLSurfaceView.Renderer {
         GLES20.glUniform1f(useMeshBatch$u$8(this, "uEnvSpec"), this.envSpec);
         GLES20.glUniform4f(useMeshBatch$u$8(this, "uCCParams"), this.ccBright, this.ccContrast, this.ccSat, (this.ccBright != 0.0f || this.ccContrast != 0.0f || this.ccSat != 0.0f || this.ccTint[0] < 0.999f || this.ccTint[1] < 0.999f || this.ccTint[2] < 0.999f) ? 1.0f : 0.0f);
         GLES20.glUniform3fv(useMeshBatch$u$8(this, "uCCTint"), 1, this.ccTint, 0);
-        GLES20.glUniform4f(useMeshBatch$u$8(this, "uBloom"), this.bloomInt, this.bloomThresh, this.bloomSize, 0.0f);
-        GLES20.glUniform4f(useMeshBatch$u$8(this, "uDof"), this.dofFocus, this.dofRadius, Math.max(this.dofFar, this.blurAmt), Math.max(this.dofNear, this.blurAmt));
+        GLES20.glUniform4f(useMeshBatch$u$8(this, "uBloom"), this.bloomInt, this.bloomThresh, this.bloomSize, this.frameHdrScale);
+        GLES20.glUniform4f(useMeshBatch$u$8(this, "uDof"), this.dofFocus, this.dofRadius, this.dofFar, this.dofNear);
         GLES20.glUniform3fv(useMeshBatch$u$8(this, "uAmbRgb"), 1, this.ambRgb, 0);
         GLES20.glUniform4f(useMeshBatch$u$8(this, "uLightingFlags"), (float) this.effectiveTech, this.retroTonemap, this.envSpec, this.directSpecEnable);
         GLES20.glUniform3fv(useMeshBatch$u$8(this, "uIndoorAmb"), 1, this.indoorAmb, 0);
@@ -1334,7 +1360,36 @@ public final class SceneRenderer implements GLSurfaceView.Renderer {
         this.lVP = GLES20.glGetUniformLocation(this.line, "uVP");
         this.lModel = GLES20.glGetUniformLocation(this.line, "uModel");
         this.lColor = GLES20.glGetUniformLocation(this.line, "uColor");
+        this.lHdrScale = GLES20.glGetUniformLocation(this.line, "uHdrScale");
         this.laPos = GLES20.glGetAttribLocation(this.line, "aPos");
+        this.postDownProg = 0;
+        this.postUpProg = 0;
+        this.postBlurProg = 0;
+        this.postCompProg = 0;
+        this.postSceneFbo = 0;
+        this.postSceneTex = 0;
+        this.postSceneDepth = 0;
+        this.bloomFbo1 = 0;
+        this.bloomTex1 = 0;
+        this.bloomPingFbo1 = 0;
+        this.bloomPingTex1 = 0;
+        this.bloomFbo2 = 0;
+        this.bloomTex2 = 0;
+        this.bloomPingFbo2 = 0;
+        this.bloomPingTex2 = 0;
+        this.bloomFbo3 = 0;
+        this.bloomTex3 = 0;
+        this.blurFboA = 0;
+        this.blurTexA = 0;
+        this.blurFboB = 0;
+        this.blurTexB = 0;
+        this.pdPos = -1; this.pdTex = -1; this.pdTexel = -1; this.pdThresh = -1; this.pdFirstPass = -1; this.pdHdrInv = -1;
+        this.puPos = -1; this.puLowTex = -1; this.puHighTex = -1; this.puTexel = -1; this.puRadius = -1; this.puWeights = -1;
+        this.p2Pos = -1; this.p2Tex = -1; this.p2Dir = -1;
+        this.p4Pos = -1; this.p4Scene = -1; this.p4BloomTex = -1; this.p4BlurTex = -1; this.p4BloomInt = -1; this.p4BlurMix = -1; this.p4HdrInv = -1; this.p4RetroTonemap = -1; this.p4CCParams = -1; this.p4CCTint = -1; this.p4SunRaysParams = -1; this.p4SunRaysColor = -1;
+        this.postW = 0;
+        this.postH = 0;
+        this.postOk = false;
         this.dVP = GLES20.glGetUniformLocation(this.depthProg, "uVP");
         this.dModel = GLES20.glGetUniformLocation(this.depthProg, "uModel");
         this.daPos = GLES20.glGetAttribLocation(this.depthProg, "aPos");
@@ -1352,6 +1407,10 @@ public final class SceneRenderer implements GLSurfaceView.Renderer {
         this.sAtmo = GLES20.glGetUniformLocation(this.skyProg, "uAtmo");
         this.sAtmoColor = GLES20.glGetUniformLocation(this.skyProg, "uAtmoColor");
         this.sAtmoDecay = GLES20.glGetUniformLocation(this.skyProg, "uAtmoDecay");
+        this.sHdrScale = GLES20.glGetUniformLocation(this.skyProg, "uHdrScale");
+        this.sClouds = GLES20.glGetUniformLocation(this.skyProg, "uClouds");
+        this.sCloudColor = GLES20.glGetUniformLocation(this.skyProg, "uCloudColor");
+        this.sSkyParams = GLES20.glGetUniformLocation(this.skyProg, "uSkyParams");
         this.saPos = GLES20.glGetAttribLocation(this.skyProg, "aPos");
         this.cVP = GLES20.glGetUniformLocation(this.decalProg, "uVP");
         this.cModel = GLES20.glGetUniformLocation(this.decalProg, "uModel");
@@ -1361,6 +1420,7 @@ public final class SceneRenderer implements GLSurfaceView.Renderer {
         this.cLight = GLES20.glGetUniformLocation(this.decalProg, "uLight");
         this.cSun = GLES20.glGetUniformLocation(this.decalProg, "uSun");
         this.cAmbient = GLES20.glGetUniformLocation(this.decalProg, "uAmbient");
+        this.cHdrScale = GLES20.glGetUniformLocation(this.decalProg, "uHdrScale");
         this.cUv = GLES20.glGetUniformLocation(this.decalProg, "uUv");
         this.caPos = GLES20.glGetAttribLocation(this.decalProg, "aPos");
         this.caUv = GLES20.glGetAttribLocation(this.decalProg, "aUv");
@@ -1478,71 +1538,152 @@ public final class SceneRenderer implements GLSurfaceView.Renderer {
         if (targetW <= 0 || targetH <= 0) {
             return false;
         }
-        if (this.postOk && this.postW == targetW && this.postH == targetH && this.postExtProg != 0) {
+        if (this.postOk && this.postW == targetW && this.postH == targetH && this.postDownProg != 0 && this.postUpProg != 0 && this.postBlurProg != 0 && this.postCompProg != 0 && this.postSceneFbo != 0) {
             return true;
         }
-        if (this.postExtProg == 0) {
-            this.postExtProg = program(POST_VS, BLOOM_EXT_FS);
+        if (this.postDownProg == 0 || this.postUpProg == 0 || this.postBlurProg == 0 || this.postCompProg == 0) {
+            this.postDownProg = program(POST_VS, BLOOM_DOWN_FS);
+            this.postUpProg = program(POST_VS, BLOOM_UP_FS);
             this.postBlurProg = program(POST_VS, GAUSS_FS);
             this.postCompProg = program(POST_VS, POST_COMP_FS);
-            this.p1Pos = GLES20.glGetAttribLocation(this.postExtProg, "aPos");
-            this.p1Tex = GLES20.glGetUniformLocation(this.postExtProg, "uTex");
-            this.p1Thresh = GLES20.glGetUniformLocation(this.postExtProg, "uThresh");
-            this.p1BlurOnly = GLES20.glGetUniformLocation(this.postExtProg, "uBlurOnly");
+            if (this.postDownProg == 0 || this.postUpProg == 0 || this.postBlurProg == 0 || this.postCompProg == 0) {
+                this.postOk = false;
+                return false;
+            }
+            this.pdPos = GLES20.glGetAttribLocation(this.postDownProg, "aPos");
+            this.pdTex = GLES20.glGetUniformLocation(this.postDownProg, "uTex");
+            this.pdTexel = GLES20.glGetUniformLocation(this.postDownProg, "uTexel");
+            this.pdThresh = GLES20.glGetUniformLocation(this.postDownProg, "uThresh");
+            this.pdFirstPass = GLES20.glGetUniformLocation(this.postDownProg, "uFirstPass");
+            this.pdHdrInv = GLES20.glGetUniformLocation(this.postDownProg, "uHdrInv");
+            this.puPos = GLES20.glGetAttribLocation(this.postUpProg, "aPos");
+            this.puLowTex = GLES20.glGetUniformLocation(this.postUpProg, "uLowTex");
+            this.puHighTex = GLES20.glGetUniformLocation(this.postUpProg, "uHighTex");
+            this.puTexel = GLES20.glGetUniformLocation(this.postUpProg, "uTexel");
+            this.puRadius = GLES20.glGetUniformLocation(this.postUpProg, "uRadius");
+            this.puWeights = GLES20.glGetUniformLocation(this.postUpProg, "uWeights");
             this.p2Pos = GLES20.glGetAttribLocation(this.postBlurProg, "aPos");
             this.p2Tex = GLES20.glGetUniformLocation(this.postBlurProg, "uTex");
             this.p2Dir = GLES20.glGetUniformLocation(this.postBlurProg, "uDir");
             this.p4Pos = GLES20.glGetAttribLocation(this.postCompProg, "aPos");
             this.p4Scene = GLES20.glGetUniformLocation(this.postCompProg, "uScene");
             this.p4BloomTex = GLES20.glGetUniformLocation(this.postCompProg, "uBloomTex");
+            this.p4BlurTex = GLES20.glGetUniformLocation(this.postCompProg, "uBlurTex");
             this.p4BloomInt = GLES20.glGetUniformLocation(this.postCompProg, "uBloomInt");
             this.p4BlurMix = GLES20.glGetUniformLocation(this.postCompProg, "uBlurMix");
+            this.p4HdrInv = GLES20.glGetUniformLocation(this.postCompProg, "uHdrInv");
+            this.p4RetroTonemap = GLES20.glGetUniformLocation(this.postCompProg, "uRetroTonemap");
+            this.p4CCParams = GLES20.glGetUniformLocation(this.postCompProg, "uCCParams");
+            this.p4CCTint = GLES20.glGetUniformLocation(this.postCompProg, "uCCTint");
+            this.p4SunRaysParams = GLES20.glGetUniformLocation(this.postCompProg, "uSunRaysParams");
+            this.p4SunRaysColor = GLES20.glGetUniformLocation(this.postCompProg, "uSunRaysColor");
         }
         if (this.postSceneFbo != 0) {
-            GLES20.glDeleteFramebuffers(3, new int[]{this.postSceneFbo, this.postFboA, this.postFboB}, 0);
-            GLES20.glDeleteTextures(3, new int[]{this.postSceneTex, this.postTexA, this.postTexB}, 0);
+            GLES20.glDeleteFramebuffers(8, new int[]{this.postSceneFbo, this.bloomFbo1, this.bloomPingFbo1, this.bloomFbo2, this.bloomPingFbo2, this.bloomFbo3, this.blurFboA, this.blurFboB}, 0);
+            GLES20.glDeleteTextures(8, new int[]{this.postSceneTex, this.bloomTex1, this.bloomPingTex1, this.bloomTex2, this.bloomPingTex2, this.bloomTex3, this.blurTexA, this.blurTexB}, 0);
             GLES20.glDeleteRenderbuffers(1, new int[]{this.postSceneDepth}, 0);
             this.postSceneFbo = 0;
+            this.postSceneTex = 0;
+            this.postSceneDepth = 0;
+            this.bloomFbo1 = 0;
+            this.bloomTex1 = 0;
+            this.bloomPingFbo1 = 0;
+            this.bloomPingTex1 = 0;
+            this.bloomFbo2 = 0;
+            this.bloomTex2 = 0;
+            this.bloomPingFbo2 = 0;
+            this.bloomPingTex2 = 0;
+            this.bloomFbo3 = 0;
+            this.bloomTex3 = 0;
+            this.blurFboA = 0;
+            this.blurTexA = 0;
+            this.blurFboB = 0;
+            this.blurTexB = 0;
         }
-        int bw = Math.max(targetW / 4, 64);
-        int bh = Math.max(targetH / 4, 64);
-        int[] texIds = new int[3];
-        int[] fboIds = new int[3];
+        int w1 = Math.max(targetW / 2, 32);
+        int h1 = Math.max(targetH / 2, 32);
+        int w2 = Math.max(targetW / 4, 16);
+        int h2 = Math.max(targetH / 4, 16);
+        int w3 = Math.max(targetW / 8, 8);
+        int h3 = Math.max(targetH / 8, 8);
+        int[] texIds = new int[8];
+        int[] fboIds = new int[8];
         int[] rbIds = new int[1];
-        GLES20.glGenTextures(3, texIds, 0);
-        GLES20.glGenFramebuffers(3, fboIds, 0);
+        GLES20.glGenTextures(8, texIds, 0);
+        GLES20.glGenFramebuffers(8, fboIds, 0);
         GLES20.glGenRenderbuffers(1, rbIds, 0);
         this.postSceneTex = texIds[0];
-        this.postTexA = texIds[1];
-        this.postTexB = texIds[2];
+        this.bloomTex1 = texIds[1];
+        this.bloomPingTex1 = texIds[2];
+        this.bloomTex2 = texIds[3];
+        this.bloomPingTex2 = texIds[4];
+        this.bloomTex3 = texIds[5];
+        this.blurTexA = texIds[6];
+        this.blurTexB = texIds[7];
         this.postSceneFbo = fboIds[0];
-        this.postFboA = fboIds[1];
-        this.postFboB = fboIds[2];
+        this.bloomFbo1 = fboIds[1];
+        this.bloomPingFbo1 = fboIds[2];
+        this.bloomFbo2 = fboIds[3];
+        this.bloomPingFbo2 = fboIds[4];
+        this.bloomFbo3 = fboIds[5];
+        this.blurFboA = fboIds[6];
+        this.blurFboB = fboIds[7];
         this.postSceneDepth = rbIds[0];
 
-        int[] ws = {targetW, bw, bw};
-        int[] hs = {targetH, bh, bh};
-        for (int i = 0; i < 3; i++) {
-            GLES20.glBindTexture(3553, texIds[i]);
-            GLES20.glTexImage2D(3553, 0, 6408, ws[i], hs[i], 0, 6408, 5121, null);
-            GLES20.glTexParameteri(3553, 10241, 9729);
-            GLES20.glTexParameteri(3553, 10240, 9729);
-            GLES20.glTexParameteri(3553, 10242, 33071);
-            GLES20.glTexParameteri(3553, 10243, 33071);
-            GLES20.glBindFramebuffer(36160, fboIds[i]);
-            GLES20.glFramebufferTexture2D(36160, 36064, 3553, texIds[i], 0);
+        int[] ws = {targetW, w1, w1, w2, w2, w3, w2, w2};
+        int[] hs = {targetH, h1, h1, h2, h2, h3, h2, h2};
+        boolean allOk = true;
+        for (int i = 0; i < 8; i++) {
+            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, texIds[i]);
+            GLES20.glTexImage2D(GLES20.GL_TEXTURE_2D, 0, GLES20.GL_RGBA, ws[i], hs[i], 0, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, null);
+            GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR);
+            GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR);
+            GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE);
+            GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE);
+            GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, fboIds[i]);
+            GLES20.glFramebufferTexture2D(GLES20.GL_FRAMEBUFFER, GLES20.GL_COLOR_ATTACHMENT0, GLES20.GL_TEXTURE_2D, texIds[i], 0);
             if (i == 0) {
-                GLES20.glBindRenderbuffer(36161, this.postSceneDepth);
-                GLES20.glRenderbufferStorage(36161, 33189, targetW, targetH);
-                GLES20.glFramebufferRenderbuffer(36160, 36096, 36161, this.postSceneDepth);
+                GLES20.glBindRenderbuffer(GLES20.GL_RENDERBUFFER, this.postSceneDepth);
+                GLES20.glRenderbufferStorage(GLES20.GL_RENDERBUFFER, GLES20.GL_DEPTH_COMPONENT16, targetW, targetH);
+                GLES20.glFramebufferRenderbuffer(GLES20.GL_FRAMEBUFFER, GLES20.GL_DEPTH_ATTACHMENT, GLES20.GL_RENDERBUFFER, this.postSceneDepth);
+            }
+            if (GLES20.glCheckFramebufferStatus(GLES20.GL_FRAMEBUFFER) != GLES20.GL_FRAMEBUFFER_COMPLETE) {
+                allOk = false;
             }
         }
-        this.postOk = GLES20.glCheckFramebufferStatus(36160) == 36053;
-        GLES20.glBindFramebuffer(36160, 0);
-        GLES20.glBindTexture(3553, 0);
+        GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0);
+        GLES20.glBindRenderbuffer(GLES20.GL_RENDERBUFFER, 0);
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, 0);
+        if (!allOk) {
+            GLES20.glDeleteFramebuffers(8, fboIds, 0);
+            GLES20.glDeleteTextures(8, texIds, 0);
+            GLES20.glDeleteRenderbuffers(1, rbIds, 0);
+            this.postSceneFbo = 0;
+            this.postSceneTex = 0;
+            this.postSceneDepth = 0;
+            this.bloomFbo1 = 0;
+            this.bloomTex1 = 0;
+            this.bloomPingFbo1 = 0;
+            this.bloomPingTex1 = 0;
+            this.bloomFbo2 = 0;
+            this.bloomTex2 = 0;
+            this.bloomPingFbo2 = 0;
+            this.bloomPingTex2 = 0;
+            this.bloomFbo3 = 0;
+            this.bloomTex3 = 0;
+            this.blurFboA = 0;
+            this.blurTexA = 0;
+            this.blurFboB = 0;
+            this.blurTexB = 0;
+            this.postW = 0;
+            this.postH = 0;
+            this.postOk = false;
+            return false;
+        }
         this.postW = targetW;
         this.postH = targetH;
-        return this.postOk;
+        this.postOk = true;
+        return true;
     }
 
     private final void runPostProcess(boolean applyFx) {
@@ -1550,69 +1691,178 @@ public final class SceneRenderer implements GLSurfaceView.Renderer {
         if (quad == null || !this.postOk) {
             return;
         }
-        int bw = Math.max(this.postW / 4, 64);
-        int bh = Math.max(this.postH / 4, 64);
-        boolean blurOnly = applyFx && this.blurAmt > 0.02f;
-        float spread = blurOnly ? (1.0f + this.blurAmt * 3.5f) : (0.8f + (this.bloomSize / 24.0f) * 1.6f);
+        int w1 = Math.max(this.postW / 2, 32);
+        int h1 = Math.max(this.postH / 2, 32);
+        int w2 = Math.max(this.postW / 4, 16);
+        int h2 = Math.max(this.postH / 4, 16);
+        int w3 = Math.max(this.postW / 8, 8);
+        int h3 = Math.max(this.postH / 8, 8);
+        boolean doBloom = applyFx && this.bloomInt > 0.001f;
+        boolean doBlur = applyFx && this.blurAmt > 0.005f;
         GLES20.glDisable(2929);
         GLES20.glDepthMask(false);
         GLES20.glDisable(2884);
         GLES20.glBindBuffer(34962, quad.getVbo());
 
-        if (applyFx) {
-        // Pass 1: Bright-pass extract (or full downsample for BlurEffect) -> postFboA
-        GLES20.glBindFramebuffer(36160, this.postFboA);
-        GLES20.glViewport(0, 0, bw, bh);
-        GLES20.glUseProgram(this.postExtProg);
-        int p1Pos = this.p1Pos;
-        GLES20.glEnableVertexAttribArray(p1Pos);
-        GLES20.glVertexAttribPointer(p1Pos, 2, 5126, false, 8, 0);
-        GLES20.glActiveTexture(33984);
-        GLES20.glBindTexture(3553, this.postSceneTex);
-        GLES20.glUniform1i(this.p1Tex, 0);
-        GLES20.glUniform1f(this.p1Thresh, Math.min(this.bloomThresh, 1.0f) * 0.78f);
-        GLES20.glUniform1f(this.p1BlurOnly, blurOnly ? 1.0f : 0.0f);
-        GLES20.glDrawArrays(4, 0, quad.getCount());
+        if (doBloom) {
+            GLES20.glUseProgram(this.postDownProg);
+            if (this.pdPos >= 0) {
+                GLES20.glEnableVertexAttribArray(this.pdPos);
+                GLES20.glVertexAttribPointer(this.pdPos, 2, GLES20.GL_FLOAT, false, 8, 0);
+            }
+            GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
+            GLES20.glUniform1i(this.pdTex, 0);
+            GLES20.glUniform1f(this.pdThresh, this.bloomThresh);
+            GLES20.glUniform1f(this.pdHdrInv, HDR_INV_SCALE);
 
-        // Pass 2: Horizontal 9-tap Gaussian blur -> postFboB
-        GLES20.glBindFramebuffer(36160, this.postFboB);
-        GLES20.glUseProgram(this.postBlurProg);
-        int p2Pos = this.p2Pos;
-        GLES20.glEnableVertexAttribArray(p2Pos);
-        GLES20.glVertexAttribPointer(p2Pos, 2, 5126, false, 8, 0);
-        GLES20.glBindTexture(3553, this.postTexA);
-        GLES20.glUniform1i(this.p2Tex, 0);
-        GLES20.glUniform2f(this.p2Dir, spread / ((float) bw), 0.0f);
-        GLES20.glDrawArrays(4, 0, quad.getCount());
+            GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, this.bloomFbo1);
+            GLES20.glViewport(0, 0, w1, h1);
+            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, this.postSceneTex);
+            GLES20.glUniform2f(this.pdTexel, 1.0f / ((float) this.postW), 1.0f / ((float) this.postH));
+            GLES20.glUniform1f(this.pdFirstPass, 1.0f);
+            GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, quad.getCount());
 
-        // Pass 3: Vertical 9-tap Gaussian blur -> postFboA
-        GLES20.glBindFramebuffer(36160, this.postFboA);
-        GLES20.glBindTexture(3553, this.postTexB);
-        GLES20.glUniform2f(this.p2Dir, 0.0f, spread / ((float) bh));
-        GLES20.glDrawArrays(4, 0, quad.getCount());
+            GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, this.bloomFbo2);
+            GLES20.glViewport(0, 0, w2, h2);
+            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, this.bloomTex1);
+            GLES20.glUniform2f(this.pdTexel, 1.0f / ((float) w1), 1.0f / ((float) h1));
+            GLES20.glUniform1f(this.pdFirstPass, 0.0f);
+            GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, quad.getCount());
 
+            GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, this.bloomFbo3);
+            GLES20.glViewport(0, 0, w3, h3);
+            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, this.bloomTex2);
+            GLES20.glUniform2f(this.pdTexel, 1.0f / ((float) w2), 1.0f / ((float) h2));
+            GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, quad.getCount());
+            if (this.pdPos >= 0) {
+                GLES20.glDisableVertexAttribArray(this.pdPos);
+            }
+
+            float sizeNorm = RangesKt.coerceIn(this.bloomSize / 56.0f, 0.0f, 1.0f);
+            float upRadius = 0.55f + (sizeNorm * 1.85f);
+            GLES20.glUseProgram(this.postUpProg);
+            if (this.puPos >= 0) {
+                GLES20.glEnableVertexAttribArray(this.puPos);
+                GLES20.glVertexAttribPointer(this.puPos, 2, GLES20.GL_FLOAT, false, 8, 0);
+            }
+            GLES20.glUniform1i(this.puLowTex, 0);
+            GLES20.glUniform1i(this.puHighTex, 1);
+            GLES20.glUniform1f(this.puRadius, upRadius);
+
+            GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, this.bloomPingFbo2);
+            GLES20.glViewport(0, 0, w2, h2);
+            GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
+            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, this.bloomTex3);
+            GLES20.glActiveTexture(GLES20.GL_TEXTURE1);
+            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, this.bloomTex2);
+            GLES20.glUniform2f(this.puTexel, 1.0f / ((float) w3), 1.0f / ((float) h3));
+            GLES20.glUniform2f(this.puWeights, 0.52f, 0.48f);
+            GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, quad.getCount());
+
+            GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, this.bloomPingFbo1);
+            GLES20.glViewport(0, 0, w1, h1);
+            GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
+            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, this.bloomPingTex2);
+            GLES20.glActiveTexture(GLES20.GL_TEXTURE1);
+            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, this.bloomTex1);
+            GLES20.glUniform2f(this.puTexel, 1.0f / ((float) w2), 1.0f / ((float) h2));
+            GLES20.glUniform2f(this.puWeights, 0.42f, 0.58f);
+            GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, quad.getCount());
+            if (this.puPos >= 0) {
+                GLES20.glDisableVertexAttribArray(this.puPos);
+            }
+            GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
         }
-        // Pass 4: Composite Scene + Gaussian Bloom/Blur (or clean resolution upscale) -> Default Screen FBO 0
-        GLES20.glBindFramebuffer(36160, 0);
+
+        if (doBlur) {
+            float blurSpread = 0.85f + (this.blurAmt * 3.4f);
+            GLES20.glUseProgram(this.postBlurProg);
+            if (this.p2Pos >= 0) {
+                GLES20.glEnableVertexAttribArray(this.p2Pos);
+                GLES20.glVertexAttribPointer(this.p2Pos, 2, GLES20.GL_FLOAT, false, 8, 0);
+            }
+            GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
+            GLES20.glUniform1i(this.p2Tex, 0);
+            GLES20.glViewport(0, 0, w2, h2);
+
+            GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, this.blurFboB);
+            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, this.postSceneTex);
+            GLES20.glUniform2f(this.p2Dir, blurSpread / ((float) w2), 0.0f);
+            GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, quad.getCount());
+
+            GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, this.blurFboA);
+            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, this.blurTexB);
+            GLES20.glUniform2f(this.p2Dir, 0.0f, blurSpread / ((float) h2));
+            GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, quad.getCount());
+            if (this.p2Pos >= 0) {
+                GLES20.glDisableVertexAttribArray(this.p2Pos);
+            }
+        }
+
+        // Compute screen-space sun position for SunRaysEffect
+        float sunUvX = 0.5f;
+        float sunUvY = 0.5f;
+        float sunRaysEff = 0.0f;
+        if (applyFx && this.sunRaysInt > 0.001f && this.dayFactor > 0.05f) {
+            Vector3 cp = this.studio.getView().getCamPos();
+            float sx = cp.getX() + (this.sunDir.getX() * 500.0f);
+            float sy = cp.getY() + (this.sunDir.getY() * 500.0f);
+            float sz = cp.getZ() + (this.sunDir.getZ() * 500.0f);
+            float[] vp = this.studio.getView().getVp();
+            float cx = (vp[0] * sx) + (vp[4] * sy) + (vp[8] * sz) + vp[12];
+            float cy = (vp[1] * sx) + (vp[5] * sy) + (vp[9] * sz) + vp[13];
+            float cw = (vp[3] * sx) + (vp[7] * sy) + (vp[11] * sz) + vp[15];
+            if (cw > 0.001f) {
+                sunUvX = ((cx / cw) * 0.5f) + 0.5f;
+                sunUvY = ((cy / cw) * 0.5f) + 0.5f;
+                float edge = Math.max(Math.abs(sunUvX - 0.5f), Math.abs(sunUvY - 0.5f));
+                float vis = 1.0f - smooth(0.45f, 1.35f, edge);
+                sunRaysEff = this.sunRaysInt * vis * this.dayFactor;
+            }
+        }
+
+        GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0);
         GLES20.glViewport(0, 0, this.surfW, this.surfH);
         GLES20.glUseProgram(this.postCompProg);
-        int p4Pos = this.p4Pos;
-        GLES20.glEnableVertexAttribArray(p4Pos);
-        GLES20.glVertexAttribPointer(p4Pos, 2, 5126, false, 8, 0);
-        GLES20.glActiveTexture(33984);
-        GLES20.glBindTexture(3553, this.postSceneTex);
+        if (this.p4Pos >= 0) {
+            GLES20.glEnableVertexAttribArray(this.p4Pos);
+            GLES20.glVertexAttribPointer(this.p4Pos, 2, GLES20.GL_FLOAT, false, 8, 0);
+        }
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, this.postSceneTex);
         GLES20.glUniform1i(this.p4Scene, 0);
-        GLES20.glActiveTexture(33985);
-        GLES20.glBindTexture(3553, this.postTexA);
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE1);
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, doBloom ? this.bloomPingTex1 : this.postSceneTex);
         GLES20.glUniform1i(this.p4BloomTex, 1);
-        GLES20.glActiveTexture(33984);
-        GLES20.glUniform1f(this.p4BloomInt, (!applyFx || blurOnly) ? 0.0f : (this.bloomInt * 0.55f));
-        GLES20.glUniform1f(this.p4BlurMix, (applyFx && blurOnly) ? RangesKt.coerceIn(this.blurAmt * 1.4f, 0.0f, 1.0f) : 0.0f);
-        GLES20.glDrawArrays(4, 0, quad.getCount());
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE2);
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, doBlur ? this.blurTexA : this.postSceneTex);
+        GLES20.glUniform1i(this.p4BlurTex, 2);
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
+        GLES20.glUniform1f(this.p4BloomInt, doBloom ? (this.bloomInt * 0.72f) : 0.0f);
+        GLES20.glUniform1f(this.p4BlurMix, doBlur ? RangesKt.coerceIn(this.blurAmt * 1.35f, 0.0f, 1.0f) : 0.0f);
+        GLES20.glUniform1f(this.p4HdrInv, HDR_INV_SCALE);
+        GLES20.glUniform1f(this.p4RetroTonemap, this.retroTonemap);
+        boolean ccOn = (this.ccBright != 0.0f || this.ccContrast != 0.0f || this.ccSat != 0.0f || this.ccTint[0] < 0.999f || this.ccTint[1] < 0.999f || this.ccTint[2] < 0.999f);
+        GLES20.glUniform4f(this.p4CCParams, this.ccBright, this.ccContrast, this.ccSat, ccOn ? 1.0f : 0.0f);
+        GLES20.glUniform3fv(this.p4CCTint, 1, this.ccTint, 0);
+        GLES20.glUniform4f(this.p4SunRaysParams, sunUvX, sunUvY, sunRaysEff, this.sunRaysSpread);
+        GLES20.glUniform3fv(this.p4SunRaysColor, 1, this.sunColor, 0);
+        GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, quad.getCount());
 
-        GLES20.glEnable(2884);
+        if (this.p4Pos >= 0) {
+            GLES20.glDisableVertexAttribArray(this.p4Pos);
+        }
+        GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, 0);
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE2);
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, 0);
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE1);
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, 0);
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, 0);
+        GLES20.glUseProgram(0);
+        GLES20.glEnable(GLES20.GL_CULL_FACE);
         GLES20.glDepthMask(true);
-        GLES20.glEnable(2929);
+        GLES20.glEnable(GLES20.GL_DEPTH_TEST);
     }
 
     @Override // android.opengl.GLSurfaceView.Renderer
@@ -1687,21 +1937,31 @@ public final class SceneRenderer implements GLSurfaceView.Renderer {
                         }
                         long jNanoTime3 = System.nanoTime();
                         try {
-                            int resScale = Settings.INSTANCE.getRenderScale();
-                            boolean wantFx = Settings.INSTANCE.getPostProcessing() && ((curGfx >= 5 && this.bloomInt > 0.001f) || (curGfx >= 3 && this.blurAmt > 0.02f));
+                            int userResScale = Settings.INSTANCE.getRenderScale();
+                            int gfxScale = isPlayMode ? (curGfx <= 2 ? 65 : (curGfx <= 4 ? 78 : (curGfx == 5 ? 86 : (curGfx == 6 ? 92 : 100)))) : 100;
+                            int resScale = Math.min(userResScale, gfxScale);
+                            boolean ccOn = (this.ccBright != 0.0f || this.ccContrast != 0.0f || this.ccSat != 0.0f || this.ccTint[0] < 0.999f || this.ccTint[1] < 0.999f || this.ccTint[2] < 0.999f);
+                            boolean wantFx = Settings.INSTANCE.getPostProcessing() && ((curGfx >= 5 && this.bloomInt > 0.001f) || (curGfx >= 3 && this.blurAmt > 0.005f) || (curGfx >= 6 && this.sunRaysInt > 0.001f) || ccOn);
                             int targetW = Math.max(64, (this.surfW * resScale) / 100);
                             int targetH = Math.max(64, (this.surfH * resScale) / 100);
                             boolean usePost = (wantFx || resScale < 100) && ensurePostFbos(targetW, targetH);
+                            this.frameHdrScale = usePost ? HDR_SCALE : 0.0f;
                             GLES20.glBindFramebuffer(36160, usePost ? this.postSceneFbo : 0);
                             GLES20.glViewport(0, 0, usePost ? this.postW : this.surfW, usePost ? this.postH : this.surfH);
-                            GLES20.glClearColor(this.horizon[0], this.horizon[1], this.horizon[2], 1.0f);
+                            float clearScale = usePost ? HDR_SCALE : 1.0f;
+                            GLES20.glClearColor(this.horizon[0] * clearScale, this.horizon[1] * clearScale, this.horizon[2] * clearScale, 1.0f);
                             GLES20.glClear(16640);
                             drawParts(z);
                             drawSelection();
-                            drawHandles();
                             if (usePost) {
                                 runPostProcess(wantFx);
+                                this.frameHdrScale = 0.0f;
+                                if (this.litBasic != null) {
+                                    useLit(this.litBasic);
+                                    setLitFrameUniforms(z);
+                                }
                             }
+                            drawHandles();
                             long jNanoTime4 = System.nanoTime();
                             this.tUpd += (jNanoTime2 - jNanoTime) / 1000000.0f;
                             try {
@@ -1797,25 +2057,7 @@ public final class SceneRenderer implements GLSurfaceView.Renderer {
         Iterable children;
         Object next;
         Instance l = this.studio.getModel().findService("Lighting");
-        Object obj = l != null ? l.get("ClockTime") : null;
-        Number number = obj instanceof Number ? (Number) obj : null;
-        if (number != null) {
-            clock = number.floatValue();
-        } else {
-            Object obj2 = l != null ? l.get("TimeOfDay") : null;
-            String str = obj2 instanceof String ? (String) obj2 : null;
-            float fFloatValue = 14.0f;
-            if (str != null && (listSplit$default = StringsKt.split((CharSequence) str, new String[]{":"}, false, 0)) != null) {
-                String str2 = (String) CollectionsKt.getOrNull(listSplit$default, 0);
-                if (str2 != null && (floatOrNull2 = StringsKt.toFloatOrNull(str2)) != null) {
-                    fFloatValue = floatOrNull2.floatValue();
-                }
-                String str3 = (String) CollectionsKt.getOrNull(listSplit$default, 1);
-                clock = fFloatValue + (((str3 == null || (floatOrNull = StringsKt.toFloatOrNull(str3)) == null) ? 0.0f : floatOrNull.floatValue()) / 60.0f);
-            } else {
-                clock = 14.0f;
-            }
-        }
+        clock = com.goydevv.studrblx.core.PlaceFactory.resolveClockTime(l);
         Object obj3 = l != null ? l.get("GeographicLatitude") : null;
         Number number2 = obj3 instanceof Number ? (Number) obj3 : null;
         float lat = (float) Math.toRadians(number2 != null ? number2.doubleValue() : 41.733d);
@@ -1936,9 +2178,19 @@ public final class SceneRenderer implements GLSurfaceView.Renderer {
         this.ccTint[0] = 1.0f;
         this.ccTint[1] = 1.0f;
         this.ccTint[2] = 1.0f;
+        boolean foundExplicitBloom = false;
+        boolean hasEnabledBloom = false;
         this.bloomInt = 0.0f;
         this.bloomThresh = 2.0f;
         this.bloomSize = 24.0f;
+        this.cloudCover = 0.5f;
+        this.cloudDensity = 0.7f;
+        this.cloudsEnabled = 1.0f;
+        this.cloudColor[0] = 1.0f; this.cloudColor[1] = 1.0f; this.cloudColor[2] = 1.0f;
+        this.skyCelestial = 1.0f;
+        this.skyStarThresh = 0.9972f;
+        this.skySunSize = 0.25f;
+        this.skyMoonSize = 0.25f;
         this.sunRaysInt = 0.0f;
         this.sunRaysSpread = 0.1f;
         this.atmoHaze = 0.0f;
@@ -1962,6 +2214,13 @@ public final class SceneRenderer implements GLSurfaceView.Renderer {
             Instance camFx = Instance.findFirstChild$default(wsFx, "Camera", false, 2, null);
             if (camFx != null) {
                 fxRoots.add(camFx);
+            }
+            Instance terrFx = wsFx.findFirstChildOfClass("Terrain");
+            if (terrFx != null) {
+                Instance cld = terrFx.findFirstChildOfClass("Clouds");
+                if (cld != null) {
+                    fxRoots.add(terrFx);
+                }
             }
         }
         for (Instance fxRoot : fxRoots) {
@@ -1995,17 +2254,54 @@ public final class SceneRenderer implements GLSurfaceView.Renderer {
                         this.ccTint[1] *= tc.getG();
                         this.ccTint[2] *= tc.getB();
                     }
-                } else if (postFxOn && curGfx >= 5 && "BloomEffect".equals(lcn) && !Intrinsics.areEqual(li.get("Enabled"), (Object) false)) {
-                    Object bI = li.get("Intensity");
-                    float bi = (bI instanceof Number) ? RangesKt.coerceIn(((Number) bI).floatValue(), 0.0f, 4.0f) : 1.0f;
-                    Object bT = li.get("Threshold");
-                    float bt = (bT instanceof Number) ? RangesKt.coerceIn(((Number) bT).floatValue(), 0.0f, 4.0f) : 2.0f;
-                    Object bS = li.get("Size");
-                    float bs = (bS instanceof Number) ? RangesKt.coerceIn(((Number) bS).floatValue(), 0.0f, 56.0f) : 24.0f;
-                    if (bi > this.bloomInt) {
-                        this.bloomInt = bi;
-                        this.bloomThresh = bt;
-                        this.bloomSize = bs;
+                } else if ("BloomEffect".equals(lcn)) {
+                    foundExplicitBloom = true;
+                    if (postFxOn && curGfx >= 5 && !Intrinsics.areEqual(li.get("Enabled"), (Object) false)) {
+                        Object bI = li.get("Intensity");
+                        float bi = (bI instanceof Number) ? RangesKt.coerceIn(((Number) bI).floatValue(), 0.0f, 4.0f) : 1.0f;
+                        Object bT = li.get("Threshold");
+                        float bt = (bT instanceof Number) ? RangesKt.coerceIn(((Number) bT).floatValue(), 0.0f, 4.0f) : 2.0f;
+                        Object bS = li.get("Size");
+                        float bs = (bS instanceof Number) ? RangesKt.coerceIn(((Number) bS).floatValue(), 0.0f, 56.0f) : 24.0f;
+                        if (!hasEnabledBloom || bi > this.bloomInt) {
+                            hasEnabledBloom = true;
+                            this.bloomInt = bi;
+                            this.bloomThresh = bt;
+                            this.bloomSize = bs;
+                        }
+                    }
+                } else if ("Sky".equals(lcn)) {
+                    if (Intrinsics.areEqual(li.get("CelestialBodiesShown"), (Object) false)) {
+                        this.skyCelestial = 0.0f;
+                    }
+                    Object scObj = li.get("StarCount");
+                    if (scObj instanceof Number) {
+                        float scNorm = RangesKt.coerceIn(((Number) scObj).floatValue() / 5000.0f, 0.0f, 1.0f);
+                        this.skyStarThresh = 1.0f - (scNorm * 0.0045f);
+                    }
+                    Object sunAng = li.get("SunAngularSize");
+                    if (sunAng instanceof Number) {
+                        this.skySunSize = RangesKt.coerceIn(((Number) sunAng).floatValue() / 60.0f, 0.0f, 1.0f);
+                    }
+                    Object moonAng = li.get("MoonAngularSize");
+                    if (moonAng instanceof Number) {
+                        this.skyMoonSize = RangesKt.coerceIn(((Number) moonAng).floatValue() / 60.0f, 0.0f, 1.0f);
+                    }
+                } else if ("Clouds".equals(lcn)) {
+                    this.cloudsEnabled = Intrinsics.areEqual(li.get("Enabled"), (Object) false) ? 0.0f : 1.0f;
+                    Object covObj = li.get("Cover");
+                    if (covObj instanceof Number) {
+                        this.cloudCover = RangesKt.coerceIn(((Number) covObj).floatValue(), 0.0f, 1.0f);
+                    }
+                    Object denObj = li.get("Density");
+                    if (denObj instanceof Number) {
+                        this.cloudDensity = RangesKt.coerceIn(((Number) denObj).floatValue(), 0.0f, 1.0f);
+                    }
+                    Color3 ccCloud = c3(li.get("Color"));
+                    if (ccCloud != null) {
+                        this.cloudColor[0] = ccCloud.getR();
+                        this.cloudColor[1] = ccCloud.getG();
+                        this.cloudColor[2] = ccCloud.getB();
                     }
                 } else if (postFxOn && curGfx >= 6 && "SunRaysEffect".equals(lcn) && !Intrinsics.areEqual(li.get("Enabled"), (Object) false)) {
                     Object sI = li.get("Intensity");
@@ -2034,6 +2330,11 @@ public final class SceneRenderer implements GLSurfaceView.Renderer {
                     }
                 }
             }
+        }
+        if (!foundExplicitBloom && postFxOn && curGfx >= 8) {
+            this.bloomInt = curGfx >= 10 ? 0.42f : (curGfx == 9 ? 0.34f : 0.26f);
+            this.bloomThresh = 1.65f;
+            this.bloomSize = 24.0f;
         }
         this.retroTonemap = (tonemapPreset == 1 || this.effectiveTech == 2 || this.effectiveTech == 0) ? 1.0f : 0.0f;
         Object obj6 = l != null ? l.get("FogEnd") : null;
@@ -2422,7 +2723,18 @@ public final class SceneRenderer implements GLSurfaceView.Renderer {
         if (Intrinsics.areEqual(p.getClassName(), "MeshPart")) {
             GpuMesh gpuMeshFileMesh = fileMesh(PartData.INSTANCE.meshContent(p));
             if (gpuMeshFileMesh != null) {
-                Vector3 vector3 = new Vector3(geometry$lambda$40$k$37(size.getX(), gpuMeshFileMesh.getSize().getX()), geometry$lambda$40$k$37(size.getY(), gpuMeshFileMesh.getSize().getY()), geometry$lambda$40$k$37(size.getZ(), gpuMeshFileMesh.getSize().getZ()));
+                Object initObj = p.get("InitialSize");
+                if (!(initObj instanceof Vector3)) {
+                    initObj = p.get("MeshSize");
+                }
+                Vector3 initSz = initObj instanceof Vector3 ? (Vector3) initObj : null;
+                float mx = gpuMeshFileMesh.getSize().getX();
+                float my = gpuMeshFileMesh.getSize().getY();
+                float mz = gpuMeshFileMesh.getSize().getZ();
+                if (mx <= 1.0E-4f && initSz != null && initSz.getX() > 1.0E-4f) mx = initSz.getX();
+                if (my <= 1.0E-4f && initSz != null && initSz.getY() > 1.0E-4f) my = initSz.getY();
+                if (mz <= 1.0E-4f && initSz != null && initSz.getZ() > 1.0E-4f) mz = initSz.getZ();
+                Vector3 vector3 = new Vector3(geometry$lambda$40$k$37(size.getX(), mx), geometry$lambda$40$k$37(size.getY(), my), geometry$lambda$40$k$37(size.getZ(), mz));
                 String strContent2 = this.partTexOverride.get(p);
                 Vector3 saTint = null;
                 Instance sa = null;
@@ -2502,8 +2814,13 @@ public final class SceneRenderer implements GLSurfaceView.Renderer {
             CFrame ocf = !Intrinsics.areEqual(off, Vector3.INSTANCE.getZERO()) ? cf.times(CFrame.INSTANCE.at(off)) : cf;
             if (Intrinsics.areEqual(instance.getClassName(), "SpecialMesh")) {
                 Object obj3 = instance.get("MeshType");
-                EnumValue enumValue = obj3 instanceof EnumValue ? (EnumValue) obj3 : null;
-                type = enumValue != null ? enumValue.getValue() : i;
+                if (obj3 instanceof EnumValue) {
+                    type = ((EnumValue) obj3).getValue();
+                } else if (obj3 instanceof Number) {
+                    type = ((Number) obj3).intValue();
+                } else {
+                    type = PartData.INSTANCE.meshContent(instance) != null ? 5 : i;
+                }
             } else if (Intrinsics.areEqual(instance.getClassName(), "CylinderMesh")) {
                 type = 4;
             } else {
@@ -2561,9 +2878,19 @@ public final class SceneRenderer implements GLSurfaceView.Renderer {
                     GpuMesh gpuMeshFileMesh2 = fileMesh(PartData.INSTANCE.meshContent(instance));
                     if (gpuMeshFileMesh2 != null) {
                         String str = PartData.INSTANCE.textureContent(instance);
+                        if (str == null) {
+                            str = this.partTexOverride.get(p);
+                        }
                         Mesh mesh11 = gpuMeshFileMesh2.getMesh();
                         Object obj5 = instance.get("VertexColor");
-                        return new Geo(mesh11, ocf, sc, 2, str, null, obj5 instanceof Vector3 ? (Vector3) obj5 : null, 32, null);
+                        Vector3 vcTint = null;
+                        if (obj5 instanceof Vector3) {
+                            vcTint = (Vector3) obj5;
+                        } else if (obj5 instanceof Color3) {
+                            Color3 vc3 = (Color3) obj5;
+                            vcTint = new Vector3(vc3.getR(), vc3.getG(), vc3.getB());
+                        }
+                        return new Geo(mesh11, ocf, sc, 2, str, null, vcTint, 32, null);
                     }
                     break;
             }
@@ -2784,7 +3111,7 @@ public final class SceneRenderer implements GLSurfaceView.Renderer {
                                     this.bind(m, this.daPos, -1);
                                     current3 = m;
                                 }
-                                if (m.getCount() <= 3600) { GLES20.glDrawArrays(m.getMode(), 0, m.getCount()); }
+                                if (m.getCount() <= 24000) { GLES20.glDrawArrays(m.getMode(), 0, m.getCount()); }
                             }
                             current = current3;
                             it2 = it3;
@@ -2811,6 +3138,9 @@ public final class SceneRenderer implements GLSurfaceView.Renderer {
         this.kSunDir = setupSkybox$u$47(this, "uSunDir");
         this.kSunColor = setupSkybox$u$47(this, "uSunColor");
         this.kDay = setupSkybox$u$47(this, "uDay");
+        this.kHdrScale = setupSkybox$u$47(this, "uHdrScale");
+        this.kCCParams = setupSkybox$u$47(this, "uCCParams");
+        this.kCCTint = setupSkybox$u$47(this, "uCCTint");
         this.kaPos = GLES20.glGetAttribLocation(this.skyboxProg, "aPos");
         this.kaUv = GLES20.glGetAttribLocation(this.skyboxProg, "aUv");
         int i = 6;
@@ -2868,109 +3198,142 @@ public final class SceneRenderer implements GLSurfaceView.Renderer {
         return GLES20.glGetUniformLocation(this$0.skyboxProg, n);
     }
 
-    private final boolean drawSkybox() {
-        Iterable children;
-        Mesh mesh;
-        Object next;
-        boolean z;
-        String string;
-        Instance instanceFindService = this.studio.getModel().findService("Lighting");
-        if (instanceFindService != null && (children = instanceFindService.getChildren()) != null) {
-            Iterator it = children.iterator();
-            do {
-                mesh = null;
-                if (!it.hasNext()) {
-                    next = null;
-                    break;
-                }
-                next = it.next();
-            } while (!Intrinsics.areEqual(((Instance) next).getClassName(), "Sky"));
-            Instance sky = (Instance) next;
-            if (sky != null) {
-                int[] tex = new int[6];
-                int i = 0;
-                while (true) {
-                    if (i >= 6) {
-                        int length = tex.length;
-                        int i2 = 0;
-                        while (true) {
-                            if (i2 >= length) {
-                                z = false;
-                                break;
-                            }
-                            if ((tex[i2] == 0 ? 1 : 0) != 0) {
-                                z = true;
-                                break;
-                            }
-                            i2++;
-                        }
-                        if (z) {
-                            return false;
-                        }
-                        GLES20.glEnable(2929);
-                        GLES20.glDepthFunc(515);
-                        GLES20.glDepthMask(false);
-                        GLES20.glDisable(2884);
-                        GLES20.glUseProgram(this.skyboxProg);
-                        GLES20.glUniformMatrix4fv(this.kVP, 1, false, this.studio.getView().getVp(), 0);
-                        Vector3 cp = this.studio.getView().getCamPos();
-                        GLES20.glUniform3f(this.kCam, cp.getX(), cp.getY(), cp.getZ());
-                        Object obj = sky.get("SkyboxOrientation");
-                        Vector3 o = obj instanceof Vector3 ? (Vector3) obj : null;
-                        if (o == null) {
-                            o = Vector3.INSTANCE.getZERO();
-                        }
-                        CFrame rot = Intrinsics.areEqual(o, Vector3.INSTANCE.getZERO()) ? CFrame.INSTANCE.getIDENTITY() : CFrame.INSTANCE.fromOrientation((float) Math.toRadians(o.getX()), (float) Math.toRadians(o.getY()), (float) Math.toRadians(o.getZ()));
-                        float[] m = {rot.getR00(), rot.getR10(), rot.getR20(), rot.getR01(), rot.getR11(), rot.getR21(), rot.getR02(), rot.getR12(), rot.getR22()};
-                        GLES20.glUniformMatrix3fv(this.kRot, 1, false, m, 0);
-                        float k = (this.dayFactor * 0.84f) + 0.16f;
-                        GLES20.glUniform3f(this.kTint, k, k, k);
-                        GLES20.glUniform4f(this.kAtmo, this.atmoHaze, this.atmoGlare, this.atmoOffset, this.hasAtmo);
-                        GLES20.glUniform3fv(this.kAtmoColor, 1, this.atmoColor, 0);
-                        GLES20.glUniform3fv(this.kAtmoDecay, 1, this.atmoDecay, 0);
-                        GLES20.glUniform3f(this.kSunDir, this.sunDir.getX(), this.sunDir.getY(), this.sunDir.getZ());
-                        GLES20.glUniform3fv(this.kSunColor, 1, this.sunColor, 0);
-                        GLES20.glUniform1f(this.kDay, this.dayFactor);
-                        GLES20.glUniform1i(this.kTex, 0);
-                        GLES20.glActiveTexture(33984);
-                        Mesh mesh2 = this.skyboxMesh;
-                        if (mesh2 == null) {
-                            Intrinsics.throwUninitializedPropertyAccessException("skyboxMesh");
-                        } else {
-                            mesh = mesh2;
-                        }
-                        GLES20.glBindBuffer(34962, mesh.getVbo());
-                        GLES20.glEnableVertexAttribArray(this.kaPos);
-                        GLES20.glVertexAttribPointer(this.kaPos, 3, 5126, false, 20, 0);
-                        GLES20.glEnableVertexAttribArray(this.kaUv);
-                        GLES20.glVertexAttribPointer(this.kaUv, 2, 5126, false, 20, 12);
-                        for (int i3 = 0; i3 < 6; i3++) {
-                            GLES20.glBindTexture(3553, tex[i3]);
-                            GLES20.glDrawArrays(4, i3 * 6, 6);
-                        }
-                        GLES20.glDisableVertexAttribArray(this.kaUv);
-                        GLES20.glBindTexture(3553, this.shadowTex);
-                        GLES20.glEnable(2884);
-                        GLES20.glDepthFunc(513);
-                        GLES20.glDepthMask(true);
-                        GLES20.glEnable(2929);
-                        this.activeLit = null;
-                        return true;
-                    }
-                    Object obj2 = sky.get(this.SKY_FACES[i]);
-                    String content = (obj2 == null || (string = obj2.toString()) == null) ? null : StringsKt.trim((CharSequence) string).toString();
-                    if (content == null) {
-                        content = "";
-                    }
-                    if ((content.length() == 0) || AssetFetcher.INSTANCE.idOf(content) == null) {
-                        return false;
-                    }
-                    tex[i] = assetTexture(content, false);
-                    i++;
-                }
+    public static Instance findSky(Instance lighting) {
+        if (lighting == null) {
+            return null;
+        }
+        for (Instance child : lighting.getChildren()) {
+            if ("Sky".equals(child.getClassName())) {
+                return child;
             }
         }
-        return false;
+        for (Instance desc : Instance.descendants$default(lighting, null, 1, null)) {
+            if ("Sky".equals(desc.getClassName())) {
+                return desc;
+            }
+        }
+        return null;
+    }
+
+    public static String extractContentUri(Object val) {
+        if (val == null) {
+            return null;
+        }
+        String raw = val instanceof com.goydevv.studrblx.model.ContentValue
+                ? ((com.goydevv.studrblx.model.ContentValue) val).getUri()
+                : val.toString();
+        if (raw == null) {
+            return null;
+        }
+        String trimmed = raw.trim();
+        return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    public static String resolveSkyFaceUri(Instance sky, String legacyKey, String contentKey) {
+        if (sky == null) {
+            return null;
+        }
+        String legacy = legacyKey != null ? extractContentUri(sky.get(legacyKey)) : null;
+        if (legacy != null && AssetFetcher.INSTANCE.idOf(legacy) != null) {
+            return legacy;
+        }
+        String modern = contentKey != null ? extractContentUri(sky.get(contentKey)) : null;
+        if (modern != null && AssetFetcher.INSTANCE.idOf(modern) != null) {
+            return modern;
+        }
+        return legacy != null ? legacy : modern;
+    }
+
+    public static boolean fillMissingSkyboxFaces(int[] tex) {
+        if (tex == null || tex.length == 0) {
+            return false;
+        }
+        int fallback = 0;
+        for (int t : tex) {
+            if (t != 0) {
+                fallback = t;
+                break;
+            }
+        }
+        if (fallback == 0) {
+            return false;
+        }
+        for (int i = 0; i < tex.length; i++) {
+            if (tex[i] == 0) {
+                tex[i] = fallback;
+            }
+        }
+        return true;
+    }
+
+    private final boolean drawSkybox() {
+        Instance sky = findSky(this.studio.getModel().findService("Lighting"));
+        if (sky == null) {
+            return false;
+        }
+        int[] tex = new int[6];
+        for (int i = 0; i < 6; i++) {
+            String content = resolveSkyFaceUri(sky, this.SKY_FACES[i], this.SKY_CONTENT_FACES[i]);
+            if (content != null && AssetFetcher.INSTANCE.idOf(content) != null) {
+                tex[i] = assetTexture(content, false);
+            }
+        }
+        if (!fillMissingSkyboxFaces(tex)) {
+            return false;
+        }
+        GLES20.glEnable(2929);
+        GLES20.glDepthFunc(515);
+        GLES20.glDepthMask(false);
+        GLES20.glDisable(2884);
+        GLES20.glUseProgram(this.skyboxProg);
+        GLES20.glUniformMatrix4fv(this.kVP, 1, false, this.studio.getView().getVp(), 0);
+        Vector3 cp = this.studio.getView().getCamPos();
+        GLES20.glUniform3f(this.kCam, cp.getX(), cp.getY(), cp.getZ());
+        Object obj = sky.get("SkyboxOrientation");
+        Vector3 o = obj instanceof Vector3 ? (Vector3) obj : null;
+        if (o == null) {
+            o = Vector3.INSTANCE.getZERO();
+        }
+        CFrame rot = Intrinsics.areEqual(o, Vector3.INSTANCE.getZERO()) ? CFrame.INSTANCE.getIDENTITY() : CFrame.INSTANCE.fromOrientation((float) Math.toRadians(o.getX()), (float) Math.toRadians(o.getY()), (float) Math.toRadians(o.getZ()));
+        float[] m = {rot.getR00(), rot.getR10(), rot.getR20(), rot.getR01(), rot.getR11(), rot.getR21(), rot.getR02(), rot.getR12(), rot.getR22()};
+        GLES20.glUniformMatrix3fv(this.kRot, 1, false, m, 0);
+        float k = (this.dayFactor * 0.84f) + 0.16f;
+        GLES20.glUniform3f(this.kTint, k, k, k);
+        GLES20.glUniform4f(this.kAtmo, this.atmoHaze, this.atmoGlare, this.atmoOffset, this.hasAtmo);
+        GLES20.glUniform3fv(this.kAtmoColor, 1, this.atmoColor, 0);
+        GLES20.glUniform3fv(this.kAtmoDecay, 1, this.atmoDecay, 0);
+        GLES20.glUniform3f(this.kSunDir, this.sunDir.getX(), this.sunDir.getY(), this.sunDir.getZ());
+        GLES20.glUniform3fv(this.kSunColor, 1, this.sunColor, 0);
+        GLES20.glUniform1f(this.kDay, this.dayFactor);
+        GLES20.glUniform1f(this.kHdrScale, this.frameHdrScale);
+        GLES20.glUniform4f(this.kCCParams, this.ccBright, this.ccContrast, this.ccSat, (this.ccBright != 0.0f || this.ccContrast != 0.0f || this.ccSat != 0.0f || this.ccTint[0] < 0.999f || this.ccTint[1] < 0.999f || this.ccTint[2] < 0.999f) ? 1.0f : 0.0f);
+        GLES20.glUniform3fv(this.kCCTint, 1, this.ccTint, 0);
+        GLES20.glUniform1i(this.kTex, 0);
+        GLES20.glActiveTexture(33984);
+        Mesh mesh = null;
+        Mesh mesh2 = this.skyboxMesh;
+        if (mesh2 == null) {
+            Intrinsics.throwUninitializedPropertyAccessException("skyboxMesh");
+        } else {
+            mesh = mesh2;
+        }
+        GLES20.glBindBuffer(34962, mesh.getVbo());
+        GLES20.glEnableVertexAttribArray(this.kaPos);
+        GLES20.glVertexAttribPointer(this.kaPos, 3, 5126, false, 20, 0);
+        GLES20.glEnableVertexAttribArray(this.kaUv);
+        GLES20.glVertexAttribPointer(this.kaUv, 2, 5126, false, 20, 12);
+        for (int i3 = 0; i3 < 6; i3++) {
+            GLES20.glBindTexture(3553, tex[i3]);
+            GLES20.glDrawArrays(4, i3 * 6, 6);
+        }
+        GLES20.glDisableVertexAttribArray(this.kaUv);
+        GLES20.glBindTexture(3553, this.shadowTex);
+        GLES20.glEnable(2884);
+        GLES20.glDepthFunc(513);
+        GLES20.glDepthMask(true);
+        GLES20.glEnable(2929);
+        this.activeLit = null;
+        return true;
     }
 
     private final void drawSky() {
@@ -2996,6 +3359,10 @@ public final class SceneRenderer implements GLSurfaceView.Renderer {
         GLES20.glUniform4f(this.sAtmo, this.atmoHaze, this.atmoGlare, this.atmoOffset, this.hasAtmo);
         GLES20.glUniform3fv(this.sAtmoColor, 1, this.atmoColor, 0);
         GLES20.glUniform3fv(this.sAtmoDecay, 1, this.atmoDecay, 0);
+        GLES20.glUniform1f(this.sHdrScale, this.frameHdrScale);
+        GLES20.glUniform4f(this.sClouds, this.cloudCover, this.cloudDensity, this.cloudsEnabled, 0.0f);
+        GLES20.glUniform3fv(this.sCloudColor, 1, this.cloudColor, 0);
+        GLES20.glUniform4f(this.sSkyParams, this.skyCelestial, this.skyStarThresh, this.skySunSize, this.skyMoonSize);
         Mesh mesh = this.screen;
         Mesh mesh2 = null;
         if (mesh == null) {
@@ -3272,14 +3639,36 @@ public final class SceneRenderer implements GLSurfaceView.Renderer {
                 } else {
                     CFrame cf = PartData.INSTANCE.cframe(p);
                     Vector3 size = PartData.INSTANCE.size(p);
-                    if (inView(cf, size, cp)) {
+                    Vector3 cullSize = size;
+                    for (Instance chCull : p.getChildren()) {
+                        String chCn = chCull.getClassName();
+                        if (Intrinsics.areEqual(chCn, "SpecialMesh") || Intrinsics.areEqual(chCn, "FileMesh")) {
+                            Object scObj = chCull.get("Scale");
+                            if (scObj instanceof Vector3) {
+                                Vector3 smSc = (Vector3) scObj;
+                                cullSize = new Vector3(
+                                    Math.max(size.getX(), Math.abs(smSc.getX()) * Math.max(size.getX(), 2.0f)),
+                                    Math.max(size.getY(), Math.abs(smSc.getY()) * Math.max(size.getY(), 2.0f)),
+                                    Math.max(size.getZ(), Math.abs(smSc.getZ()) * Math.max(size.getZ(), 2.0f))
+                                );
+                            }
+                            break;
+                        }
+                    }
+                    if (inView(cf, cullSize, cp)) {
                         int mat = PartData.INSTANCE.material(p);
                         if (t <= 0.01f) {
                             mesh4 = meshDrawPart$default2;
                             if (mat != 1568 && mat != 1584) {
                                 if (!Intrinsics.areEqual(p.getClassName(), "NegateOperation")) {
                                     Geo g2 = geometry(p);
-                                    if (g2.getKind() == 2) {
+                                    if (g2.getKind() == 2 && g2.saAlphaMode == 1) {
+                                        transparent.add(new Draw(p, cf.getPosition().minus(cp).getMagnitude()));
+                                        str5 = str2;
+                                        play2 = play;
+                                        meshDrawPart$default2 = mesh4;
+                                        continue;
+                                    } else if (g2.getKind() == 2) {
                                         fileMeshes.add(TuplesKt.to(p, g2));
                                     } else if (texProg2 != null && (texBindTexturesFor2 = texturesFor(p, mat)) != null) {
                                         textured.add(new Triple(p, g2, texBindTexturesFor2));
@@ -3508,8 +3897,8 @@ public final class SceneRenderer implements GLSurfaceView.Renderer {
         GLES20.glUniform1f(this.uEnvSpec, this.envSpec);
         GLES20.glUniform4f(this.uCCParams, this.ccBright, this.ccContrast, this.ccSat, (this.ccBright != 0.0f || this.ccContrast != 0.0f || this.ccSat != 0.0f || this.ccTint[0] < 0.999f || this.ccTint[1] < 0.999f || this.ccTint[2] < 0.999f) ? 1.0f : 0.0f);
         GLES20.glUniform3fv(this.uCCTint, 1, this.ccTint, 0);
-        GLES20.glUniform4f(this.uBloom, this.bloomInt, this.bloomThresh, this.bloomSize, 0.0f);
-        GLES20.glUniform4f(this.uDof, this.dofFocus, this.dofRadius, Math.max(this.dofFar, this.blurAmt), Math.max(this.dofNear, this.blurAmt));
+        GLES20.glUniform4f(this.uBloom, this.bloomInt, this.bloomThresh, this.bloomSize, this.frameHdrScale);
+        GLES20.glUniform4f(this.uDof, this.dofFocus, this.dofRadius, this.dofFar, this.dofNear);
         GLES20.glUniform3fv(this.uAmbRgb, 1, this.ambRgb, 0);
         GLES20.glUniform4f(this.uLightingFlags, (float) this.effectiveTech, this.retroTonemap, this.envSpec, this.directSpecEnable);
         GLES20.glUniform3fv(this.uIndoorAmb, 1, this.indoorAmb, 0);
@@ -3783,8 +4172,8 @@ public final class SceneRenderer implements GLSurfaceView.Renderer {
             GLES20.glUniform1i(this.mPbrMetal, 4);
             GLES20.glUniform4f(this.mCCParams, this.ccBright, this.ccContrast, this.ccSat, (this.ccBright != 0.0f || this.ccContrast != 0.0f || this.ccSat != 0.0f || this.ccTint[0] < 0.999f || this.ccTint[1] < 0.999f || this.ccTint[2] < 0.999f) ? 1.0f : 0.0f);
             GLES20.glUniform3fv(this.mCCTint, 1, this.ccTint, 0);
-            GLES20.glUniform4f(this.mBloom, this.bloomInt, this.bloomThresh, this.bloomSize, 0.0f);
-            GLES20.glUniform4f(this.mDof, this.dofFocus, this.dofRadius, Math.max(this.dofFar, this.blurAmt), Math.max(this.dofNear, this.blurAmt));
+            GLES20.glUniform4f(this.mBloom, this.bloomInt, this.bloomThresh, this.bloomSize, this.frameHdrScale);
+            GLES20.glUniform4f(this.mDof, this.dofFocus, this.dofRadius, this.dofFar, this.dofNear);
             GLES20.glUniform3fv(this.mAmbRgb, 1, this.ambRgb, 0);
             GLES20.glUniform4f(this.mLightingFlags, (float) this.effectiveTech, this.retroTonemap, this.envSpec, this.directSpecEnable);
             GLES20.glUniform3fv(this.mIndoorAmb, 1, this.indoorAmb, 0);
@@ -3830,7 +4219,7 @@ public final class SceneRenderer implements GLSurfaceView.Renderer {
         }
         GLES20.glUniform3f(this.mTint, t.getX(), t.getY(), t.getZ());
         int mat = PartData.INSTANCE.material(p);
-        GLES20.glUniform1f(this.mEmissive, mat == 288 ? 1.0f : 0.0f);
+        GLES20.glUniform1f(this.mEmissive, (mat == 288 || mat == 1584) ? 1.0f : 0.0f);
         setModel(g.getCf(), g.getScale());
         GLES20.glUniformMatrix4fv(this.mModel, 1, false, this.model, 0);
         GLES20.glUniformMatrix3fv(this.mNrm, 1, false, this.normal, 0);
@@ -3843,12 +4232,17 @@ public final class SceneRenderer implements GLSurfaceView.Renderer {
         GLES20.glEnableVertexAttribArray(this.maUv);
         GLES20.glVertexAttribPointer(this.maUv, 2, 5126, false, 32, 24);
         boolean ds = Intrinsics.areEqual(p.get("DoubleSided"), Boolean.TRUE) || g.saAlphaMode == 1;
+        boolean negDet = (g.getScale().getX() * g.getScale().getY() * g.getScale().getZ()) < 0.0f;
         if (ds) {
             GLES20.glDisable(2884);
+        } else if (negDet) {
+            GLES20.glFrontFace(2304);
         }
         GLES20.glDrawArrays(m.getMode(), 0, m.getCount());
         if (ds) {
             GLES20.glEnable(2884);
+        } else if (negDet) {
+            GLES20.glFrontFace(2305);
         }
         GLES20.glDisableVertexAttribArray(this.maUv);
     }
@@ -4664,6 +5058,7 @@ public final class SceneRenderer implements GLSurfaceView.Renderer {
         int i2 = 1;
         boolean z2 = false;
         GLES20.glUniformMatrix4fv(this.lVP, 1, false, this.studio.getView().getVp(), 0);
+        GLES20.glUniform1f(this.lHdrScale, this.frameHdrScale);
         int i3 = 3042;
         GLES20.glEnable(3042);
         GLES20.glBlendFunc(770, 771);
@@ -6243,6 +6638,7 @@ public final class SceneRenderer implements GLSurfaceView.Renderer {
         GLES20.glUniform3f(this.cLight, this.sunDir.getX(), this.sunDir.getY(), this.sunDir.getZ());
         GLES20.glUniform3fv(this.cSun, 1, this.sunColor, 0);
         GLES20.glUniform1f(this.cAmbient, this.decalAmbient);
+        GLES20.glUniform1f(this.cHdrScale, this.frameHdrScale);
         GLES20.glUniform1i(this.cTex, 0);
         int i = 33984;
         GLES20.glActiveTexture(33984);
@@ -6470,6 +6866,7 @@ public final class SceneRenderer implements GLSurfaceView.Renderer {
         }
         GLES20.glUseProgram(this.line);
         GLES20.glUniformMatrix4fv(this.lVP, 1, false, this.studio.getView().getVp(), 0);
+        GLES20.glUniform1f(this.lHdrScale, this.frameHdrScale);
         Mesh mesh = this.boxLines;
         List list = null;
         if (mesh == null) {

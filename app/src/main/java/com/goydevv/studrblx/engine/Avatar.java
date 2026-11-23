@@ -1991,15 +1991,14 @@ public final class Avatar {
                         instance2 = instance16;
                     } else {
                         instance2 = (Instance) linkedHashMap2.get(tpl5.getName());
-                        if (instance2 != null) {
-                            if (!setNewSetFromMap.contains(instance2)) {
-                                instance2 = null;
-                            }
-                            if (instance2 == null) {
-                            }
+                        if (instance2 != null && !setNewSetFromMap.contains(instance2)) {
+                            instance2 = null;
                         }
+                    }
+                    if (instance2 == null) {
                         it15 = it;
                         arrayDeque2 = arrayDeque;
+                        continue;
                     }
                     ArrayList<Instance> children2 = instance2.getChildren();
                     Iterator it20 = children2.iterator();

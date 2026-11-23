@@ -31,6 +31,14 @@ public final class AssetFetcher {
     private static final ConcurrentHashMap<Long, Long> imageFailed;
     private static final ConcurrentHashMap.KeySetView<Long, Boolean> imagePending;
     public static final AssetFetcher INSTANCE = new AssetFetcher();
+    public static final String[] IMAGE_WRAPPER_KEYS = new String[]{
+        "ShirtTemplate", "PantsTemplate", "Graphic",
+        "Texture", "TextureId", "TextureID", "TextureContent",
+        "Image", "ImageContent",
+        "ColorMap", "ColorMapContent",
+        "SkyboxBk", "SkyboxDn", "SkyboxFt", "SkyboxLf", "SkyboxRt", "SkyboxUp",
+        "SkyboxBkContent", "SkyboxDnContent", "SkyboxFtContent", "SkyboxLfContent", "SkyboxRtContent", "SkyboxUpContent"
+    };
     private static final ExecutorService pool = Executors.newFixedThreadPool(3);
     private static final ConcurrentHashMap.KeySetView<Long, Boolean> pending = ConcurrentHashMap.newKeySet();
     private static final ConcurrentHashMap<Long, Long> failed = new ConcurrentHashMap<>();
@@ -308,7 +316,7 @@ public final class AssetFetcher {
                 RbxDocument doc = RbxFile.INSTANCE.read(bytes);
                 for (Instance r : doc.getRoots()) {
                     for (Instance i : (List<Instance>) CollectionsKt.plus((Collection) CollectionsKt.listOf(r), (Iterable) Instance.descendants$default(r, null, 1, null))) {
-                        for (String k : CollectionsKt.listOf(new String[]{"ShirtTemplate", "PantsTemplate", "Graphic", "Texture", "TextureId", "TextureID", "TextureContent", "Image", "ColorMap", "ColorMapContent"})) {
+                        for (String k : IMAGE_WRAPPER_KEYS) {
                             ImageLoader imageLoader = ImageLoader.INSTANCE;
                             Object obj = i.get(k);
                             String rawVal = obj instanceof com.goydevv.studrblx.model.ContentValue ? ((com.goydevv.studrblx.model.ContentValue) obj).getUri() : (obj != null ? obj.toString() : null);
@@ -331,6 +339,9 @@ public final class AssetFetcher {
     }
 
     public final Long idOf(Object content) {
-        return ImageLoader.INSTANCE.assetId(content != null ? content.toString() : null);
+        String raw = content instanceof com.goydevv.studrblx.model.ContentValue
+                ? ((com.goydevv.studrblx.model.ContentValue) content).getUri()
+                : (content != null ? content.toString() : null);
+        return ImageLoader.INSTANCE.assetId(raw);
     }
 }

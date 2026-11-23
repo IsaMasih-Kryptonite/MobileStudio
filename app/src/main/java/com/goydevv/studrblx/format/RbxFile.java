@@ -85,18 +85,41 @@ public final class RbxFile {
         }
     }
 
+    public final boolean isPlaceFileName(String name) {
+        if (name == null) {
+            return false;
+        }
+        String low = name.trim().toLowerCase(java.util.Locale.ROOT);
+        return low.endsWith(".rbxl") || low.endsWith(".rbxlx");
+    }
+
     public final boolean isPlace(RbxDocument doc) {
         Intrinsics.checkNotNullParameter(doc, "doc");
         Iterable roots = doc.getRoots();
         if ((roots instanceof Collection) && ((Collection) roots).isEmpty()) {
             return false;
         }
+        int serviceCount = 0;
+        boolean hasCorePlaceService = false;
         Iterator it = roots.iterator();
         while (it.hasNext()) {
-            if (Intrinsics.areEqual(((Instance) it.next()).getClassName(), "Workspace")) {
+            Instance inst = (Instance) it.next();
+            String cn = inst.getClassName();
+            if (Intrinsics.areEqual(cn, "Workspace")) {
                 return true;
             }
+            if (inst.getIsService() || com.goydevv.studrblx.model.ClassDb.INSTANCE.isServiceName(cn)) {
+                serviceCount++;
+            }
+            if ("Lighting".equals(cn) || "Players".equals(cn) || "ReplicatedStorage".equals(cn)
+                    || "ReplicatedFirst".equals(cn) || "ServerScriptService".equals(cn)
+                    || "ServerStorage".equals(cn) || "StarterGui".equals(cn)
+                    || "StarterPack".equals(cn) || "StarterPlayer".equals(cn)
+                    || "Teams".equals(cn) || "SoundService".equals(cn)
+                    || "MaterialService".equals(cn) || "TextChatService".equals(cn)) {
+                hasCorePlaceService = true;
+            }
         }
-        return false;
+        return serviceCount >= 2 && hasCorePlaceService;
     }
 }

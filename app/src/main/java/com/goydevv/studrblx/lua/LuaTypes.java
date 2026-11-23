@@ -54,6 +54,15 @@ import org.luaj.vm2.lib.VarArgFunction;
 public final class LuaTypes {
     public static final LuaTypes INSTANCE = new LuaTypes();
     private static final HashMap<Class<?>, LuaTable> metas = new HashMap<>();
+    private static volatile LuaRuntime activeRuntime;
+
+    public static LuaRuntime getActiveRuntime() {
+        return activeRuntime;
+    }
+
+    public static void setActiveRuntime(LuaRuntime rt) {
+        activeRuntime = rt;
+    }
 
     private LuaTypes() {
     }
@@ -493,7 +502,7 @@ public final class LuaTypes {
             case "Max": return INSTANCE.method(new Function1<Varargs, Varargs>() { @Override public Varargs invoke(Varargs a) { return lambda$17$lambda$14(a); } });
             case "Angle": return INSTANCE.method(new Function1<Varargs, Varargs>() { @Override public Varargs invoke(Varargs a) { return lambda$17$lambda$15(a); } });
             case "FuzzyEq": return INSTANCE.method(new Function1<Varargs, Varargs>() { @Override public Varargs invoke(Varargs a) { return lambda$17$lambda$16(a); } });
-            default: return LuaValue.NIL;
+            default: return null;
         }
     }
 
@@ -514,7 +523,7 @@ public final class LuaTypes {
         Vector3 vector3Arg4 = INSTANCE.arg3(a, 2);
         LuaValue luaValueArg = a.arg(3);
         Intrinsics.checkNotNullExpressionValue(luaValueArg, "arg(...)");
-        return luaTypes.wrap(vector3Arg3.lerp(vector3Arg4, LuaTypesKt.num(luaValueArg)));
+        return luaTypes.wrap(vector3Arg3.lerp(vector3Arg4, LuaTypesKt.optNum(luaValueArg, 0.0f)));
     }
 
     static final Varargs lambda$17$lambda$9(Varargs a) {
@@ -798,7 +807,83 @@ public final class LuaTypes {
             case "Unit": case "unit": return INSTANCE.wrap(v.getUnit());
             case "Dot": case "dot": return INSTANCE.method(new Function1<Varargs, Varargs>() { @Override public Varargs invoke(Varargs a) { return lambda$26$lambda$24(a); } });
             case "Lerp": case "lerp": return INSTANCE.method(new Function1<Varargs, Varargs>() { @Override public Varargs invoke(Varargs a) { return lambda$26$lambda$25(a); } });
-            default: return LuaValue.NIL;
+            case "Cross": case "cross": return INSTANCE.method(new Function1<Varargs, Varargs>() {
+                @Override public Varargs invoke(Varargs a) {
+                    Vector2 v1 = (Vector2) a.arg(1).touserdata();
+                    Object o2 = a.arg(2).isuserdata() ? a.arg(2).touserdata() : null;
+                    if (!(o2 instanceof Vector2)) throw new LuaError("Vector2 expected, got " + INSTANCE.typeOf(a.arg(2)));
+                    Vector2 v2 = (Vector2) o2;
+                    return INSTANCE.n(v1.getX() * v2.getY() - v1.getY() * v2.getX());
+                }
+            });
+            case "Abs": return INSTANCE.method(new Function1<Varargs, Varargs>() {
+                @Override public Varargs invoke(Varargs a) {
+                    Vector2 v1 = (Vector2) a.arg(1).touserdata();
+                    return INSTANCE.wrap(new Vector2(Math.abs(v1.getX()), Math.abs(v1.getY())));
+                }
+            });
+            case "Floor": return INSTANCE.method(new Function1<Varargs, Varargs>() {
+                @Override public Varargs invoke(Varargs a) {
+                    Vector2 v1 = (Vector2) a.arg(1).touserdata();
+                    return INSTANCE.wrap(new Vector2((float) Math.floor(v1.getX()), (float) Math.floor(v1.getY())));
+                }
+            });
+            case "Ceil": return INSTANCE.method(new Function1<Varargs, Varargs>() {
+                @Override public Varargs invoke(Varargs a) {
+                    Vector2 v1 = (Vector2) a.arg(1).touserdata();
+                    return INSTANCE.wrap(new Vector2((float) Math.ceil(v1.getX()), (float) Math.ceil(v1.getY())));
+                }
+            });
+            case "Sign": return INSTANCE.method(new Function1<Varargs, Varargs>() {
+                @Override public Varargs invoke(Varargs a) {
+                    Vector2 v1 = (Vector2) a.arg(1).touserdata();
+                    return INSTANCE.wrap(new Vector2(Math.signum(v1.getX()), Math.signum(v1.getY())));
+                }
+            });
+            case "Min": return INSTANCE.method(new Function1<Varargs, Varargs>() {
+                @Override public Varargs invoke(Varargs a) {
+                    Vector2 v1 = (Vector2) a.arg(1).touserdata();
+                    Object o2 = a.arg(2).isuserdata() ? a.arg(2).touserdata() : null;
+                    if (!(o2 instanceof Vector2)) throw new LuaError("Vector2 expected, got " + INSTANCE.typeOf(a.arg(2)));
+                    Vector2 v2 = (Vector2) o2;
+                    return INSTANCE.wrap(new Vector2(Math.min(v1.getX(), v2.getX()), Math.min(v1.getY(), v2.getY())));
+                }
+            });
+            case "Max": return INSTANCE.method(new Function1<Varargs, Varargs>() {
+                @Override public Varargs invoke(Varargs a) {
+                    Vector2 v1 = (Vector2) a.arg(1).touserdata();
+                    Object o2 = a.arg(2).isuserdata() ? a.arg(2).touserdata() : null;
+                    if (!(o2 instanceof Vector2)) throw new LuaError("Vector2 expected, got " + INSTANCE.typeOf(a.arg(2)));
+                    Vector2 v2 = (Vector2) o2;
+                    return INSTANCE.wrap(new Vector2(Math.max(v1.getX(), v2.getX()), Math.max(v1.getY(), v2.getY())));
+                }
+            });
+            case "Angle": return INSTANCE.method(new Function1<Varargs, Varargs>() {
+                @Override public Varargs invoke(Varargs a) {
+                    Vector2 v1 = (Vector2) a.arg(1).touserdata();
+                    Object o2 = a.arg(2).isuserdata() ? a.arg(2).touserdata() : null;
+                    if (!(o2 instanceof Vector2)) throw new LuaError("Vector2 expected, got " + INSTANCE.typeOf(a.arg(2)));
+                    Vector2 v2 = (Vector2) o2;
+                    boolean isSigned = a.arg(3).optboolean(false);
+                    double dot = v1.getX() * v2.getX() + v1.getY() * v2.getY();
+                    double cross = v1.getX() * v2.getY() - v1.getY() * v2.getX();
+                    double ang = Math.atan2(isSigned ? cross : Math.abs(cross), dot);
+                    return INSTANCE.n((float) ang);
+                }
+            });
+            case "FuzzyEq": return INSTANCE.method(new Function1<Varargs, Varargs>() {
+                @Override public Varargs invoke(Varargs a) {
+                    Vector2 v1 = (Vector2) a.arg(1).touserdata();
+                    Object o2 = a.arg(2).isuserdata() ? a.arg(2).touserdata() : null;
+                    if (!(o2 instanceof Vector2)) throw new LuaError("Vector2 expected, got " + INSTANCE.typeOf(a.arg(2)));
+                    Vector2 v2 = (Vector2) o2;
+                    float eps = LuaTypesKt.optNum(a.arg(3), 1.0E-5f);
+                    float dx = v1.getX() - v2.getX();
+                    float dy = v1.getY() - v2.getY();
+                    return LuaValue.valueOf(Math.sqrt(dx * dx + dy * dy) <= eps);
+                }
+            });
+            default: return null;
         }
     }
 
@@ -845,7 +930,7 @@ public final class LuaTypes {
         if (vector3 != null) {
             LuaValue luaValueArg3 = a.arg(3);
             Intrinsics.checkNotNullExpressionValue(luaValueArg3, "arg(...)");
-            return luaTypes.wrap(vector2.lerp(vector3, LuaTypesKt.num(luaValueArg3)));
+            return luaTypes.wrap(vector2.lerp(vector3, LuaTypesKt.optNum(luaValueArg3, 0.0f)));
         }
         throw new LuaError("Vector2 expected, got " + INSTANCE.typeOf(luaValueArg2));
     }
@@ -1240,11 +1325,41 @@ public final class LuaTypes {
             case "PointToObjectSpace": case "pointToObjectSpace": return INSTANCE.method(new Function1<Varargs, Varargs>() { @Override public Varargs invoke(Varargs a) { return lambda$47$lambda$38(a); } });
             case "VectorToWorldSpace": case "vectorToWorldSpace": return INSTANCE.method(new Function1<Varargs, Varargs>() { @Override public Varargs invoke(Varargs a) { return lambda$47$lambda$39(a); } });
             case "VectorToObjectSpace": case "vectorToObjectSpace": return INSTANCE.method(new Function1<Varargs, Varargs>() { @Override public Varargs invoke(Varargs a) { return lambda$47$lambda$40(a); } });
-            case "GetComponents": case "components": return INSTANCE.method(new Function1<Varargs, Varargs>() { @Override public Varargs invoke(Varargs a) { return lambda$47$lambda$41(a); } });
-            case "ToEulerAnglesXYZ": case "toEulerAnglesXYZ": return INSTANCE.method(new Function1<Varargs, Varargs>() { @Override public Varargs invoke(Varargs a) { return lambda$47$lambda$42(a); } });
-            case "ToEulerAnglesYXZ": case "toEulerAnglesYXZ": case "ToOrientation": case "toOrientation": return INSTANCE.method(new Function1<Varargs, Varargs>() { @Override public Varargs invoke(Varargs a) { return lambda$47$lambda$44(a); } });
+            case "GetComponents": case "components": return INSTANCE.method(new Function1<Varargs, Varargs>() { @Override public Varargs invoke(Varargs a) { return lambda$47$lambda$44(a); } });
+            case "ToEulerAnglesXYZ": case "toEulerAnglesXYZ": return INSTANCE.method(new Function1<Varargs, Varargs>() { @Override public Varargs invoke(Varargs a) { return lambda$47$lambda$41(a); } });
+            case "ToEulerAnglesYXZ": case "toEulerAnglesYXZ": case "ToOrientation": case "toOrientation": return INSTANCE.method(new Function1<Varargs, Varargs>() { @Override public Varargs invoke(Varargs a) { return lambda$47$lambda$42(a); } });
+            case "Orthonormalize": case "orthonormalize": return INSTANCE.method(new Function1<Varargs, Varargs>() { @Override public Varargs invoke(Varargs a) { return lambda$47$lambda$45(a); } });
             case "ToAxisAngle": case "toAxisAngle": return INSTANCE.method(new Function1<Varargs, Varargs>() { @Override public Varargs invoke(Varargs a) { return lambda$47$lambda$46(a); } });
-            default: return LuaValue.NIL;
+            case "FuzzyEq": return INSTANCE.method(new Function1<Varargs, Varargs>() {
+                @Override public Varargs invoke(Varargs a) {
+                    Object o1 = a.arg(1).isuserdata() ? a.arg(1).touserdata() : null;
+                    Object o2 = a.arg(2).isuserdata() ? a.arg(2).touserdata() : null;
+                    if (!(o1 instanceof CFrame) || !(o2 instanceof CFrame)) {
+                        throw new LuaError("CFrame expected");
+                    }
+                    float eps = LuaTypesKt.optNum(a.arg(3), 1.0E-5f);
+                    float[] c1 = ((CFrame) o1).components();
+                    float[] c2 = ((CFrame) o2).components();
+                    for (int i = 0; i < 12; i++) {
+                        if (Math.abs(c1[i] - c2[i]) > eps) return LuaValue.FALSE;
+                    }
+                    return LuaValue.TRUE;
+                }
+            });
+            case "AngleBetween": return INSTANCE.method(new Function1<Varargs, Varargs>() {
+                @Override public Varargs invoke(Varargs a) {
+                    Object o1 = a.arg(1).isuserdata() ? a.arg(1).touserdata() : null;
+                    Object o2 = a.arg(2).isuserdata() ? a.arg(2).touserdata() : null;
+                    if (!(o1 instanceof CFrame) || !(o2 instanceof CFrame)) {
+                        throw new LuaError("CFrame expected");
+                    }
+                    CFrame rel = ((CFrame) o1).inverse().times((CFrame) o2);
+                    float[] q = rel.toQuaternion();
+                    float ang = (float) (2.0 * Math.acos(RangesKt.coerceIn(Math.abs(q[3]), 0.0f, 1.0f)));
+                    return INSTANCE.n(ang);
+                }
+            });
+            default: return null;
         }
     }
 
@@ -1281,7 +1396,7 @@ public final class LuaTypes {
         if (cFrame2 != null) {
             LuaValue luaValueArg3 = a.arg(3);
             Intrinsics.checkNotNullExpressionValue(luaValueArg3, "arg(...)");
-            return luaTypes.wrap(cFrame.lerp(cFrame2, LuaTypesKt.num(luaValueArg3)));
+            return luaTypes.wrap(cFrame.lerp(cFrame2, LuaTypesKt.optNum(luaValueArg3, 0.0f)));
         }
         throw new LuaError("CFrame expected, got " + INSTANCE.typeOf(luaValueArg2));
     }
@@ -1657,7 +1772,7 @@ public final class LuaTypes {
             case "Lerp": case "lerp": return INSTANCE.method(new Function1<Varargs, Varargs>() { @Override public Varargs invoke(Varargs a) { return lambda$55$lambda$52(a); } });
             case "ToHSV": case "toHSV": return INSTANCE.method(new Function1<Varargs, Varargs>() { @Override public Varargs invoke(Varargs a) { return lambda$55$lambda$53(a); } });
             case "ToHex": case "toHex": return INSTANCE.method(new Function1<Varargs, Varargs>() { @Override public Varargs invoke(Varargs a) { return lambda$55$lambda$54(a); } });
-            default: return LuaValue.NIL;
+            default: return null;
         }
     }
 
@@ -1681,7 +1796,7 @@ public final class LuaTypes {
         if (color4 != null) {
             LuaValue luaValueArg3 = a.arg(3);
             Intrinsics.checkNotNullExpressionValue(luaValueArg3, "arg(...)");
-            return luaTypes.wrap(color3.lerp(color4, LuaTypesKt.num(luaValueArg3)));
+            return luaTypes.wrap(color3.lerp(color4, LuaTypesKt.optNum(luaValueArg3, 0.0f)));
         }
         throw new LuaError("Color3 expected, got " + INSTANCE.typeOf(luaValueArg2));
     }
@@ -1877,6 +1992,7 @@ public final class LuaTypes {
             case "Height":
                 return INSTANCE.wrap(new UDim(u.getYs(), u.getYo()));
             case "Lerp":
+            case "lerp":
                 return INSTANCE.method(new Function1() {
                     @Override
                     public final Object invoke(Object a) {
@@ -1908,7 +2024,7 @@ public final class LuaTypes {
         if (uDim3 != null) {
             LuaValue luaValueArg3 = a.arg(3);
             Intrinsics.checkNotNullExpressionValue(luaValueArg3, "arg(...)");
-            return luaTypes.wrap(uDim2.lerp(uDim3, LuaTypesKt.num(luaValueArg3)));
+            return luaTypes.wrap(uDim2.lerp(uDim3, LuaTypesKt.optNum(luaValueArg3, 0.0f)));
         }
         throw new LuaError("UDim2 expected, got " + INSTANCE.typeOf(luaValueArg2));
     }
@@ -2264,6 +2380,19 @@ public final class LuaTypes {
                 }
                 return null;
             default:
+                if (k.equals("Distance")) {
+                    return INSTANCE.method(new Function1<Varargs, Varargs>() {
+                        @Override public Varargs invoke(Varargs a) {
+                            LuaValue pArg = a.arg(2);
+                            Object o = pArg.isuserdata() ? pArg.touserdata() : null;
+                            if (!(o instanceof Vector3)) throw new LuaError("Vector3 expected, got " + INSTANCE.typeOf(pArg));
+                            Vector3 p = (Vector3) o;
+                            Vector3 d = r.getDirection().getUnit();
+                            Vector3 closest = r.getOrigin().plus(d.times(RangesKt.coerceAtLeast(p.minus(r.getOrigin()).dot(d), 0.0f)));
+                            return INSTANCE.n(p.minus(closest).getMagnitude());
+                        }
+                    });
+                }
                 return null;
         }
     }
@@ -2323,7 +2452,7 @@ public final class LuaTypes {
         Intrinsics.checkNotNullParameter(a, "a");
         LuaValue luaValueArg = a.arg(2);
         Intrinsics.checkNotNullExpressionValue(luaValueArg, "arg(...)");
-        float res = RangesKt.coerceAtLeast(LuaTypesKt.num(luaValueArg), 0.001f);
+        float res = RangesKt.coerceAtLeast(LuaTypesKt.optNum(luaValueArg, 4.0f), 0.001f);
         return INSTANCE.wrap(new Region3V(new Vector3(lambda$84$lambda$83$lo(res, $r.getMin().getX()), lambda$84$lambda$83$lo(res, $r.getMin().getY()), lambda$84$lambda$83$lo(res, $r.getMin().getZ())), new Vector3(lambda$84$lambda$83$hi(res, $r.getMax().getX()), lambda$84$lambda$83$hi(res, $r.getMax().getY()), lambda$84$lambda$83$hi(res, $r.getMax().getZ()))));
     }
 
@@ -2392,6 +2521,13 @@ public final class LuaTypes {
                 }
                 return null;
             default:
+                if (k.equals("Clone")) {
+                    return INSTANCE.method(new Function1<Varargs, Varargs>() {
+                        @Override public Varargs invoke(Varargs a) {
+                            return INSTANCE.wrap(new RandomV(r.nextLong()));
+                        }
+                    });
+                }
                 return null;
         }
     }
@@ -2462,6 +2598,10 @@ public final class LuaTypes {
                 }
                 return null;
             default:
+                if (k.equals("Instance")) {
+                    LuaRuntime rt = activeRuntime;
+                    return rt != null ? rt.wrap(h.getInst()) : LuaValue.NIL;
+                }
                 return null;
         }
     }
@@ -2844,6 +2984,51 @@ public final class LuaTypes {
             }
         });
         g.set("Enum", enumLib());
+        LuaTable facesLib = new LuaTable();
+        facesLib.set("new", LuaTypesKt.fnv(new Function1<Varargs, Varargs>() {
+            @Override public Varargs invoke(Varargs a) {
+                LuaTable t = new LuaTable();
+                t.set("Right", LuaValue.FALSE); t.set("Top", LuaValue.FALSE); t.set("Back", LuaValue.FALSE);
+                t.set("Left", LuaValue.FALSE); t.set("Bottom", LuaValue.FALSE); t.set("Front", LuaValue.FALSE);
+                for (int i = 1; i <= a.narg(); i++) {
+                    LuaValue arg = a.arg(i);
+                    Object o = arg.isuserdata() ? arg.touserdata() : null;
+                    if (o instanceof EnumItemV) {
+                        t.set(((EnumItemV) o).getName(), LuaValue.TRUE);
+                    }
+                }
+                LuaTable mt = new LuaTable();
+                mt.set("__type", "Faces");
+                t.setmetatable(mt);
+                return t;
+            }
+        }));
+        g.set("Faces", facesLib);
+        LuaTable axesLib = new LuaTable();
+        axesLib.set("new", LuaTypesKt.fnv(new Function1<Varargs, Varargs>() {
+            @Override public Varargs invoke(Varargs a) {
+                LuaTable t = new LuaTable();
+                t.set("X", LuaValue.FALSE); t.set("Y", LuaValue.FALSE); t.set("Z", LuaValue.FALSE);
+                t.set("Right", LuaValue.FALSE); t.set("Top", LuaValue.FALSE); t.set("Back", LuaValue.FALSE);
+                t.set("Left", LuaValue.FALSE); t.set("Bottom", LuaValue.FALSE); t.set("Front", LuaValue.FALSE);
+                for (int i = 1; i <= a.narg(); i++) {
+                    LuaValue arg = a.arg(i);
+                    Object o = arg.isuserdata() ? arg.touserdata() : null;
+                    if (o instanceof EnumItemV) {
+                        String n = ((EnumItemV) o).getName();
+                        t.set(n, LuaValue.TRUE);
+                        if ("Right".equals(n) || "Left".equals(n)) t.set("X", LuaValue.TRUE);
+                        if ("Top".equals(n) || "Bottom".equals(n)) t.set("Y", LuaValue.TRUE);
+                        if ("Front".equals(n) || "Back".equals(n)) t.set("Z", LuaValue.TRUE);
+                    }
+                }
+                LuaTable mt = new LuaTable();
+                mt.set("__type", "Axes");
+                t.setmetatable(mt);
+                return t;
+            }
+        }));
+        g.set("Axes", axesLib);
     }
 
     static final Unit install$lambda$109(LuaTable lib) {
@@ -3054,117 +3239,71 @@ public final class LuaTypes {
         if (n == 0) {
             return INSTANCE.wrap(CFrame.INSTANCE.getIDENTITY());
         }
-        if (n != 1) {
-            if (n != 2 || !a.arg(1).isuserdata()) {
-                if (n == 3) {
-                    LuaTypes luaTypes = INSTANCE;
-                    LuaValue luaValueArg = a.arg(1);
-                    Intrinsics.checkNotNullExpressionValue(luaValueArg, "arg(...)");
-                    float fNum = LuaTypesKt.num(luaValueArg);
-                    LuaValue luaValueArg2 = a.arg(2);
-                    Intrinsics.checkNotNullExpressionValue(luaValueArg2, "arg(...)");
-                    float fNum2 = LuaTypesKt.num(luaValueArg2);
-                    LuaValue luaValueArg3 = a.arg(3);
-                    Intrinsics.checkNotNullExpressionValue(luaValueArg3, "arg(...)");
-                    return luaTypes.wrap(new CFrame(fNum, fNum2, LuaTypesKt.num(luaValueArg3), 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 4088, null));
-                }
-                if (n == 7) {
-                    LuaTypes luaTypes2 = INSTANCE;
-                    CFrame.Companion companion = CFrame.INSTANCE;
-                    LuaValue luaValueArg4 = a.arg(1);
-                    Intrinsics.checkNotNullExpressionValue(luaValueArg4, "arg(...)");
-                    float fNum3 = LuaTypesKt.num(luaValueArg4);
-                    LuaValue luaValueArg5 = a.arg(2);
-                    Intrinsics.checkNotNullExpressionValue(luaValueArg5, "arg(...)");
-                    float fNum4 = LuaTypesKt.num(luaValueArg5);
-                    LuaValue luaValueArg6 = a.arg(3);
-                    Intrinsics.checkNotNullExpressionValue(luaValueArg6, "arg(...)");
-                    Vector3 vector3 = new Vector3(fNum3, fNum4, LuaTypesKt.num(luaValueArg6));
-                    LuaValue luaValueArg7 = a.arg(4);
-                    Intrinsics.checkNotNullExpressionValue(luaValueArg7, "arg(...)");
-                    float fNum5 = LuaTypesKt.num(luaValueArg7);
-                    LuaValue luaValueArg8 = a.arg(5);
-                    Intrinsics.checkNotNullExpressionValue(luaValueArg8, "arg(...)");
-                    float fNum6 = LuaTypesKt.num(luaValueArg8);
-                    LuaValue luaValueArg9 = a.arg(6);
-                    Intrinsics.checkNotNullExpressionValue(luaValueArg9, "arg(...)");
-                    float fNum7 = LuaTypesKt.num(luaValueArg9);
-                    LuaValue luaValueArg10 = a.arg(7);
-                    Intrinsics.checkNotNullExpressionValue(luaValueArg10, "arg(...)");
-                    return luaTypes2.wrap(companion.fromQuaternion(vector3, fNum5, fNum6, fNum7, LuaTypesKt.num(luaValueArg10)));
-                }
-                if (n >= 12) {
-                    LuaTypes luaTypes3 = INSTANCE;
-                    LuaValue luaValueArg11 = a.arg(1);
-                    Intrinsics.checkNotNullExpressionValue(luaValueArg11, "arg(...)");
-                    float fNum8 = LuaTypesKt.num(luaValueArg11);
-                    LuaValue luaValueArg12 = a.arg(2);
-                    Intrinsics.checkNotNullExpressionValue(luaValueArg12, "arg(...)");
-                    float fNum9 = LuaTypesKt.num(luaValueArg12);
-                    LuaValue luaValueArg13 = a.arg(3);
-                    Intrinsics.checkNotNullExpressionValue(luaValueArg13, "arg(...)");
-                    float fNum10 = LuaTypesKt.num(luaValueArg13);
-                    LuaValue luaValueArg14 = a.arg(4);
-                    Intrinsics.checkNotNullExpressionValue(luaValueArg14, "arg(...)");
-                    float fNum11 = LuaTypesKt.num(luaValueArg14);
-                    LuaValue luaValueArg15 = a.arg(5);
-                    Intrinsics.checkNotNullExpressionValue(luaValueArg15, "arg(...)");
-                    float fNum12 = LuaTypesKt.num(luaValueArg15);
-                    LuaValue luaValueArg16 = a.arg(6);
-                    Intrinsics.checkNotNullExpressionValue(luaValueArg16, "arg(...)");
-                    float fNum13 = LuaTypesKt.num(luaValueArg16);
-                    LuaValue luaValueArg17 = a.arg(7);
-                    Intrinsics.checkNotNullExpressionValue(luaValueArg17, "arg(...)");
-                    float fNum14 = LuaTypesKt.num(luaValueArg17);
-                    LuaValue luaValueArg18 = a.arg(8);
-                    Intrinsics.checkNotNullExpressionValue(luaValueArg18, "arg(...)");
-                    float fNum15 = LuaTypesKt.num(luaValueArg18);
-                    LuaValue luaValueArg19 = a.arg(9);
-                    Intrinsics.checkNotNullExpressionValue(luaValueArg19, "arg(...)");
-                    float fNum16 = LuaTypesKt.num(luaValueArg19);
-                    LuaValue luaValueArg20 = a.arg(10);
-                    Intrinsics.checkNotNullExpressionValue(luaValueArg20, "arg(...)");
-                    float fNum17 = LuaTypesKt.num(luaValueArg20);
-                    LuaValue luaValueArg21 = a.arg(11);
-                    Intrinsics.checkNotNullExpressionValue(luaValueArg21, "arg(...)");
-                    float fNum18 = LuaTypesKt.num(luaValueArg21);
-                    LuaValue luaValueArg22 = a.arg(12);
-                    Intrinsics.checkNotNullExpressionValue(luaValueArg22, "arg(...)");
-                    return luaTypes3.wrap(new CFrame(fNum8, fNum9, fNum10, fNum11, fNum12, fNum13, fNum14, fNum15, fNum16, fNum17, fNum18, LuaTypesKt.num(luaValueArg22)));
-                }
-                throw new LuaError("Invalid number of arguments: " + n);
+        if (n == 1) {
+            LuaValue arg1 = a.arg(1);
+            if (arg1.isnil()) {
+                return INSTANCE.wrap(CFrame.INSTANCE.getIDENTITY());
             }
-            LuaTypes luaTypes4 = INSTANCE;
-            CFrame.Companion companion2 = CFrame.INSTANCE;
-            LuaValue luaValueArg23 = a.arg(1);
-            Intrinsics.checkNotNullExpressionValue(luaValueArg23, "arg(...)");
-            Object obj = luaValueArg23.isuserdata() ? luaValueArg23.touserdata() : null;
-            if (!(obj instanceof Vector3)) {
-                obj = null;
+            Object obj = arg1.isuserdata() ? arg1.touserdata() : null;
+            if (obj instanceof Vector3) {
+                return INSTANCE.wrap(CFrame.INSTANCE.at((Vector3) obj));
             }
-            Vector3 vector4 = (Vector3) obj;
-            if (vector4 == null) {
-                throw new LuaError("Vector3 expected, got " + INSTANCE.typeOf(luaValueArg23));
+            if (obj instanceof CFrame) {
+                return INSTANCE.wrap(obj);
             }
-            LuaValue luaValueArg24 = a.arg(2);
-            Intrinsics.checkNotNullExpressionValue(luaValueArg24, "arg(...)");
-            Object obj2 = luaValueArg24.isuserdata() ? luaValueArg24.touserdata() : null;
-            Vector3 vector5 = (Vector3) (obj2 instanceof Vector3 ? obj2 : null);
-            if (vector5 != null) {
-                return luaTypes4.wrap(CFrame.Companion.lookAt$default(companion2, vector4, vector5, null, 4, null));
-            }
-            throw new LuaError("Vector3 expected, got " + INSTANCE.typeOf(luaValueArg24));
+            throw new LuaError("Vector3 expected, got " + INSTANCE.typeOf(arg1));
         }
-        LuaTypes luaTypes5 = INSTANCE;
-        CFrame.Companion companion3 = CFrame.INSTANCE;
-        LuaValue luaValueArg25 = a.arg(1);
-        Intrinsics.checkNotNullExpressionValue(luaValueArg25, "arg(...)");
-        Object obj3 = luaValueArg25.isuserdata() ? luaValueArg25.touserdata() : null;
-        Vector3 vector6 = (Vector3) (obj3 instanceof Vector3 ? obj3 : null);
-        if (vector6 != null) {
-            return luaTypes5.wrap(companion3.at(vector6));
+        if (n == 2 && a.arg(1).isuserdata()) {
+            LuaValue arg1 = a.arg(1);
+            Object obj1 = arg1.touserdata();
+            if (!(obj1 instanceof Vector3)) {
+                throw new LuaError("Vector3 expected, got " + INSTANCE.typeOf(arg1));
+            }
+            LuaValue arg2 = a.arg(2);
+            if (arg2.isnil()) {
+                return INSTANCE.wrap(CFrame.INSTANCE.at((Vector3) obj1));
+            }
+            Object obj2 = arg2.isuserdata() ? arg2.touserdata() : null;
+            if (obj2 instanceof Vector3) {
+                return INSTANCE.wrap(CFrame.Companion.lookAt$default(CFrame.INSTANCE, (Vector3) obj1, (Vector3) obj2, null, 4, null));
+            }
+            throw new LuaError("Vector3 expected, got " + INSTANCE.typeOf(arg2));
         }
-        throw new LuaError("Vector3 expected, got " + INSTANCE.typeOf(luaValueArg25));
+        if (n == 3) {
+            return INSTANCE.wrap(new CFrame(
+                LuaTypesKt.optNum(a.arg(1), 0.0f),
+                LuaTypesKt.optNum(a.arg(2), 0.0f),
+                LuaTypesKt.optNum(a.arg(3), 0.0f),
+                0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 4088, null));
+        }
+        if (n == 7) {
+            Vector3 pos = new Vector3(
+                LuaTypesKt.optNum(a.arg(1), 0.0f),
+                LuaTypesKt.optNum(a.arg(2), 0.0f),
+                LuaTypesKt.optNum(a.arg(3), 0.0f));
+            return INSTANCE.wrap(CFrame.INSTANCE.fromQuaternion(
+                pos,
+                LuaTypesKt.optNum(a.arg(4), 0.0f),
+                LuaTypesKt.optNum(a.arg(5), 0.0f),
+                LuaTypesKt.optNum(a.arg(6), 0.0f),
+                LuaTypesKt.optNum(a.arg(7), 1.0f)));
+        }
+        if (n >= 12) {
+            return INSTANCE.wrap(new CFrame(
+                LuaTypesKt.optNum(a.arg(1), 0.0f),
+                LuaTypesKt.optNum(a.arg(2), 0.0f),
+                LuaTypesKt.optNum(a.arg(3), 0.0f),
+                LuaTypesKt.optNum(a.arg(4), 1.0f),
+                LuaTypesKt.optNum(a.arg(5), 0.0f),
+                LuaTypesKt.optNum(a.arg(6), 0.0f),
+                LuaTypesKt.optNum(a.arg(7), 0.0f),
+                LuaTypesKt.optNum(a.arg(8), 1.0f),
+                LuaTypesKt.optNum(a.arg(9), 0.0f),
+                LuaTypesKt.optNum(a.arg(10), 0.0f),
+                LuaTypesKt.optNum(a.arg(11), 0.0f),
+                LuaTypesKt.optNum(a.arg(12), 1.0f)));
+        }
+        throw new LuaError("Invalid number of arguments: " + n);
     }
 
     static final Varargs install$lambda$126$lambda$119(Varargs a) {
@@ -3292,7 +3431,7 @@ public final class LuaTypes {
         if (vector3 != null) {
             LuaValue luaValueArg2 = a.arg(2);
             Intrinsics.checkNotNullExpressionValue(luaValueArg2, "arg(...)");
-            return luaTypes.wrap(companion.fromAxisAngle(vector3, LuaTypesKt.num(luaValueArg2)));
+            return luaTypes.wrap(companion.fromAxisAngle(vector3, LuaTypesKt.optNum(luaValueArg2, 0.0f)));
         }
         throw new LuaError("Vector3 expected, got " + INSTANCE.typeOf(luaValueArg));
     }
@@ -3365,10 +3504,18 @@ public final class LuaTypes {
                 return LuaTypes.install$lambda$132$lambda$130((LuaValue) obj);
             }
         }));
-        lib.set("toHSV", LuaTypesKt.fn1(new Function1() { // from class: com.goydevv.studrblx.lua.LuaTypes$$ExternalSyntheticLambda132
+        lib.set("toHSV", LuaTypesKt.fnv(new Function1() { // from class: com.goydevv.studrblx.lua.LuaTypes$$ExternalSyntheticLambda132
             @Override // kotlin.jvm.functions.Function1
             public final Object invoke(Object obj) {
-                return LuaTypes.install$lambda$132$lambda$131((LuaValue) obj);
+                Varargs args = (Varargs) obj;
+                LuaValue a = args.arg(1);
+                Object obj2 = a.isuserdata() ? a.touserdata() : null;
+                Color3 color3 = (Color3) (obj2 instanceof Color3 ? obj2 : null);
+                if (color3 != null) {
+                    float[] h = color3.toHSV();
+                    return LuaValue.varargsOf(new LuaValue[]{INSTANCE.n(h[0]), INSTANCE.n(h[1]), INSTANCE.n(h[2])});
+                }
+                throw new LuaError("Color3 expected, got " + INSTANCE.typeOf(a));
             }
         }));
         return Unit.INSTANCE;
@@ -3399,13 +3546,13 @@ public final class LuaTypes {
         Color3.Companion companion = Color3.INSTANCE;
         LuaValue luaValueArg = a.arg(1);
         Intrinsics.checkNotNullExpressionValue(luaValueArg, "arg(...)");
-        float fNum = LuaTypesKt.num(luaValueArg);
+        float fNum = LuaTypesKt.optNum(luaValueArg, 0.0f);
         LuaValue luaValueArg2 = a.arg(2);
         Intrinsics.checkNotNullExpressionValue(luaValueArg2, "arg(...)");
-        float fNum2 = LuaTypesKt.num(luaValueArg2);
+        float fNum2 = LuaTypesKt.optNum(luaValueArg2, 0.0f);
         LuaValue luaValueArg3 = a.arg(3);
         Intrinsics.checkNotNullExpressionValue(luaValueArg3, "arg(...)");
-        return luaTypes.wrap(companion.fromHSV(fNum, fNum2, LuaTypesKt.num(luaValueArg3)));
+        return luaTypes.wrap(companion.fromHSV(fNum, fNum2, LuaTypesKt.optNum(luaValueArg3, 0.0f)));
     }
 
     static final LuaValue install$lambda$132$lambda$130(LuaValue a) {
@@ -3475,13 +3622,13 @@ public final class LuaTypes {
             BrickColors brickColors = BrickColors.INSTANCE;
             LuaValue luaValueArg = a.arg(1);
             Intrinsics.checkNotNullExpressionValue(luaValueArg, "arg(...)");
-            float fNum = LuaTypesKt.num(luaValueArg);
+            float fNum = LuaTypesKt.optNum(luaValueArg, 0.0f);
             LuaValue luaValueArg2 = a.arg(2);
             Intrinsics.checkNotNullExpressionValue(luaValueArg2, "arg(...)");
-            float fNum2 = LuaTypesKt.num(luaValueArg2);
+            float fNum2 = LuaTypesKt.optNum(luaValueArg2, 0.0f);
             LuaValue luaValueArg3 = a.arg(3);
             Intrinsics.checkNotNullExpressionValue(luaValueArg3, "arg(...)");
-            return luaTypes.wrap(new BrickColorV(brickColors.closest(new Color3(fNum, fNum2, LuaTypesKt.num(luaValueArg3)))));
+            return luaTypes.wrap(new BrickColorV(brickColors.closest(new Color3(fNum, fNum2, LuaTypesKt.optNum(luaValueArg3, 0.0f)))));
         }
         if (x.isnumber()) {
             return INSTANCE.wrap(new BrickColorV(x.toint()));
@@ -3777,7 +3924,7 @@ public final class LuaTypes {
         Intrinsics.checkNotNullParameter(a, "a");
         LuaValue luaValueArg = a.arg(1);
         Intrinsics.checkNotNullExpressionValue(luaValueArg, "arg(...)");
-        float mn = LuaTypesKt.num(luaValueArg);
+        float mn = LuaTypesKt.optNum(luaValueArg, 0.0f);
         LuaTypes luaTypes = INSTANCE;
         LuaValue luaValueArg2 = a.arg(2);
         Intrinsics.checkNotNullExpressionValue(luaValueArg2, "arg(...)");
@@ -3800,10 +3947,10 @@ public final class LuaTypes {
         LuaTypes luaTypes = INSTANCE;
         LuaValue luaValueArg = a.arg(1);
         Intrinsics.checkNotNullExpressionValue(luaValueArg, "arg(...)");
-        float fNum = LuaTypesKt.num(luaValueArg);
+        float fNum = LuaTypesKt.optNum(luaValueArg, 0.0f);
         LuaValue luaValueArg2 = a.arg(2);
         Intrinsics.checkNotNullExpressionValue(luaValueArg2, "arg(...)");
-        float fNum2 = LuaTypesKt.num(luaValueArg2);
+        float fNum2 = LuaTypesKt.optNum(luaValueArg2, 0.0f);
         LuaValue luaValueArg3 = a.arg(3);
         Intrinsics.checkNotNullExpressionValue(luaValueArg3, "arg(...)");
         return luaTypes.wrap(new NumberKey(fNum, fNum2, LuaTypesKt.optNum(luaValueArg3, 0.0f)));
@@ -3825,7 +3972,7 @@ public final class LuaTypes {
         LuaTypes luaTypes = INSTANCE;
         LuaValue luaValueArg = a.arg(1);
         Intrinsics.checkNotNullExpressionValue(luaValueArg, "arg(...)");
-        float fNum = LuaTypesKt.num(luaValueArg);
+        float fNum = LuaTypesKt.optNum(luaValueArg, 0.0f);
         LuaValue luaValueArg2 = a.arg(2);
         Intrinsics.checkNotNullExpressionValue(luaValueArg2, "arg(...)");
         Object obj = luaValueArg2.isuserdata() ? luaValueArg2.touserdata() : null;
@@ -3854,13 +4001,15 @@ public final class LuaTypes {
             if (a.narg() < 2) {
                 LuaTypes luaTypes = INSTANCE;
                 Intrinsics.checkNotNull(x);
-                return luaTypes.wrap(new NumberSequence(CollectionsKt.listOf(new NumberKey[]{new NumberKey(0.0f, LuaTypesKt.num(x), 0.0f), new NumberKey(1.0f, LuaTypesKt.num(x), 0.0f)})));
+                float v0 = LuaTypesKt.optNum(x, 0.0f);
+                return luaTypes.wrap(new NumberSequence(CollectionsKt.listOf(new NumberKey[]{new NumberKey(0.0f, v0, 0.0f), new NumberKey(1.0f, v0, 0.0f)})));
             }
             LuaTypes luaTypes2 = INSTANCE;
             Intrinsics.checkNotNull(x);
             LuaValue luaValueArg = a.arg(2);
             Intrinsics.checkNotNullExpressionValue(luaValueArg, "arg(...)");
-            return luaTypes2.wrap(new NumberSequence(CollectionsKt.listOf(new NumberKey[]{new NumberKey(0.0f, LuaTypesKt.num(x), 0.0f), new NumberKey(1.0f, LuaTypesKt.num(luaValueArg), 0.0f)})));
+            float v0 = LuaTypesKt.optNum(x, 0.0f);
+            return luaTypes2.wrap(new NumberSequence(CollectionsKt.listOf(new NumberKey[]{new NumberKey(0.0f, v0, 0.0f), new NumberKey(1.0f, LuaTypesKt.optNum(luaValueArg, v0), 0.0f)})));
         }
         LuaTypes luaTypes3 = INSTANCE;
         Iterable intRange = new IntRange(1, x.length());
@@ -4007,7 +4156,7 @@ public final class LuaTypes {
     static final Varargs install$lambda$169$lambda$168(Varargs a) {
         Intrinsics.checkNotNullParameter(a, "a");
         if (a.arg(1).isuserdata()) {
-            return INSTANCE.wrap(new PhysicalProps(0, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 126, null));
+            return INSTANCE.wrap(new PhysicalProps(1, 0.7f, 0.3f, 0.5f, 1.0f, 1.0f, 0.0f, 64, null));
         }
         LuaTypes luaTypes = INSTANCE;
         LuaValue luaValueArg = a.arg(1);

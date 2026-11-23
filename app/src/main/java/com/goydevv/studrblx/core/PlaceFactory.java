@@ -196,6 +196,91 @@ public final class PlaceFactory {
         return s;
     }
 
+    public static Float parseTimeOfDay(String tod) {
+        if (tod == null) {
+            return null;
+        }
+        String trimmed = tod.trim();
+        if (trimmed.isEmpty()) {
+            return null;
+        }
+        String[] parts = trimmed.split(":");
+        if (parts.length < 1) {
+            return null;
+        }
+        try {
+            float h = Float.parseFloat(parts[0].trim());
+            float m = 0.0f;
+            float s = 0.0f;
+            if (parts.length >= 2 && !parts[1].trim().isEmpty()) {
+                m = Float.parseFloat(parts[1].trim());
+            }
+            if (parts.length >= 3 && !parts[2].trim().isEmpty()) {
+                s = Float.parseFloat(parts[2].trim());
+            }
+            if (Float.isNaN(h) || Float.isInfinite(h) || Float.isNaN(m) || Float.isInfinite(m) || Float.isNaN(s) || Float.isInfinite(s)) {
+                return null;
+            }
+            float hours = (h + (m / 60.0f) + (s / 3600.0f)) % 24.0f;
+            if (hours < 0.0f) {
+                hours += 24.0f;
+            }
+            return Float.valueOf(hours);
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    public static String formatClockTime(float hours) {
+        float h = (Float.isNaN(hours) || Float.isInfinite(hours)) ? 14.0f : hours;
+        float norm = h % 24.0f;
+        if (norm < 0.0f) {
+            norm += 24.0f;
+        }
+        int totalSec = ((int) Math.round(norm * 3600.0d)) % 86400;
+        if (totalSec < 0) {
+            totalSec += 86400;
+        }
+        int hh = totalSec / 3600;
+        int mm = (totalSec % 3600) / 60;
+        int ss = totalSec % 60;
+        return String.format(java.util.Locale.US, "%02d:%02d:%02d", Integer.valueOf(hh), Integer.valueOf(mm), Integer.valueOf(ss));
+    }
+
+    public static float resolveClockTime(Instance lighting) {
+        if (lighting == null) {
+            return 14.0f;
+        }
+        Object ct = lighting.get("ClockTime");
+        if (ct instanceof Number) {
+            float v = ((Number) ct).floatValue();
+            if (!Float.isNaN(v) && !Float.isInfinite(v)) {
+                v = v % 24.0f;
+                if (v < 0.0f) {
+                    v += 24.0f;
+                }
+                return v;
+            }
+        }
+        Object tod = lighting.get("TimeOfDay");
+        if (tod instanceof String) {
+            Float parsed = parseTimeOfDay((String) tod);
+            if (parsed != null) {
+                return parsed.floatValue();
+            }
+        }
+        return 14.0f;
+    }
+
+    public static void syncLightingTime(Instance lighting) {
+        if (lighting == null) {
+            return;
+        }
+        float hours = resolveClockTime(lighting);
+        lighting.set("ClockTime", Float.valueOf(hours), false);
+        lighting.set("TimeOfDay", formatClockTime(hours), false);
+    }
+
     public final DataModel fromDocument(RbxDocument doc) {
         Intrinsics.checkNotNullParameter(doc, "doc");
         DataModel dm = new DataModel();
@@ -203,6 +288,17 @@ public final class PlaceFactory {
         for (Instance r : doc.getRoots()) {
             if (ClassDb.INSTANCE.isServiceName(r.getClassName())) {
                 r.setService(true);
+                Instance existing = dm.findService(r.getClassName());
+                if (existing != null) {
+                    existing.getProps().putAll(r.getProps());
+                    existing.getPropTypes().putAll(r.getPropTypes());
+                    existing.getAttributes().putAll(r.getAttributes());
+                    for (Instance ch : new java.util.ArrayList<>(r.getChildren())) {
+                        ch.attachRaw(existing);
+                    }
+                    r.getChildren().clear();
+                    continue;
+                }
             }
             r.attachRaw(dm);
         }
@@ -221,7 +317,21 @@ public final class PlaceFactory {
         }
         ensureTerrain(ws);
         ensureSoundServiceDefaults(dm.findService("SoundService"));
+        ensureStarterPlayerDefaults(dm.findService("StarterPlayer"));
+        syncLightingTime(dm.findService("Lighting"));
         return dm;
+    }
+
+    private final void ensureStarterPlayerDefaults(Instance sp) {
+        if (sp == null) {
+            return;
+        }
+        if (sp.findFirstChildOfClass("StarterPlayerScripts") == null) {
+            InstanceFactory.INSTANCE.create("StarterPlayerScripts").attachRaw(sp);
+        }
+        if (sp.findFirstChildOfClass("StarterCharacterScripts") == null) {
+            InstanceFactory.INSTANCE.create("StarterCharacterScripts").attachRaw(sp);
+        }
     }
 
     private final void ensureSoundServiceDefaults(Instance ss) {

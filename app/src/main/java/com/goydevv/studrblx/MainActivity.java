@@ -1030,6 +1030,8 @@ public final class MainActivity extends AppCompatActivity implements MainActions
     @Override // androidx.appcompat.app.AppCompatActivity, androidx.fragment.app.FragmentActivity, android.app.Activity
     protected void onDestroy() {
         com.goydevv.studrblx.audio.AudioEngine.INSTANCE.onAppDestroy();
+        Icons.INSTANCE.getListeners().remove(this.iconListener);
+        Accounts.INSTANCE.getListeners().remove(this.accountListener);
         if (this.outTabLogListener != null) {
             OutputLog.INSTANCE.getListeners().remove(this.outTabLogListener);
             this.outTabLogListener = null;
@@ -1038,49 +1040,17 @@ public final class MainActivity extends AppCompatActivity implements MainActions
             WebPermissions.INSTANCE.setAsker(null);
         }
         Studio studio = this.studio;
-        if (studio == null || this.explorer == null || this.properties == null) {
-            super.onDestroy();
-            return;
-        }
-        studio.getListeners().remove(this);
-        Studio studio2 = this.studio;
-        if (studio2 == null) {
-            Intrinsics.throwUninitializedPropertyAccessException("studio");
-            studio2 = null;
-        }
-        CopyOnWriteArrayList<Studio.Listener> listeners = studio2.getListeners();
-        ExplorerPanel explorerPanel = this.explorer;
-        if (explorerPanel == null) {
-            Intrinsics.throwUninitializedPropertyAccessException("explorer");
-            explorerPanel = null;
-        }
-        listeners.remove(explorerPanel);
-        Studio studio3 = this.studio;
-        if (studio3 == null) {
-            Intrinsics.throwUninitializedPropertyAccessException("studio");
-            studio3 = null;
-        }
-        CopyOnWriteArrayList<Studio.Listener> listeners2 = studio3.getListeners();
-        PropertiesPanel propertiesPanel = this.properties;
-        if (propertiesPanel == null) {
-            Intrinsics.throwUninitializedPropertyAccessException("properties");
-            propertiesPanel = null;
-        }
-        listeners2.remove(propertiesPanel);
-        Icons.INSTANCE.getListeners().remove(this.iconListener);
-        Accounts.INSTANCE.getListeners().remove(this.accountListener);
-        Studio studio4 = this.studio;
-        if (studio4 == null) {
-            Intrinsics.throwUninitializedPropertyAccessException("studio");
-            studio4 = null;
-        }
-        if (studio4.getPluginMenuHandler() != null) {
-            Studio studio5 = this.studio;
-            if (studio5 == null) {
-                Intrinsics.throwUninitializedPropertyAccessException("studio");
-                studio5 = null;
+        if (studio != null) {
+            studio.getListeners().remove(this);
+            if (this.explorer != null) {
+                studio.getListeners().remove(this.explorer);
             }
-            studio5.setPluginMenuHandler(null);
+            if (this.properties != null) {
+                studio.getListeners().remove(this.properties);
+            }
+            studio.setToastHandler(null);
+            studio.setOpenScriptHandler(null);
+            studio.setPluginMenuHandler(null);
         }
         super.onDestroy();
     }
@@ -6254,7 +6224,7 @@ public final class MainActivity extends AppCompatActivity implements MainActions
                                     return;
                                 case 3:
                                     RbxDocument rbxDocument = RbxFile.INSTANCE.read(bytes);
-                                    if (RbxFile.INSTANCE.isPlace(rbxDocument)) {
+                                    if (RbxFile.INSTANCE.isPlace(rbxDocument) || RbxFile.INSTANCE.isPlaceFileName(str)) {
                                         throw new Exception("This is a place file. Use File → Open to open places; the Toolbox holds models (.rbxm).");
                                     }
                                     Instance instance = (Instance) CollectionsKt.firstOrNull((List) rbxDocument.getRoots());
@@ -6306,7 +6276,7 @@ public final class MainActivity extends AppCompatActivity implements MainActions
                                     if (rbxDocument2.getWarnings().size() > 20) {
                                         OutputLog.INSTANCE.warn("…and " + (rbxDocument2.getWarnings().size() - 20) + " more warnings");
                                     }
-                                    if (RbxFile.INSTANCE.isPlace(rbxDocument2)) {
+                                    if (RbxFile.INSTANCE.isPlace(rbxDocument2) || RbxFile.INSTANCE.isPlaceFileName(str)) {
                                         final DataModel dataModelFromDocument = PlaceFactory.INSTANCE.fromDocument(rbxDocument2);
                                         final int size = Instance.descendants$default(dataModelFromDocument, null, 1, null).size();
                                         mainActivity.runOnUiThread(new Runnable() { // from class: com.goydevv.studrblx.MainActivity$$ExternalSyntheticLambda6
