@@ -4,13 +4,15 @@ import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.util.LruCache;
+import com.goydevv.studrblx.model.ContentValue;
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
 import java.net.URL;
 import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.Arrays;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -35,6 +37,7 @@ import kotlin.text.StringsKt;
 /* JADX INFO: loaded from: classes6.dex */
 public final class ImageLoader {
     public static final ImageLoader INSTANCE = new ImageLoader();
+    private static Context appCtx;
     private static volatile boolean batchScheduled;
     private static File cacheDir;
     private static volatile int epoch;
@@ -51,12 +54,10 @@ public final class ImageLoader {
     private ImageLoader() {
     }
 
-    /* JADX WARN: Type inference failed for: r1v0, types: [com.goydevv.studrblx.net.ImageLoader$mem$1] */
     static {
         final int iMin = (int) Math.min(41943040L, Runtime.getRuntime().maxMemory() / 10);
-        mem = new LruCache<String, Bitmap>(iMin) { // from class: com.goydevv.studrblx.net.ImageLoader$mem$1
-            /* JADX INFO: Access modifiers changed from: protected */
-            @Override // android.util.LruCache
+        mem = new LruCache<String, Bitmap>(iMin) {
+            @Override
             public int sizeOf(String key, Bitmap value) {
                 Intrinsics.checkNotNullParameter(key, "key");
                 Intrinsics.checkNotNullParameter(value, "value");
@@ -68,7 +69,16 @@ public final class ImageLoader {
         pool = Executors.newFixedThreadPool(4);
         idQueue = ConcurrentHashMap.newKeySet();
         listeners = new CopyOnWriteArrayList<>();
-        idRx = CollectionsKt.listOf(new Regex[]{new Regex("rbxassetid://(\\d+)", RegexOption.IGNORE_CASE), new Regex("[?&]id=(\\d+)", RegexOption.IGNORE_CASE), new Regex("^\\s*(\\d+)\\s*$"), new Regex("rbxthumb://.*id=(\\d+)", RegexOption.IGNORE_CASE), new Regex("roblox\\.com/library/(\\d+)", RegexOption.IGNORE_CASE), new Regex("create\\.roblox\\.com/store/asset/(\\d+)", RegexOption.IGNORE_CASE)});
+        idRx = CollectionsKt.listOf(new Regex[]{
+            new Regex("rbxassetid://(\\d+)", RegexOption.IGNORE_CASE),
+            new Regex("assetdelivery\\.roblox\\.com/v\\d+/assetId/(\\d+)", RegexOption.IGNORE_CASE),
+            new Regex("rbxthumb://[^\\s]*?[?&]id=(\\d+)", RegexOption.IGNORE_CASE),
+            new Regex("rbxthumb://.*id=(\\d+)", RegexOption.IGNORE_CASE),
+            new Regex("[?&]id=(\\d+)", RegexOption.IGNORE_CASE),
+            new Regex("roblox\\.com/library/(\\d+)", RegexOption.IGNORE_CASE),
+            new Regex("create\\.roblox\\.com/store/asset/(\\d+)", RegexOption.IGNORE_CASE),
+            new Regex("^\\s*(\\d+)\\s*$")
+        });
         idMemo = new ConcurrentHashMap<>();
         keyMemo = new ConcurrentHashMap<>();
     }
@@ -79,6 +89,9 @@ public final class ImageLoader {
 
     public final void init(Context ctx) {
         Intrinsics.checkNotNullParameter(ctx, "ctx");
+        if (appCtx == null) {
+            appCtx = ctx.getApplicationContext();
+        }
         if (cacheDir == null) {
             File file = new File(ctx.getCacheDir(), "img");
             file.mkdirs();
@@ -86,31 +99,67 @@ public final class ImageLoader {
         }
     }
 
+    private final String unwrapContentString(String content) {
+        if (content == null) {
+            return null;
+        }
+        String trimmed = content.trim();
+        if (trimmed.isEmpty()) {
+            return null;
+        }
+        if (trimmed.startsWith("ContentValue(") && trimmed.endsWith(")")) {
+            int idx = trimmed.indexOf("uri=");
+            if (idx >= 0) {
+                String inner = trimmed.substring(idx + 4, trimmed.length() - 1).trim();
+                int comma = inner.indexOf(',');
+                if (comma >= 0) {
+                    inner = inner.substring(0, comma).trim();
+                }
+                if (inner.equals("null") || inner.isEmpty()) {
+                    return null;
+                }
+                return inner;
+            }
+        }
+        return trimmed;
+    }
+
+    public final Long assetId(Object content) {
+        if (content == null) {
+            return null;
+        }
+        String raw = content instanceof ContentValue ? ((ContentValue) content).getUri() : content.toString();
+        return assetId(raw);
+    }
+
     public final Long assetId(String content) {
-        String str = content;
+        String str = unwrapContentString(content);
         if (str == null || StringsKt.isBlank(str)) {
             return null;
         }
-        String low = str.trim().toLowerCase(Locale.ROOT);
+        String low = str.toLowerCase(Locale.ROOT);
         if (low.contains("spawnlocation.png")) {
             return Long.valueOf(12224170L);
         }
         if (low.endsWith("/face.png") || low.equals("rbxasset://textures/face.png")) {
             return Long.valueOf(7075502L);
         }
-        Long l = idMemo.get(content);
+        Long l = idMemo.get(str);
         if (l != null) {
             long jLongValue = l.longValue();
-            if (jLongValue >= 0) {
+            if (jLongValue > 0L) {
                 return Long.valueOf(jLongValue);
             }
             return null;
         }
-        Long id = parseId(content);
+        Long id = parseId(str);
+        if (id != null && id.longValue() <= 0L) {
+            id = null;
+        }
         if (idMemo.size() > 50000) {
             idMemo.clear();
         }
-        idMemo.put(content, Long.valueOf(id != null ? id.longValue() : -1L));
+        idMemo.put(str, Long.valueOf(id != null ? id.longValue() : -1L));
         return id;
     }
 
@@ -119,9 +168,9 @@ public final class ImageLoader {
             return null;
         }
         for (Regex r : idRx) {
-            MatchResult matchResultFind$default = (r).find(content, 0);
-            if (matchResultFind$default != null) {
-                return StringsKt.toLongOrNull(matchResultFind$default.getGroupValues().get(1));
+            MatchResult matchResult = r.find(content, 0);
+            if (matchResult != null) {
+                return StringsKt.toLongOrNull(matchResult.getGroupValues().get(1));
             }
         }
         return null;
@@ -129,25 +178,33 @@ public final class ImageLoader {
 
     public final String keyFor(String content) {
         String strPutIfAbsent;
-        String str = content;
+        String str = unwrapContentString(content);
         if (str == null || StringsKt.isBlank(str)) {
             return null;
         }
-        Long lAssetId = assetId(content);
+        Long lAssetId = assetId(str);
         if (lAssetId == null) {
-            if (StringsKt.startsWith(content, "http://", true) || StringsKt.startsWith(content, "https://", true)) {
-                return "url:" + content;
+            if (StringsKt.startsWith(str, "http://", true) || StringsKt.startsWith(str, "https://", true)) {
+                return "url:" + str;
             }
             return null;
         }
         long jLongValue = lAssetId.longValue();
-        ConcurrentMap concurrentMap = keyMemo;
+        ConcurrentMap<Long, String> concurrentMap = keyMemo;
         Long lValueOf = Long.valueOf(jLongValue);
-        String str2 = (String) concurrentMap.get(lValueOf);
-        if (str2 == null && (strPutIfAbsent = (String) concurrentMap.putIfAbsent(lValueOf, (str2 = "asset:" + jLongValue))) != null) {
+        String str2 = concurrentMap.get(lValueOf);
+        if (str2 == null && (strPutIfAbsent = concurrentMap.putIfAbsent(lValueOf, (str2 = "asset:" + jLongValue))) != null) {
             str2 = strPutIfAbsent;
         }
         return str2;
+    }
+
+    public final Bitmap get(Object content) {
+        if (content == null) {
+            return null;
+        }
+        String raw = content instanceof ContentValue ? ((ContentValue) content).getUri() : content.toString();
+        return get(raw);
     }
 
     public final Bitmap get(String content) {
@@ -165,17 +222,16 @@ public final class ImageLoader {
             return bitmap;
         }
         Long f = failed.get(key);
-        if ((f != null && System.currentTimeMillis() - f.longValue() < 60000) || !pending.add(key)) {
+        if ((f != null && System.currentTimeMillis() - f.longValue() < 45000) || !pending.add(key)) {
             return null;
         }
-        pool.execute(new Runnable() { // from class: com.goydevv.studrblx.net.ImageLoader$$ExternalSyntheticLambda0
-            @Override // java.lang.Runnable
+        pool.execute(new Runnable() {
+            @Override
             public final void run() {
                 try {
                     ImageLoader.INSTANCE.loadFromDisk(key);
                 } catch (Exception _e) {
-                    if (_e instanceof RuntimeException) throw (RuntimeException) _e;
-                    throw new RuntimeException(_e);
+                    ImageLoader.INSTANCE.fail(key);
                 }
             }
         });
@@ -187,26 +243,34 @@ public final class ImageLoader {
         return mem.get(key);
     }
 
+    public final void notifyAssetLoaded(long id, Bitmap b) {
+        if (b == null || id <= 0L) {
+            return;
+        }
+        String key = "asset:" + id;
+        keyMemo.putIfAbsent(Long.valueOf(id), key);
+        done(key, b);
+    }
+
     private final File diskFile(String key) {
         try {
-        File dir = cacheDir;
-        if (dir == null) {
-            return null;
-        }
-        MessageDigest messageDigest = MessageDigest.getInstance("SHA-1");
-        byte[] bytes = key.getBytes(Charsets.UTF_8);
-        Intrinsics.checkNotNullExpressionValue(bytes, "getBytes(...)");
-        byte[] bArrDigest = messageDigest.digest(bytes);
-        Intrinsics.checkNotNullExpressionValue(bArrDigest, "digest(...)");
-        String h = ArraysKt.joinToString(bArrDigest, (CharSequence) "", "", "", -1, "...", new Function1() { // from class: com.goydevv.studrblx.net.ImageLoader$$ExternalSyntheticLambda2
-            @Override // kotlin.jvm.functions.Function1
-            public final Object invoke(Object obj) {
-                return ImageLoader.diskFile$lambda$7(((Byte) obj).byteValue());
+            File dir = cacheDir;
+            if (dir == null) {
+                return null;
             }
-        });
-        return new File(dir, h + ".png");
-    }
-        catch (Throwable _ktEx) {
+            MessageDigest messageDigest = MessageDigest.getInstance("SHA-1");
+            byte[] bytes = key.getBytes(Charsets.UTF_8);
+            Intrinsics.checkNotNullExpressionValue(bytes, "getBytes(...)");
+            byte[] bArrDigest = messageDigest.digest(bytes);
+            Intrinsics.checkNotNullExpressionValue(bArrDigest, "digest(...)");
+            String h = ArraysKt.joinToString(bArrDigest, (CharSequence) "", "", "", -1, "...", new Function1() {
+                @Override
+                public final Object invoke(Object obj) {
+                    return ImageLoader.diskFile$lambda$7(((Byte) obj).byteValue());
+                }
+            });
+            return new File(dir, h + ".png");
+        } catch (Throwable _ktEx) {
             throw com.goydevv.studrblx.util.KtCompat.sneakyThrow(_ktEx);
         }
     }
@@ -217,36 +281,92 @@ public final class ImageLoader {
         return str;
     }
 
-    /* JADX INFO: Access modifiers changed from: private */
+    private final Bitmap decodeBitmap(byte[] raw) {
+        if (raw == null || raw.length == 0) {
+            return null;
+        }
+        byte[] data = raw;
+        try {
+            data = RobloxApi.INSTANCE.ungzip(raw);
+        } catch (Exception ignored) {
+        }
+        if (data == null || data.length == 0 || RobloxApi.isJsonErrorPayload(data)) {
+            return null;
+        }
+        BitmapFactory.Options opts = new BitmapFactory.Options();
+        opts.inPreferredConfig = Bitmap.Config.ARGB_8888;
+        Bitmap bmp = BitmapFactory.decodeByteArray(data, 0, data.length, opts);
+        if (bmp == null) {
+            bmp = BitmapFactory.decodeByteArray(data, 0, data.length);
+        }
+        return bmp;
+    }
+
+    private final void saveToDisk(String key, Bitmap bmp, byte[] rawBytes) {
+        File f = diskFile(key);
+        if (f == null) {
+            return;
+        }
+        try {
+            if (rawBytes != null && rawBytes.length > 0) {
+                FilesKt.writeBytes(f, rawBytes);
+            } else if (bmp != null) {
+                ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                bmp.compress(Bitmap.CompressFormat.PNG, 100, baos);
+                FilesKt.writeBytes(f, baos.toByteArray());
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
     public final void loadFromDisk(String key) {
         try {
-        Bitmap b;
-        File f = diskFile(key);
-        if (f != null && f.isFile()) {
-            try {
-                b = BitmapFactory.decodeFile(f.getPath());
-            } catch (Throwable th) {
-                b = null;
+            Bitmap b;
+            File f = diskFile(key);
+            if (f != null && f.isFile()) {
+                try {
+                    BitmapFactory.Options opts = new BitmapFactory.Options();
+                    opts.inPreferredConfig = Bitmap.Config.ARGB_8888;
+                    b = BitmapFactory.decodeFile(f.getPath(), opts);
+                } catch (Throwable th) {
+                    b = null;
+                }
+                if (b != null) {
+                    done(key, b);
+                    return;
+                }
             }
-            if (b != null) {
-                done(key, b);
-                return;
-            }
-        }
-        if (!StringsKt.startsWith(key, "url:", false)) {
             if (StringsKt.startsWith(key, "asset:", false)) {
-                idQueue.add(Long.valueOf(Long.parseLong(StringsKt.removePrefix(key, (CharSequence) "asset:"))));
+                long id = Long.parseLong(StringsKt.removePrefix(key, (CharSequence) "asset:"));
+                // Primary path: authentic Roblox AssetDelivery with Roblox-Place-Id + auth cookie + XML/Decal unwrap
+                Bitmap direct = AssetFetcher.INSTANCE.imageBlocking(id);
+                if (direct != null) {
+                    saveToDisk(key, direct, null);
+                    done(key, direct);
+                    return;
+                }
+                // Fallback path: Roblox Thumbnails API batch
+                idQueue.add(Long.valueOf(id));
                 scheduleBatch();
                 return;
-            } else {
-                fail(key);
+            }
+            if (StringsKt.startsWith(key, "url:", false)) {
+                String rawUrl = StringsKt.removePrefix(key, (CharSequence) "url:");
+                Long maybeId = assetId(rawUrl);
+                if (maybeId != null) {
+                    Bitmap direct = AssetFetcher.INSTANCE.imageBlocking(maybeId.longValue());
+                    if (direct != null) {
+                        saveToDisk(key, direct, null);
+                        done(key, direct);
+                        return;
+                    }
+                }
+                fetchUrl(key, rawUrl);
                 return;
             }
-        }
-        fetchUrl(key, StringsKt.removePrefix(key, (CharSequence) "url:"));
-    }
-        catch (Throwable _ktEx) {
-            throw com.goydevv.studrblx.util.KtCompat.sneakyThrow(_ktEx);
+            fail(key);
+        } catch (Throwable _ktEx) {
+            fail(key);
         }
     }
 
@@ -255,14 +375,13 @@ public final class ImageLoader {
             return;
         }
         batchScheduled = true;
-        pool.execute(new Runnable() { // from class: com.goydevv.studrblx.net.ImageLoader$$ExternalSyntheticLambda3
-            @Override // java.lang.Runnable
+        pool.execute(new Runnable() {
+            @Override
             public final void run() {
                 try {
                     ImageLoader.scheduleBatch$lambda$9();
-                } catch (Exception _e) {
-                    if (_e instanceof RuntimeException) throw (RuntimeException) _e;
-                    throw new RuntimeException(_e);
+                } catch (Exception ignored) {
+                    batchScheduled = false;
                 }
             }
         });
@@ -270,52 +389,44 @@ public final class ImageLoader {
 
     static final void scheduleBatch$lambda$9() {
         try {
-        Thread.sleep(80L);
-        ImageLoader imageLoader = INSTANCE;
-        batchScheduled = false;
-        ConcurrentHashMap.KeySetView<Long, Boolean> idQueue2 = idQueue;
-        Intrinsics.checkNotNullExpressionValue(idQueue2, "idQueue");
-        List<Long> listTake = CollectionsKt.take(CollectionsKt.toList(idQueue2), 100);
-        idQueue.removeAll(CollectionsKt.toSet(listTake));
-        ConcurrentHashMap.KeySetView<Long, Boolean> idQueue3 = idQueue;
-        Intrinsics.checkNotNullExpressionValue(idQueue3, "idQueue");
-        if (!idQueue3.isEmpty()) {
-            INSTANCE.scheduleBatch();
-        }
-        if (listTake.isEmpty()) {
-            return;
-        }
-        try {
-            Map<Long, String> mapThumbnailUrls = RobloxApi.INSTANCE.thumbnailUrls(listTake, "420x420");
-            for (final Long id : listTake) {
-                final String u = mapThumbnailUrls.get(id);
-                if (u == null) {
+            Thread.sleep(80L);
+            batchScheduled = false;
+            List<Long> listTake = CollectionsKt.take(CollectionsKt.toList(idQueue), 100);
+            idQueue.removeAll(CollectionsKt.toSet(listTake));
+            if (!idQueue.isEmpty()) {
+                INSTANCE.scheduleBatch();
+            }
+            if (listTake.isEmpty()) {
+                return;
+            }
+            try {
+                Map<Long, String> mapThumbnailUrls = RobloxApi.INSTANCE.thumbnailUrls(listTake, "420x420");
+                for (final Long id : listTake) {
+                    final String u = mapThumbnailUrls.get(id);
+                    if (u == null) {
+                        INSTANCE.fail("asset:" + id);
+                    } else if (u.length() == 0) {
+                        pending.remove("asset:" + id);
+                        failed.put("asset:" + id, Long.valueOf(System.currentTimeMillis() - 40000));
+                    } else {
+                        pool.execute(new Runnable() {
+                            @Override
+                            public final void run() {
+                                ImageLoader.INSTANCE.fetchUrl("asset:" + id, u);
+                            }
+                        });
+                    }
+                }
+            } catch (Exception e) {
+                for (Long id : listTake) {
                     INSTANCE.fail("asset:" + id);
-                } else if (u.length() == 0) {
-                    pending.remove("asset:" + id);
-                    failed.put("asset:" + id, Long.valueOf(System.currentTimeMillis() - 55000));
-                } else {
-                    pool.execute(new Runnable() { // from class: com.goydevv.studrblx.net.ImageLoader$$ExternalSyntheticLambda1
-                        @Override // java.lang.Runnable
-                        public final void run() {
-                            ImageLoader.INSTANCE.fetchUrl("asset:" + id, u);
-                        }
-                    });
                 }
             }
-        } catch (Exception e) {
-            Iterator<Long> it = listTake.iterator();
-            while (it.hasNext()) {
-                INSTANCE.fail("asset:" + it.next());
-            }
-        }
-    }
-        catch (Throwable _ktEx) {
-            throw com.goydevv.studrblx.util.KtCompat.sneakyThrow(_ktEx);
+        } catch (Throwable _ktEx) {
+            batchScheduled = false;
         }
     }
 
-    /* JADX INFO: Access modifiers changed from: private */
     public final void fetchUrl(String key, String url) {
         String lowerCase;
         try {
@@ -327,28 +438,23 @@ public final class ImageLoader {
             lowerCase = "";
         }
         try {
-            String host2 = lowerCase;
-            try {
-                if (!WebPermissions.INSTANCE.isRobloxHost(host2)) {
-                    throw new IOException("not a Roblox image");
-                }
-                byte[] bytes = Http.get$default(Http.INSTANCE, url, null, 8388608, 2, null);
-                Bitmap b = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
-                if (b == null) {
-                    throw new Exception("bad image");
-                }
-                File fileDiskFile = diskFile(key);
-                if (fileDiskFile != null) {
-                    try {
-                        FilesKt.writeBytes(fileDiskFile, bytes);
-                    } catch (Exception e2) {
-                    }
-                }
-                done(key, b);
-                return;
-            } catch (Exception e3) {
+            if (!WebPermissions.INSTANCE.isRobloxHost(lowerCase)) {
+                throw new IOException("not a Roblox image");
             }
-        } catch (Exception e4) {
+            Map<String, String> headers = new LinkedHashMap<>();
+            long placeId = RobloxApi.INSTANCE.getActivePlaceId();
+            if (placeId > 0L) {
+                headers.put("Roblox-Place-Id", String.valueOf(placeId));
+            }
+            byte[] bytes = Http.INSTANCE.get(url, headers, 8388608);
+            Bitmap b = decodeBitmap(bytes);
+            if (b == null) {
+                throw new IOException("bad image");
+            }
+            saveToDisk(key, b, bytes);
+            done(key, b);
+            return;
+        } catch (Exception ignored) {
         }
         fail(key);
     }
@@ -359,6 +465,7 @@ public final class ImageLoader {
 
     private final void done(String key, Bitmap b) {
         mem.put(key, b);
+        failed.remove(key);
         epoch++;
         pending.remove(key);
         Iterator it = listeners.iterator();

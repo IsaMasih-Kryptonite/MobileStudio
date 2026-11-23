@@ -77,6 +77,10 @@ public final class ViewportView extends FrameLayout {
     private long lastOverlay;
     private final SceneRenderer renderer;
     private final Studio studio;
+    private java.lang.reflect.Field surfaceTexField;
+    private java.lang.reflect.Field surfaceTexCheckedField;
+    private java.lang.reflect.Field surfaceTexSigField;
+    private boolean surfaceTexReflectInit;
 
     /* JADX WARN: 'super' call moved to the top of the method (can break code semantics) */
     public ViewportView(Context ctx, Studio studio) {
@@ -133,7 +137,106 @@ public final class ViewportView extends FrameLayout {
         return this.hud;
     }
 
+    private final void flushDirtySurfaceGuis() {
+        if (!this.gui.hasDirtySurfaceGuis()) {
+            return;
+        }
+        List<Instance> dirtyList = this.gui.drainDirtySurfaceGuis();
+        if (dirtyList.isEmpty()) {
+            return;
+        }
+        try {
+            if (!this.surfaceTexReflectInit) {
+                this.surfaceTexReflectInit = true;
+                this.surfaceTexField = SceneRenderer.class.getDeclaredField("surfaceTex");
+                this.surfaceTexField.setAccessible(true);
+            }
+            if (this.surfaceTexField == null) {
+                return;
+            }
+            Object mapObj = this.surfaceTexField.get(this.renderer);
+            if (!(mapObj instanceof Map)) {
+                return;
+            }
+            Map<?, ?> surfaceMap = (Map<?, ?>) mapObj;
+            for (Instance sg : dirtyList) {
+                Object entry = surfaceMap.get(sg);
+                if (entry == null) {
+                    continue;
+                }
+                if (this.surfaceTexCheckedField == null) {
+                    this.surfaceTexCheckedField = entry.getClass().getDeclaredField("checked");
+                    this.surfaceTexCheckedField.setAccessible(true);
+                    this.surfaceTexSigField = entry.getClass().getDeclaredField("sig");
+                    this.surfaceTexSigField.setAccessible(true);
+                }
+                this.surfaceTexCheckedField.setFloat(entry, -1000.0f);
+                this.surfaceTexSigField.setLong(entry, Long.MIN_VALUE);
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    public final boolean shouldShowTouchControls(PlaySession play) {
+        if (play == null) {
+            return false;
+        }
+        if (!play.getControlsEnabled()) {
+            return false;
+        }
+        if (this.hud.isMenuOpen()) {
+            return false;
+        }
+        if (this.gui.hasVisibleModal()) {
+            return false;
+        }
+        if (!play.getCorePlayerList() && !play.getCoreHealth() && !play.getCoreBackpack() && !play.getCoreChat()) {
+            return false;
+        }
+        DataModel model = this.studio.getModel();
+        if (model != null) {
+            Instance uis = model.findService("UserInputService");
+            if (uis != null && Boolean.TRUE.equals(uis.get("ModalEnabled"))) {
+                return false;
+            }
+            Instance gs = model.findService("GuiService");
+            if (gs != null && Boolean.FALSE.equals(gs.get("TouchControlsEnabled"))) {
+                return false;
+            }
+            Instance player = play.getPlayer();
+            if (player != null && isEnumValue(player.get("DevTouchMovementMode"), 5)) {
+                return false;
+            }
+            Instance starterPlayer = model.findService("StarterPlayer");
+            if (starterPlayer != null && isEnumValue(starterPlayer.get("DevTouchMovementMode"), 5)) {
+                return false;
+            }
+            if (play.getCharacter() == null) {
+                Instance ws = model.findService("Workspace");
+                if (ws != null) {
+                    Object camObj = ws.get("CurrentCamera");
+                    Instance camInst = camObj instanceof Instance ? (Instance) camObj : ws.findFirstChildOfClass("Camera");
+                    if (camInst != null && isEnumValue(camInst.get("CameraType"), 6)) {
+                        return false;
+                    }
+                }
+            }
+        }
+        return true;
+    }
+
+    private static boolean isEnumValue(Object obj, int expected) {
+        if (obj instanceof com.goydevv.studrblx.model.EnumValue) {
+            return ((com.goydevv.studrblx.model.EnumValue) obj).getValue() == expected;
+        }
+        if (obj instanceof Number) {
+            return ((Number) obj).intValue() == expected;
+        }
+        return false;
+    }
+
     static final Unit _init_$lambda$1(final ViewportView this$0) {
+        this$0.flushDirtySurfaceGuis();
         ArrayList<Instance> children;
         long now = System.currentTimeMillis();
         boolean playing = this$0.studio.isPlaying();
@@ -894,33 +997,43 @@ public final class ViewportView extends FrameLayout {
             List<Instance> listEmptyList;
             String str;
             Canvas canvas2 = canvas;
-            drawThumbstick(canvas);
+            boolean showTouch = this.this$0.shouldShowTouchControls(play);
             float jr = this.d * 35.0f;
             float jx = ((getWidth() - (this.d * 24.0f)) - jr) - this.cutR;
             float jy = ((getHeight() - (this.d * 24.0f)) - jr) - this.cutB;
-            this.paint.setStyle(Paint.Style.FILL);
-            this.paint.setColor(this.jumpDown ? 0x88FFFFFF : 0x48000000);
-            canvas2.drawCircle(jx, jy, jr, this.paint);
-            this.paint.setStyle(Paint.Style.STROKE);
-            this.paint.setStrokeWidth(this.d * 1.5f);
-            this.paint.setColor(this.jumpDown ? 0xDDFFFFFF : 0x55FFFFFF);
-            canvas2.drawCircle(jx, jy, jr, this.paint);
-            this.paint.setStyle(Paint.Style.FILL);
-            this.paint.setColor(this.jumpDown ? 0xFF1A1A1A : 0xD8FFFFFF);
-            Path path = new Path();
-            path.moveTo(jx, jy - (this.d * 13.0f));
-            path.lineTo(jx + (this.d * 12.0f), jy + (this.d * 1.0f));
-            path.lineTo(jx + (this.d * 4.5f), jy + (this.d * 1.0f));
-            path.lineTo(jx + (this.d * 4.5f), jy + (this.d * 11.0f));
-            path.lineTo(jx - (this.d * 4.5f), jy + (this.d * 11.0f));
-            path.lineTo(jx - (this.d * 4.5f), jy + (this.d * 1.0f));
-            path.lineTo(jx - (this.d * 12.0f), jy + (this.d * 1.0f));
-            path.close();
-            canvas2.drawPath(path, this.paint);
-            this.paint.setStyle(Paint.Style.FILL);
-            this.buttons.put("jump", new RectF(jx - (jr * 1.15f), jy - (jr * 1.15f), jx + (jr * 1.15f), (1.15f * jr) + jy));
+            if (showTouch) {
+                drawThumbstick(canvas);
+                this.paint.setStyle(Paint.Style.FILL);
+                this.paint.setColor(this.jumpDown ? 0x88FFFFFF : 0x48000000);
+                canvas2.drawCircle(jx, jy, jr, this.paint);
+                this.paint.setStyle(Paint.Style.STROKE);
+                this.paint.setStrokeWidth(this.d * 1.5f);
+                this.paint.setColor(this.jumpDown ? 0xDDFFFFFF : 0x55FFFFFF);
+                canvas2.drawCircle(jx, jy, jr, this.paint);
+                this.paint.setStyle(Paint.Style.FILL);
+                this.paint.setColor(this.jumpDown ? 0xFF1A1A1A : 0xD8FFFFFF);
+                Path path = new Path();
+                path.moveTo(jx, jy - (this.d * 13.0f));
+                path.lineTo(jx + (this.d * 12.0f), jy + (this.d * 1.0f));
+                path.lineTo(jx + (this.d * 4.5f), jy + (this.d * 1.0f));
+                path.lineTo(jx + (this.d * 4.5f), jy + (this.d * 11.0f));
+                path.lineTo(jx - (this.d * 4.5f), jy + (this.d * 11.0f));
+                path.lineTo(jx - (this.d * 4.5f), jy + (this.d * 1.0f));
+                path.lineTo(jx - (this.d * 12.0f), jy + (this.d * 1.0f));
+                path.close();
+                canvas2.drawPath(path, this.paint);
+                this.paint.setStyle(Paint.Style.FILL);
+                this.buttons.put("jump", new RectF(jx - (jr * 1.15f), jy - (jr * 1.15f), jx + (jr * 1.15f), (1.15f * jr) + jy));
+            } else if (this.joyX != 0.0f || this.joyY != 0.0f || this.jumpDown) {
+                this.joyX = 0.0f;
+                this.joyY = 0.0f;
+                this.jumpDown = false;
+                this.this$0.studio.setMoveX(0.0f);
+                this.this$0.studio.setMoveY(0.0f);
+                play.setJumpHeld(false);
+            }
             float ay = (jy - jr) - (this.d * 46.0f);
-            if (play.getShiftLockAllowed()) {
+            if (showTouch && play.getShiftLockAllowed()) {
                 float sr = 21.0f * this.d;
                 float sx = ((jx - jr) - (this.d * 14.0f)) - sr;
                 float sy = (jy - (this.d * 6.0f));
@@ -1260,6 +1373,12 @@ public final class ViewportView extends FrameLayout {
                     this.this$0.getGui().press(hit, x, y);
                     return;
                 }
+                GuiOverlay.Hit surfaceHit = this.this$0.getGui().surfaceButtonAt(x, y);
+                if (surfaceHit != null) {
+                    this.ptrs.put(Integer.valueOf(id), new GuiPress(this, id, x, y, surfaceHit, null));
+                    this.this$0.getGui().press(surfaceHit, x, y);
+                    return;
+                }
                 GuiOverlay.Scroll scrollScrollAt = this.this$0.getGui().scrollAt(x, y);
                 if (scrollScrollAt != null) {
                     this.ptrs.put(Integer.valueOf(id), new GuiScroll(this, id, x, y, scrollScrollAt));
@@ -1356,7 +1475,8 @@ public final class ViewportView extends FrameLayout {
                 z2 = true;
             }
             boolean inStickArea = z2;
-            if (!getActiveJoy() && inStickArea && (!playing || !this.this$0.getGui().blocksAt(x, y))) {
+            boolean allowTouchStick = !playing || (this.this$0.shouldShowTouchControls(this.this$0.studio.getPlay()) && !this.this$0.getGui().blocksAt(x, y));
+            if (!getActiveJoy() && inStickArea && allowTouchStick) {
                 if (!getFixedStick()) {
                     this.joyCx = RangesKt.coerceAtLeast(x, (getJoyR() * 0.6f) + this.cutL);
                     this.joyCy = RangesKt.coerceAtMost(y, (getHeight() - (getJoyR() * 0.6f)) - this.cutB);
@@ -1636,8 +1756,16 @@ public final class ViewportView extends FrameLayout {
                         if (!((GuiPress) p).getCancelled()) {
                             GuiOverlay gui = this.this$0.getGui();
                             GuiOverlay.Hit hit = ((GuiPress) p).getHit();
-                            if (!cancel && ((GuiPress) p).getHit().getRect().contains(x, y)) {
-                                z = true;
+                            if (!cancel) {
+                                if (hit.isSurface()) {
+                                    GuiOverlay.Hit upHit = gui.surfaceButtonAt(x, y);
+                                    if ((upHit != null && upHit.getInst() == hit.getInst())
+                                            || ((float) Math.hypot(x - p.getX0(), y - p.getY0())) <= this.d * 24.0f) {
+                                        z = true;
+                                    }
+                                } else if (hit.getRect().contains(x, y)) {
+                                    z = true;
+                                }
                             }
                             gui.release(hit, x, y, z);
                             return;

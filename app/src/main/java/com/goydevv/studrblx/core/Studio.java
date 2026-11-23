@@ -38,6 +38,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicBoolean;
 import kotlin.Lazy;
 import kotlin.LazyKt;
 import kotlin.Pair;
@@ -114,7 +115,8 @@ public final class Studio {
 
     /* JADX INFO: renamed from: prefs$delegate, reason: from kotlin metadata */
     private final Lazy prefs;
-    private boolean propsPosted;
+    private final AtomicBoolean propsPosted = new AtomicBoolean(false);
+    private final AtomicBoolean propsDirty = new AtomicBoolean(false);
     private int renderListVersion;
     private final ArrayList<Instance> selection;
     private volatile boolean shadowsEnabled;
@@ -127,7 +129,8 @@ public final class Studio {
     private Function1<? super String, Unit> toastHandler;
     private Tool tool;
     private final TreeListener treeListener;
-    private boolean treePosted;
+    private final AtomicBoolean treePosted = new AtomicBoolean(false);
+    private final AtomicBoolean treeDirty = new AtomicBoolean(false);
     private final UndoManager undo;
     private final ViewState view;
 
@@ -183,21 +186,17 @@ public final class Studio {
                 if (Intrinsics.areEqual(name, "Name")) {
                     Studio.this.postTree();
                 }
-                if (Studio.this.getSelection().isEmpty()) {
-                    return;
-                }
-                Iterable selection = Studio.this.getSelection();
-                boolean z = false;
-                if (!(selection instanceof Collection) || !((Collection) selection).isEmpty()) {
-                    Iterator it = selection.iterator();
-                    while (it.hasNext()) {
-                        if (((Instance) it.next()) == inst) {
-                            z = true;
+                boolean selected = false;
+                synchronized (Studio.this.lock) {
+                    ArrayList<Instance> sel = Studio.this.selection;
+                    for (int i = 0, n = sel.size(); i < n; i++) {
+                        if (sel.get(i) == inst) {
+                            selected = true;
                             break;
                         }
                     }
                 }
-                if (z) {
+                if (selected) {
                     Studio.this.postProps();
                 }
             }
@@ -585,47 +584,78 @@ public final class Studio {
         return false;
     }
 
+    private final void runOnMain(Runnable r) {
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            r.run();
+        } else {
+            this.main.post(r);
+        }
+    }
+
     /* JADX INFO: Access modifiers changed from: private */
     public final void postTree() {
-        if (this.treePosted) {
+        this.treeDirty.set(true);
+        if (!this.treePosted.compareAndSet(false, true)) {
             return;
         }
-        this.treePosted = true;
         this.main.postDelayed(new Runnable() { // from class: com.goydevv.studrblx.core.Studio$$ExternalSyntheticLambda10
             @Override // java.lang.Runnable
             public final void run() {
                 Studio.postTree$lambda$5(Studio.this);
             }
-        }, 120L);
+        }, 150L);
     }
 
     static final void postTree$lambda$5(Studio this$0) {
-        this$0.treePosted = false;
+        this$0.treeDirty.set(false);
+        this$0.treePosted.set(false);
+        boolean pruned = false;
+        synchronized (this$0.lock) {
+            DataModel curModel = this$0.getModel();
+            for (int i = this$0.selection.size() - 1; i >= 0; i--) {
+                Instance s = this$0.selection.get(i);
+                if (s == null || s.getDestroyed() || s.root() != curModel) {
+                    this$0.selection.remove(i);
+                    pruned = true;
+                }
+            }
+        }
         Iterator it = this$0.listeners.iterator();
         while (it.hasNext()) {
-            ((Listener) it.next()).onTreeChanged();
+            Listener l = (Listener) it.next();
+            if (pruned) {
+                l.onSelectionChanged();
+            }
+            l.onTreeChanged();
+        }
+        if (this$0.treeDirty.get()) {
+            this$0.postTree();
         }
     }
 
     /* JADX INFO: Access modifiers changed from: private */
     public final void postProps() {
-        if (this.propsPosted) {
+        this.propsDirty.set(true);
+        if (!this.propsPosted.compareAndSet(false, true)) {
             return;
         }
-        this.propsPosted = true;
         this.main.postDelayed(new Runnable() { // from class: com.goydevv.studrblx.core.Studio$$ExternalSyntheticLambda1
             @Override // java.lang.Runnable
             public final void run() {
                 Studio.postProps$lambda$7(Studio.this);
             }
-        }, 200L);
+        }, 150L);
     }
 
     static final void postProps$lambda$7(Studio this$0) {
-        this$0.propsPosted = false;
+        this$0.propsDirty.set(false);
+        this$0.propsPosted.set(false);
         Iterator it = this$0.listeners.iterator();
         while (it.hasNext()) {
             ((Listener) it.next()).onPropsChanged();
+        }
+        if (this$0.propsDirty.get()) {
+            this$0.postProps();
         }
     }
 
@@ -637,6 +667,9 @@ public final class Studio {
     }
 
     public final void markDirty() {
+        if (isPlaying()) {
+            return;
+        }
         if (!this.dirty) {
             this.dirty = true;
             this.main.post(new Runnable() { // from class: com.goydevv.studrblx.core.Studio$$ExternalSyntheticLambda8
@@ -1143,12 +1176,18 @@ public final class Studio {
                     return Studio.startPlay$lambda$28$lambda$27(Studio.this, playSession);
                 }
             });
-            for (Listener listener : this.listeners) {
-                listener.onSelectionChanged();
-                listener.onModelReplaced();
-                listener.onPlayStateChanged();
-            }
         }
+        runOnMain(new Runnable() {
+            @Override
+            public void run() {
+                for (Listener listener : Studio.this.listeners) {
+                    listener.onSelectionChanged();
+                    listener.onModelReplaced();
+                    listener.onPlayStateChanged();
+                    listener.onTreeChanged();
+                }
+            }
+        });
     }
 
     static final Unit startPlay$lambda$28$lambda$25(PlaySession $s, Instance snd) {
@@ -1186,13 +1225,25 @@ public final class Studio {
         return Unit.INSTANCE;
     }
 
-    static final Unit startPlay$lambda$28$lambda$27(Studio this$0, PlaySession $s) {
+    static final Unit startPlay$lambda$28$lambda$27(final Studio this$0, final PlaySession $s) {
         if (this$0.play == $s) {
             try {
                 $s.start();
             } catch (Exception e) {
                 OutputLog.INSTANCE.error("Playtest failed to start: " + e);
             }
+            this$0.main.post(new Runnable() {
+                @Override
+                public void run() {
+                    if (this$0.play != $s) {
+                        return;
+                    }
+                    for (Listener listener : this$0.listeners) {
+                        listener.onTreeChanged();
+                        listener.onPropsChanged();
+                    }
+                }
+            });
         }
         return Unit.INSTANCE;
     }
@@ -1231,12 +1282,18 @@ public final class Studio {
             this.moveX = 0.0f;
             this.moveY = 0.0f;
             Unit unit = Unit.INSTANCE;
-            for (Listener listener : this.listeners) {
-                listener.onSelectionChanged();
-                listener.onModelReplaced();
-                listener.onPlayStateChanged();
-            }
         }
+        runOnMain(new Runnable() {
+            @Override
+            public void run() {
+                for (Listener listener : Studio.this.listeners) {
+                    listener.onSelectionChanged();
+                    listener.onModelReplaced();
+                    listener.onPlayStateChanged();
+                    listener.onTreeChanged();
+                }
+            }
+        });
     }
 
     public static /* synthetic */ void replaceEditModel$default(Studio studio, DataModel dataModel, Uri uri, String str, boolean z, CloudPlace cloudPlace, int i, Object obj) {
@@ -1891,15 +1948,17 @@ public final class Studio {
                 Instance.set$default(inst, name, value, false, 4, null);
                 try {
                     try {
-                        this.undo.record(new UndoManager.Op.Prop(inst, name, obj, value, zContainsKey));
+                        if (!isPlaying()) {
+                            this.undo.record(new UndoManager.Op.Prop(inst, name, obj, value, zContainsKey));
+                        }
                         if ("Lighting".equals(inst.getClassName())) {
                             if ("TimeOfDay".equals(name) && value instanceof String) {
                                 Float parsed = PlaceFactory.parseTimeOfDay((String) value);
                                 if (parsed != null) {
-                                    inst.set("ClockTime", parsed, false);
+                                    inst.set("ClockTime", parsed, true);
                                 }
                             } else if ("ClockTime".equals(name) && value instanceof Number) {
-                                inst.set("TimeOfDay", PlaceFactory.formatClockTime(((Number) value).floatValue()), false);
+                                inst.set("TimeOfDay", PlaceFactory.formatClockTime(((Number) value).floatValue()), true);
                             }
                         }
                         if ((Intrinsics.areEqual(name, "MaterialVariant") || Intrinsics.areEqual(name, "MaterialVariantSerialized")) && inst.isA("BasePart")) {
@@ -1970,7 +2029,9 @@ public final class Studio {
                 }
             }
             Instance.setParent$default(inst, newParent, 0, 2, null);
-            this.undo.record(new UndoManager.Op.Parent(inst, parent, i, newParent));
+            if (!isPlaying()) {
+                this.undo.record(new UndoManager.Op.Parent(inst, parent, i, newParent));
+            }
             Unit unit = Unit.INSTANCE;
         }
     }

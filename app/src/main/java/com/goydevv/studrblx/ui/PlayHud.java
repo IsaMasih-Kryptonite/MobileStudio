@@ -819,10 +819,14 @@ public final class PlayHud extends FrameLayout {
                 if (play.getCoreHealth()) {
                     drawHealth(c, play);
                 }
-                if (play.getShiftLock() && !play.getFirstPerson()) {
-                    drawCursor(c);
-                } else if (play.getFirstPerson()) {
-                    drawDot(c);
+                boolean showControls = !(playHud.getParent() instanceof ViewportView)
+                        || ((ViewportView) playHud.getParent()).shouldShowTouchControls(play);
+                if (showControls) {
+                    if (play.getShiftLock() && !play.getFirstPerson()) {
+                        drawCursor(c);
+                    } else if (play.getFirstPerson()) {
+                        drawDot(c);
+                    }
                 }
                 Unit unit = Unit.INSTANCE;
             }
@@ -1055,6 +1059,10 @@ public final class PlayHud extends FrameLayout {
         }
     }
 
+    public final boolean isMenuOpen() {
+        return this.menu != null;
+    }
+
     public final void toggleMenu() {
         if (this.menu != null) {
             closeMenu();
@@ -1069,6 +1077,9 @@ public final class PlayHud extends FrameLayout {
             removeView(view);
         }
         this.menu = null;
+        if (getParent() instanceof ViewportView) {
+            ((ViewportView) getParent()).getControls().invalidate();
+        }
     }
 
     private final TextView label(String s, float size, int color, boolean b) {
@@ -1194,6 +1205,9 @@ public final class PlayHud extends FrameLayout {
         root.addView(panel, new FrameLayout.LayoutParams(Math.min(maxW, RangesKt.coerceAtLeast((int) (getWidth() * 0.94f), dp(280.0f))), (int) (getHeight() * 0.9f), 17));
         addView(root, new FrameLayout.LayoutParams(-1, -1));
         this.menu = root;
+        if (getParent() instanceof ViewportView) {
+            ((ViewportView) getParent()).getControls().invalidate();
+        }
         openMenu$select(tabViews, content, this, initialTab);
     }
 

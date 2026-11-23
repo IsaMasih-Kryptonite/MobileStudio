@@ -49,14 +49,248 @@ public final class RobloxApi {
     }
 
     public static boolean isJsonErrorPayload(byte[] b) {
-        if (b == null || b.length < 10) return false;
+        if (b == null || b.length < 2) return false;
         int i = 0;
-        while (i < b.length && i < 16 && (b[i] == ' ' || b[i] == '\n' || b[i] == '\r' || b[i] == '\t')) i++;
+        while (i < b.length && i < 32 && (b[i] == ' ' || b[i] == '\n' || b[i] == '\r' || b[i] == '\t')) i++;
         if (i < b.length && b[i] == '{') {
-            String head = new String(b, i, Math.min(b.length - i, 128), java.nio.charset.StandardCharsets.UTF_8);
-            return head.contains("\"errors\"") || head.contains("\"errorMessage\"");
+            String head = new String(b, i, Math.min(b.length - i, 256), java.nio.charset.StandardCharsets.UTF_8);
+            if (head.contains("\"errors\"") || head.contains("\"errorMessage\"")) {
+                return true;
+            }
+            if (head.contains("\"code\"") && head.contains("\"message\"")) {
+                return true;
+            }
         }
         return false;
+    }
+
+    public static boolean isInvalidAssetPayload(byte[] b) {
+        if (b == null || b.length == 0) return true;
+        if (isJsonErrorPayload(b)) return true;
+        int i = 0;
+        while (i < b.length && i < 32 && (b[i] == ' ' || b[i] == '\n' || b[i] == '\r' || b[i] == '\t')) i++;
+        if (i < b.length && b[i] == '<') {
+            String head = new String(b, i, Math.min(b.length - i, 96), java.nio.charset.StandardCharsets.UTF_8).toLowerCase(java.util.Locale.ROOT);
+            if (head.startsWith("<!doctype") || head.startsWith("<html") || head.startsWith("<head") || head.startsWith("<error")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean isRobloxHost(String urlStr) {
+        try {
+            java.net.URL u = new java.net.URL(urlStr);
+            if (!"https".equalsIgnoreCase(u.getProtocol())) return false;
+            String host = u.getHost();
+            if (host == null) return false;
+            String low = host.toLowerCase(java.util.Locale.ROOT);
+            return low.equals("roblox.com") || low.endsWith(".roblox.com");
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private static String extractLocationFromJson(byte[] b) {
+        if (b == null || b.length < 10) return null;
+        int i = 0;
+        while (i < b.length && i < 32 && (b[i] == ' ' || b[i] == '\n' || b[i] == '\r' || b[i] == '\t')) i++;
+        if (i >= b.length || (b[i] != '{' && b[i] != '[')) return null;
+        try {
+            String text = new String(b, i, b.length - i, java.nio.charset.StandardCharsets.UTF_8);
+            if (b[i] == '{') {
+                JSONObject j = new JSONObject(text);
+                String direct = j.optString("location");
+                if (direct != null && (direct.startsWith("https://") || direct.startsWith("http://"))) {
+                    return direct;
+                }
+                JSONArray locs = j.optJSONArray("locations");
+                if (locs != null) {
+                    for (int k = 0; k < locs.length(); k++) {
+                        JSONObject item = locs.optJSONObject(k);
+                        String loc = item != null ? item.optString("location") : null;
+                        if (loc != null && (loc.startsWith("https://") || loc.startsWith("http://"))) {
+                            return loc;
+                        }
+                    }
+                }
+            } else {
+                JSONArray arr = new JSONArray(text);
+                for (int k = 0; k < arr.length(); k++) {
+                    JSONObject item = arr.optJSONObject(k);
+                    if (item == null) continue;
+                    String direct = item.optString("location");
+                    if (direct != null && (direct.startsWith("https://") || direct.startsWith("http://"))) {
+                        return direct;
+                    }
+                    JSONArray locs = item.optJSONArray("locations");
+                    if (locs != null) {
+                        for (int m = 0; m < locs.length(); m++) {
+                            JSONObject locObj = locs.optJSONObject(m);
+                            String loc = locObj != null ? locObj.optString("location") : null;
+                            if (loc != null && (loc.startsWith("https://") || loc.startsWith("http://"))) {
+                                return loc;
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return null;
+    }
+
+    private static boolean looksLikePlaceFile(byte[] b) {
+        if (b == null || b.length < 128) return false;
+        if (b[0] != '<' || b[1] != 'r' || b[2] != 'o' || b[3] != 'b' || b[4] != 'l' || b[5] != 'o' || b[6] != 'x') {
+            return false;
+        }
+        int scanLen = Math.min(b.length, 32768);
+        String head = new String(b, 0, scanLen, java.nio.charset.StandardCharsets.ISO_8859_1);
+        return head.contains("ServerScriptService") || (head.contains("SoundService") && head.contains("Lighting"));
+    }
+
+    private byte[] fetchAssetWithRedirects(String startUrl, String method, Map<String, String> robloxHeaders, byte[] body) throws Exception {
+        String u = startUrl;
+        String m = method != null ? method : "GET";
+        byte[] reqBody = body;
+        int redirects = 0;
+        while (true) {
+            boolean onRoblox = isRobloxHost(u);
+            java.net.HttpURLConnection c = (java.net.HttpURLConnection) new java.net.URL(u).openConnection();
+            c.setUseCaches(false);
+            c.setInstanceFollowRedirects(false);
+            c.setConnectTimeout(15000);
+            c.setReadTimeout(30000);
+            c.setRequestMethod(m);
+            c.setRequestProperty("Accept", "*/*");
+            c.setRequestProperty("Accept-Encoding", "gzip");
+            if (onRoblox) {
+                c.setRequestProperty("User-Agent", "Roblox/WinInet");
+                if (robloxHeaders != null) {
+                    for (Map.Entry<String, String> entry : robloxHeaders.entrySet()) {
+                        c.setRequestProperty(entry.getKey(), entry.getValue());
+                    }
+                }
+            } else {
+                // Never leak .ROBLOSECURITY, Roblox-Place-Id, or Roblox-Browser-Asset-Request to CDN hosts
+                c.setRequestProperty("User-Agent", "MobileStudio/1.0 (Android)");
+            }
+            if (reqBody != null) {
+                c.setDoOutput(true);
+                c.setRequestProperty("Content-Type", "application/json");
+                c.setFixedLengthStreamingMode(reqBody.length);
+                try (java.io.OutputStream os = c.getOutputStream()) {
+                    os.write(reqBody);
+                }
+            }
+            int code = c.getResponseCode();
+            if (code >= 300 && code < 400 && redirects < 8) {
+                String loc = c.getHeaderField("Location");
+                c.disconnect();
+                if (loc == null || loc.length() == 0) {
+                    throw new HttpException(code, "Redirect without location");
+                }
+                u = new java.net.URL(new java.net.URL(u), loc).toString();
+                if (code == 301 || code == 302 || code == 303) {
+                    m = "GET";
+                    reqBody = null;
+                }
+                redirects++;
+                continue;
+            }
+            java.io.InputStream stream = code >= 400 ? c.getErrorStream() : c.getInputStream();
+            byte[] data;
+            if (stream == null) {
+                data = new byte[0];
+            } else {
+                java.io.InputStream in = "gzip".equalsIgnoreCase(c.getContentEncoding()) ? new GZIPInputStream(stream) : stream;
+                java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+                try (java.io.InputStream autoIn = in) {
+                    byte[] buf = new byte[16384];
+                    int n;
+                    while ((n = autoIn.read(buf)) >= 0) {
+                        bos.write(buf, 0, n);
+                        if (bos.size() > 67108864) {
+                            throw new IOException("Response too large");
+                        }
+                    }
+                }
+                data = bos.toByteArray();
+            }
+            c.disconnect();
+            if (code < 200 || code >= 300) {
+                throw new HttpException(code, Http.INSTANCE.describe(code, data));
+            }
+            return ungzip(data);
+        }
+    }
+
+    private byte[] fetchCdnLocation(String locUrl) throws Exception {
+        byte[] data = fetchAssetWithRedirects(locUrl, "GET", java.util.Collections.<String, String>emptyMap(), null);
+        if (isInvalidAssetPayload(data)) {
+            throw new IOException("CDN returned invalid asset payload");
+        }
+        return data;
+    }
+
+    private byte[] tryAssetDelivery(long id, Integer version, String cookie, boolean usePlaceId, Exception[] lastErrOut) {
+        String vQuery = version != null ? ("&version=" + version.intValue()) : "";
+        String vPath = version != null ? ("/version/" + version.intValue()) : "";
+        Map<String, String> headers = new java.util.LinkedHashMap<>();
+        headers.put("Roblox-Browser-Asset-Request", "true");
+        headers.put("User-Agent", "Roblox/WinInet");
+        if (cookie != null && cookie.length() > 0) {
+            headers.put("Cookie", ".ROBLOSECURITY=" + cookie);
+        }
+        if (usePlaceId && activePlaceId > 0L) {
+            headers.put("Roblox-Place-Id", String.valueOf(activePlaceId));
+        }
+
+        // A. AssetDelivery v2 JSON -> CDN location
+        try {
+            byte[] v2Raw = fetchAssetWithRedirects("https://assetdelivery.roblox.com/v2/assetId/" + id + vPath, "GET", headers, null);
+            String loc = extractLocationFromJson(v2Raw);
+            if (loc != null) {
+                return fetchCdnLocation(loc);
+            }
+            if (!isInvalidAssetPayload(v2Raw)) {
+                return v2Raw;
+            }
+            if (lastErrOut[0] == null) lastErrOut[0] = new IOException("AssetDelivery v2 returned no location for asset " + id);
+        } catch (Exception e) {
+            lastErrOut[0] = e;
+        }
+
+        // B. AssetDelivery v1 (follows 302 to CDN with Cookie/Place-Id stripped on cross-domain redirect)
+        try {
+            byte[] v1Raw = fetchAssetWithRedirects("https://assetdelivery.roblox.com/v1/asset/?id=" + id + vQuery, "GET", headers, null);
+            String v1Loc = extractLocationFromJson(v1Raw);
+            if (v1Loc != null) {
+                return fetchCdnLocation(v1Loc);
+            }
+            if (!isInvalidAssetPayload(v1Raw)) {
+                return v1Raw;
+            }
+            lastErrOut[0] = new IOException("AssetDelivery v1 returned error payload for asset " + id);
+        } catch (Exception e) {
+            lastErrOut[0] = e;
+        }
+
+        // C. AssetDelivery v2 batch endpoint (often required for place-scoped Roblox audio permissions)
+        try {
+            String batchJson = version != null
+                    ? ("[{\"requestId\":\"0\",\"assetId\":" + id + ",\"version\":" + version.intValue() + "}]")
+                    : ("[{\"requestId\":\"0\",\"assetId\":" + id + "}]");
+            byte[] batchRaw = fetchAssetWithRedirects("https://assetdelivery.roblox.com/v2/assets/batch", "POST", headers, batchJson.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            String batchLoc = extractLocationFromJson(batchRaw);
+            if (batchLoc != null) {
+                return fetchCdnLocation(batchLoc);
+            }
+        } catch (Exception e) {
+            if (lastErrOut[0] == null) lastErrOut[0] = e;
+        }
+        return null;
     }
     private static final String PREFS = "roblox_auth";
 
@@ -1278,7 +1512,7 @@ public final class RobloxApi {
         if (longOrNull != null) {
             return Long.valueOf(longOrNull.longValue());
         }
-        Regex rx = new Regex("(?:[?&]id=|/asset/|/library/|/catalog/|/store/asset/|/plugins/|/models/|rbxassetid://)(\\d+)", RegexOption.IGNORE_CASE);
+        Regex rx = new Regex("(?:[?&]id=|/assetId/|/asset/|/library/|/catalog/|/store/asset/|/plugins/|/models/|rbxassetid://)(\\d+)", RegexOption.IGNORE_CASE);
         MatchResult matchResultFind$default = (rx).find(t, 0);
         if (matchResultFind$default == null || (groupValues = matchResultFind$default.getGroupValues()) == null || (str = groupValues.get(1)) == null) {
             return null;
@@ -1301,9 +1535,8 @@ public final class RobloxApi {
         Intrinsics.checkNotNullParameter(ctx, "ctx");
         String key = apiKey(ctx);
         String cookie = cookie(ctx);
-        String vQuery = version != null ? ("&version=" + version.intValue()) : "";
         String vPath = version != null ? ("/version/" + version.intValue()) : "";
-        Exception lastError = null;
+        Exception[] lastErr = new Exception[1];
 
         // 1. Open Cloud Asset Delivery API (if API key configured)
         if (key.length() > 0) {
@@ -1312,78 +1545,58 @@ public final class RobloxApi {
                 JSONObject j = Http.INSTANCE.json("https://apis.roblox.com/asset-delivery-api/v1/" + path, MapsKt.mapOf(TuplesKt.to("x-api-key", key)));
                 String loc = j.optString("location");
                 if (loc != null && loc.length() > 0) {
-                    return ungzip(Http.get$default(Http.INSTANCE, loc, null, 0, 6, null));
+                    byte[] data = fetchCdnLocation(loc);
+                    if (looksLikePlaceFile(data)) setActivePlaceId(id);
+                    return data;
                 }
-                lastError = new IOException("No download location returned");
+                lastErr[0] = new IOException("No download location returned");
             } catch (Exception e) {
-                lastError = e;
+                lastErr[0] = e;
             }
         }
 
-        // 2. Authenticated Roblox AssetDelivery v2 -> CDN location -> v1 fallback
+        // 2. Authenticated Roblox AssetDelivery (v2 -> v1 -> v2/batch) with Roblox-Place-Id, then without if place-scoped failed
         if (cookie.length() > 0) {
-            Map<String, String> headers = new java.util.LinkedHashMap<>();
-            headers.put("Cookie", ".ROBLOSECURITY=" + cookie);
-            headers.put("Roblox-Browser-Asset-Request", "true");
-            headers.put("User-Agent", "Roblox/WinInet");
+            byte[] authData = tryAssetDelivery(id, version, cookie, activePlaceId > 0L, lastErr);
+            if (authData != null) {
+                if (looksLikePlaceFile(authData)) setActivePlaceId(id);
+                return authData;
+            }
             if (activePlaceId > 0L) {
-                headers.put("Roblox-Place-Id", String.valueOf(activePlaceId));
-            }
-            try {
-                JSONObject j2 = Http.INSTANCE.json("https://assetdelivery.roblox.com/v2/assetId/" + id + vPath, headers);
-                JSONArray locs = j2.optJSONArray("locations");
-                if (locs != null && locs.length() > 0) {
-                    JSONObject first = locs.optJSONObject(0);
-                    String loc2 = first != null ? first.optString("location") : null;
-                    if (loc2 != null && loc2.length() > 0) {
-                        return ungzip(Http.get$default(Http.INSTANCE, loc2, null, 0, 6, null));
-                    }
+                Exception[] retryErr = new Exception[1];
+                byte[] authNoPlace = tryAssetDelivery(id, version, cookie, false, retryErr);
+                if (authNoPlace != null) {
+                    if (looksLikePlaceFile(authNoPlace)) setActivePlaceId(id);
+                    return authNoPlace;
                 }
-            } catch (Exception e) {
-                lastError = e;
-            }
-            try {
-                return ungzip(Http.get$default(Http.INSTANCE, "https://assetdelivery.roblox.com/v1/asset/?id=" + id + vQuery, headers, 0, 4, null));
-            } catch (Exception e) {
-                lastError = e;
+                if (lastErr[0] == null && retryErr[0] != null) lastErr[0] = retryErr[0];
             }
         }
 
-        // 3. Public / unauthenticated Roblox AssetDelivery v2 -> v1 fallback (for public textures, baseplate, animations, meshes)
-        try {
-            Map<String, String> pubHeaders = new java.util.LinkedHashMap<>();
-            pubHeaders.put("Roblox-Browser-Asset-Request", "true");
-            pubHeaders.put("User-Agent", "Roblox/WinInet");
-            if (activePlaceId > 0L) {
-                pubHeaders.put("Roblox-Place-Id", String.valueOf(activePlaceId));
-            }
-            JSONObject jPub = Http.INSTANCE.json("https://assetdelivery.roblox.com/v2/assetId/" + id + vPath, pubHeaders);
-            JSONArray locsPub = jPub.optJSONArray("locations");
-            if (locsPub != null && locsPub.length() > 0) {
-                JSONObject first = locsPub.optJSONObject(0);
-                String locPub = first != null ? first.optString("location") : null;
-                if (locPub != null && locPub.length() > 0) {
-                    return ungzip(Http.get$default(Http.INSTANCE, locPub, null, 0, 6, null));
-                }
-            }
-        } catch (Exception e) {
-            if (lastError == null) lastError = e;
+        // 3. Public / unauthenticated Roblox AssetDelivery (v2 -> v1 -> v2/batch)
+        Exception[] pubErr = new Exception[1];
+        byte[] pubData = tryAssetDelivery(id, version, "", activePlaceId > 0L, pubErr);
+        if (pubData != null) {
+            if (looksLikePlaceFile(pubData)) setActivePlaceId(id);
+            return pubData;
         }
-        try {
-            byte[] pubV1 = ungzip(Http.get$default(Http.INSTANCE, "https://assetdelivery.roblox.com/v1/asset/?id=" + id + vQuery, null, 0, 6, null));
-            if (isJsonErrorPayload(pubV1)) {
-                throw new IOException("AssetDelivery returned JSON error for asset " + id);
+        if (activePlaceId > 0L) {
+            Exception[] pubNoPlaceErr = new Exception[1];
+            byte[] pubNoPlace = tryAssetDelivery(id, version, "", false, pubNoPlaceErr);
+            if (pubNoPlace != null) {
+                if (looksLikePlaceFile(pubNoPlace)) setActivePlaceId(id);
+                return pubNoPlace;
             }
-            return pubV1;
-        } catch (HttpException e6) {
-            if (cookie.length() == 0 && key.length() == 0 && (e6.getCode() == 401 || e6.getCode() == 403)) {
-                throw new AuthRequiredException("Roblox requires sign-in to download this asset.");
-            }
-            lastError = e6;
-        } catch (Exception e7) {
-            lastError = e7;
+            if (pubErr[0] == null && pubNoPlaceErr[0] != null) pubErr[0] = pubNoPlaceErr[0];
+        }
+        if (lastErr[0] == null && pubErr[0] != null) {
+            lastErr[0] = pubErr[0];
         }
 
+        Exception lastError = lastErr[0];
+        if (cookie.length() == 0 && key.length() == 0 && (lastError instanceof HttpException) && (((HttpException) lastError).getCode() == 401 || ((HttpException) lastError).getCode() == 403)) {
+            throw new AuthRequiredException("Roblox requires sign-in to download this asset.");
+        }
         if ((lastError instanceof HttpException) && (((HttpException) lastError).getCode() == 401 || ((HttpException) lastError).getCode() == 403)) {
             throw new AuthRequiredException("Roblox rejected credentials (HTTP " + ((HttpException) lastError).getCode() + "). Try signing in again.");
         }

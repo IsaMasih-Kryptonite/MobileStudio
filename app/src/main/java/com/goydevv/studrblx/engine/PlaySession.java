@@ -110,7 +110,9 @@ public final class PlaySession implements TreeListener {
     private float lastRunningSpeed = -1.0f;
     private final HashSet<String> disabledStates = new HashSet<>();
     private static final int MATERIAL_AIR = 1792;
-    private boolean controlsEnabled;
+    private volatile boolean controlsEnabled;
+    private volatile boolean modalEnabled;
+    private volatile boolean touchControlsEnabled;
     private boolean coreBackpack;
     private boolean coreChat;
     private boolean coreHealth;
@@ -199,6 +201,8 @@ public final class PlaySession implements TreeListener {
         this.charHalfXZ = 1.0f;
         this.offsets = new IdentityHashMap<>();
         this.controlsEnabled = true;
+        this.modalEnabled = false;
+        this.touchControlsEnabled = true;
         this.camPitch = -0.35f;
         this.camDist = 14.0f;
         this.pitchTarget = -0.35f;
@@ -273,11 +277,40 @@ public final class PlaySession implements TreeListener {
     }
 
     public final boolean getControlsEnabled() {
-        return this.controlsEnabled;
+        return this.controlsEnabled && this.touchControlsEnabled && !this.modalEnabled;
     }
 
     public final void setControlsEnabled(boolean z) {
         this.controlsEnabled = z;
+        if (!z) {
+            this.lastDir = Vector3.INSTANCE.getZERO();
+        }
+    }
+
+    public final boolean getModalEnabled() {
+        return this.modalEnabled;
+    }
+
+    public final void setModalEnabled(boolean z) {
+        this.modalEnabled = z;
+        if (z) {
+            this.lastDir = Vector3.INSTANCE.getZERO();
+        }
+    }
+
+    public final boolean getTouchControlsEnabled() {
+        return this.touchControlsEnabled;
+    }
+
+    public final void setTouchControlsEnabled(boolean z) {
+        this.touchControlsEnabled = z;
+        if (!z) {
+            this.lastDir = Vector3.INSTANCE.getZERO();
+        }
+    }
+
+    public final boolean areTouchControlsVisible() {
+        return this.controlsEnabled && this.touchControlsEnabled && !this.modalEnabled;
     }
 
     public final float getCamYaw() {
@@ -666,12 +699,29 @@ public final class PlaySession implements TreeListener {
         Iterable children;
         Instance instanceFindFirstChild$default;
         Iterable children2;
+        com.goydevv.studrblx.lua.RobloxServices.INSTANCE.resetSessionState();
+        this.controlsEnabled = true;
+        this.modalEnabled = false;
+        this.touchControlsEnabled = true;
+        Instance uisInit = this.dm.findService("UserInputService");
+        if (uisInit != null) {
+            uisInit.set("ModalEnabled", Boolean.FALSE, false);
+        }
+        Instance gsInit = this.dm.findService("GuiService");
+        if (gsInit != null) {
+            gsInit.set("TouchControlsEnabled", Boolean.TRUE, false);
+        }
         this.dm.getListeners().add(this);
         OutputLog.INSTANCE.info("Playtest started");
         installBridge();
         setupTextChat();
         // 1) Create Player + Backpack + PlayerGui + PlayerScripts + addPlayerModule
         Instance players = this.dm.getService("Players");
+        for (Instance oldChild : new ArrayList<>(players.getChildren())) {
+            if ("Player".equals(oldChild.getClassName())) {
+                oldChild.destroy();
+            }
+        }
         Instance p = InstanceFactory.INSTANCE.create("Player");
         Context ctx = this.studio.getApp();
         boolean signedIn = (RobloxApi.INSTANCE.isGuest(ctx) || RobloxApi.INSTANCE.userId(ctx) == 0) ? false : true;
@@ -723,6 +773,7 @@ public final class PlaySession implements TreeListener {
         ps.attachRaw(p);
         addPlayerModule(ps);
         this.player = p;
+        players.set("LocalPlayer", p, false);
         Instance.setParent$default(p, players, 0, 2, null);
         if (isLockFirstPerson()) {
             this.camDist = 0.5f;
@@ -776,7 +827,71 @@ public final class PlaySession implements TreeListener {
 
     public final void stop() {
         this.dm.getListeners().remove(this);
+        Instance players = this.dm.findService("Players");
+        Instance p = this.player;
+        if (players != null && p != null) {
+            try {
+                this.rt.fire(players, "PlayerRemoving", this.rt.wrap(p));
+            } catch (Throwable ignored) {
+            }
+            players.set("LocalPlayer", null, false);
+        }
+        try {
+            this.rt.getGlobals().set("__MobileStudioPlayer", LuaValue.NIL);
+        } catch (Throwable ignored) {
+        }
         this.rt.shutdown();
+        this.rt.setPlay(null);
+        com.goydevv.studrblx.lua.RobloxServices.INSTANCE.resetSessionState();
+        Instance uis = this.dm.findService("UserInputService");
+        if (uis != null) {
+            uis.set("ModalEnabled", Boolean.FALSE, false);
+        }
+        Instance gs = this.dm.findService("GuiService");
+        if (gs != null) {
+            gs.set("TouchControlsEnabled", Boolean.TRUE, false);
+        }
+        this.controlsEnabled = true;
+        this.modalEnabled = false;
+        this.touchControlsEnabled = true;
+        this.player = null;
+        this.character = null;
+        this.hrp = null;
+        this.humanoid = null;
+        this.equipped = null;
+        this.activePrompt = null;
+        this.seated = null;
+        this.floorPart = null;
+        this.floorLastCf = null;
+        this.playAsTemplate = null;
+        this.playAsYaw = null;
+        this.animator = null;
+        this.mouseTable = null;
+        this.lastDir = Vector3.INSTANCE.getZERO();
+        this.vel = Vector3.INSTANCE.getZERO();
+        this.startedScripts.clear();
+        this.actions.clear();
+        this.prompts.clear();
+        this.scriptTracks.clear();
+        this.rigPlayers.clear();
+        this.rigJoints.clear();
+        this.debris.clear();
+        this.touching.clear();
+        this.bodies.clear();
+        this.bodyOf.clear();
+        this.statics.clear();
+        this.grid.clear();
+        this.cellsOf.clear();
+        this.bigParts.clear();
+        this.movers.clear();
+        this.mechConstraints.clear();
+        this.offsets.clear();
+        this.toolOffsets.clear();
+        this.rigid.clear();
+        this.jointOrder.clear();
+        this.disabledStates.clear();
+        this.motorAngle.clear();
+        this.r15Pose.clear();
         OutputLog.INSTANCE.info("Playtest stopped");
     }
 
@@ -846,6 +961,38 @@ public final class PlaySession implements TreeListener {
                 return PlaySession.installBridge$lambda$14(PlaySession.this, (Varargs) obj);
             }
         }));
+        b.set("isControlsEnabled", LuaTypesKt.fnv(new Function1() {
+            @Override
+            public final Object invoke(Object obj) {
+                return LuaValue.valueOf(PlaySession.this.getControlsEnabled());
+            }
+        }));
+        b.set("setModalEnabled", LuaTypesKt.fnv(new Function1() {
+            @Override
+            public final Object invoke(Object obj) {
+                Varargs a = (Varargs) obj;
+                boolean enabled = a.arg1().toboolean();
+                PlaySession.this.setModalEnabled(enabled);
+                Instance uis = PlaySession.this.dm.findService("UserInputService");
+                if (uis != null) {
+                    uis.set("ModalEnabled", Boolean.valueOf(enabled), false);
+                }
+                return LuaValue.NONE;
+            }
+        }));
+        b.set("setTouchControlsEnabled", LuaTypesKt.fnv(new Function1() {
+            @Override
+            public final Object invoke(Object obj) {
+                Varargs a = (Varargs) obj;
+                boolean enabled = a.arg1().toboolean();
+                PlaySession.this.setTouchControlsEnabled(enabled);
+                Instance gs = PlaySession.this.dm.findService("GuiService");
+                if (gs != null) {
+                    gs.set("TouchControlsEnabled", Boolean.valueOf(enabled), false);
+                }
+                return LuaValue.NONE;
+            }
+        }));
         this.rt.getGlobals().set("__MobileStudioPlayer", b);
     }
 
@@ -862,7 +1009,7 @@ public final class PlaySession implements TreeListener {
 
     static final Varargs installBridge$lambda$12(PlaySession this$0, Varargs varargs) {
         Intrinsics.checkNotNullParameter(varargs, "<unused var>");
-        return LuaTypes.INSTANCE.wrap(this$0.controlsEnabled ? new Vector3(this$0.studio.getMoveX(), 0.0f, this$0.studio.getMoveY()) : Vector3.INSTANCE.getZERO());
+        return LuaTypes.INSTANCE.wrap(this$0.getControlsEnabled() ? new Vector3(this$0.studio.getMoveX(), 0.0f, this$0.studio.getMoveY()) : Vector3.INSTANCE.getZERO());
     }
 
     static final Varargs installBridge$lambda$13(PlaySession this$0, Varargs a) {
@@ -889,7 +1036,7 @@ public final class PlaySession implements TreeListener {
     }
 
     private final void addPlayerModule(Instance ps) {
-        Instance pm = addPlayerModule$module("PlayerModule", "\n            local bridge = __MobileStudioPlayer\n            local Controls = {}\n            Controls.__index = Controls\n            function Controls:Enable(enable) bridge.setControlsEnabled(enable ~= false) end\n            function Controls:Disable() bridge.setControlsEnabled(false) end\n            function Controls:GetMoveVector() return bridge.getMoveVector() end\n            function Controls:GetActiveController() return self end\n            function Controls:SelectTouchModule() end\n            function Controls:GetIsJumping() return false end\n            local controls = setmetatable({}, Controls)\n            local Cameras = {}\n            Cameras.__index = Cameras\n            function Cameras:GetCameraControlChoice() return nil end\n            function Cameras:SetIsMouseLocked(on) bridge.setShiftLock(on) end\n            function Cameras:GetIsMouseLocked() return bridge.isShiftLock() end\n            local cameras = setmetatable({}, Cameras)\n            local PlayerModule = {}\n            function PlayerModule:GetControls() return controls end\n            function PlayerModule:GetCameras() return cameras end\n            function PlayerModule:GetClickToMoveController() return controls end\n            return PlayerModule\n        ", ps);
+        Instance pm = addPlayerModule$module("PlayerModule", "\n            local bridge = __MobileStudioPlayer\n            local Controls = {}\n            Controls.__index = Controls\n            function Controls:Enable(enable) bridge.setControlsEnabled(enable ~= false) end\n            function Controls:Disable() bridge.setControlsEnabled(false) end\n            function Controls:IsEnabled() return bridge.isControlsEnabled() end\n            function Controls:GetMoveVector() return bridge.getMoveVector() end\n            function Controls:GetActiveController() return self end\n            function Controls:SelectTouchModule() end\n            function Controls:GetIsJumping() return false end\n            local controls = setmetatable({}, Controls)\n            local Cameras = {}\n            Cameras.__index = Cameras\n            function Cameras:GetCameraControlChoice() return nil end\n            function Cameras:SetIsMouseLocked(on) bridge.setShiftLock(on) end\n            function Cameras:GetIsMouseLocked() return bridge.isShiftLock() end\n            local cameras = setmetatable({}, Cameras)\n            local PlayerModule = {}\n            function PlayerModule:GetControls() return controls end\n            function PlayerModule:GetCameras() return cameras end\n            function PlayerModule:GetClickToMoveController() return controls end\n            return PlayerModule\n        ", ps);
         addPlayerModule$module("ControlModule", "local pm = require(script.Parent)\nreturn pm:GetControls()", pm);
         addPlayerModule$module("CameraModule", "local pm = require(script.Parent)\nreturn pm:GetCameras()", pm);
     }

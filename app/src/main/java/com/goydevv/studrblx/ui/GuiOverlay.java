@@ -130,6 +130,11 @@ public final class GuiOverlay extends View {
     private DataModel attachedModel;
     private final TreeListener dmListener;
     private final Studio.Listener studioListener;
+    private final Object surfaceHitsLock = new Object();
+    private final IdentityHashMap<Instance, List<Hit>> surfaceHits = new IdentityHashMap<>();
+    private final IdentityHashMap<Instance, Boolean> dirtySurfaceGuis = new IdentityHashMap<>();
+    private volatile boolean hasVisibleModal;
+    private boolean newHasModal;
 
     /* JADX INFO: compiled from: GuiOverlay.kt */
     public static final class Hit {
@@ -137,14 +142,20 @@ public final class GuiOverlay extends View {
         private final int kind;
         private final RectF rect;
         private final LuaRuntime rt;
+        private final boolean surface;
 
         public Hit(Instance inst, RectF rect, LuaRuntime rt, int kind) {
+            this(inst, rect, rt, kind, false);
+        }
+
+        public Hit(Instance inst, RectF rect, LuaRuntime rt, int kind, boolean surface) {
             Intrinsics.checkNotNullParameter(inst, "inst");
             Intrinsics.checkNotNullParameter(rect, "rect");
             this.inst = inst;
             this.rect = rect;
             this.rt = rt;
             this.kind = kind;
+            this.surface = surface;
         }
 
         public final Instance getInst() {
@@ -161,6 +172,10 @@ public final class GuiOverlay extends View {
 
         public final LuaRuntime getRt() {
             return this.rt;
+        }
+
+        public final boolean isSurface() {
+            return this.surface;
         }
     }
 
@@ -219,6 +234,8 @@ public final class GuiOverlay extends View {
                     if (child != null && ("BillboardGui".equals(child.getClassName()) || "SurfaceGui".equals(child.getClassName()))) {
                         GuiOverlay.this.billboardScan = 0L;
                     }
+                    GuiOverlay.this.markSurfaceDirty(parent);
+                    GuiOverlay.this.markSurfaceDirty(child);
                     GuiOverlay.this.dirty = true;
                     GuiOverlay.this.postInvalidate();
                 }
@@ -230,6 +247,8 @@ public final class GuiOverlay extends View {
                     if (child != null && ("BillboardGui".equals(child.getClassName()) || "SurfaceGui".equals(child.getClassName()))) {
                         GuiOverlay.this.billboardScan = 0L;
                     }
+                    GuiOverlay.this.markSurfaceDirty(parent);
+                    GuiOverlay.this.markSurfaceDirty(child);
                     GuiOverlay.this.dirty = true;
                     GuiOverlay.this.postInvalidate();
                 }
@@ -238,6 +257,7 @@ public final class GuiOverlay extends View {
             @Override
             public void propChanged(Instance inst, String name) {
                 if (GuiOverlay.isGuiRelevant(inst)) {
+                    GuiOverlay.this.markSurfaceDirty(inst);
                     GuiOverlay.this.dirty = true;
                     GuiOverlay.this.postInvalidate();
                 }
@@ -261,6 +281,7 @@ public final class GuiOverlay extends View {
             public void onModelReplaced() {
                 GuiOverlay.this.attachModelListener();
                 GuiOverlay.this.billboardScan = 0L;
+                GuiOverlay.this.clearSurfaceState();
                 GuiOverlay.this.dirty = true;
                 GuiOverlay.this.postInvalidate();
             }
@@ -271,6 +292,7 @@ public final class GuiOverlay extends View {
                 GuiOverlay.this.billboardScan = 0L;
                 GuiOverlay.this.hoveredHit = null;
                 GuiOverlay.this.pressed = null;
+                GuiOverlay.this.clearSurfaceState();
                 GuiOverlay.this.dirty = true;
                 GuiOverlay.this.postInvalidate();
             }
@@ -347,6 +369,55 @@ public final class GuiOverlay extends View {
     public final void markDirty() {
         this.dirty = true;
         postInvalidate();
+    }
+
+    public final boolean hasVisibleModal() {
+        return this.hasVisibleModal;
+    }
+
+    private static Instance findAncestorSurfaceGui(Instance inst) {
+        for (Instance cur = inst; cur != null; cur = cur.getParent()) {
+            if ("SurfaceGui".equals(cur.getClassName())) {
+                return cur;
+            }
+        }
+        return null;
+    }
+
+    private void markSurfaceDirty(Instance inst) {
+        Instance sg = findAncestorSurfaceGui(inst);
+        if (sg == null) {
+            return;
+        }
+        synchronized (this.surfaceHitsLock) {
+            this.dirtySurfaceGuis.put(sg, Boolean.TRUE);
+            this.surfaceHits.remove(sg);
+        }
+    }
+
+    private void clearSurfaceState() {
+        synchronized (this.surfaceHitsLock) {
+            this.surfaceHits.clear();
+            this.dirtySurfaceGuis.clear();
+        }
+        this.hasVisibleModal = false;
+    }
+
+    public final boolean hasDirtySurfaceGuis() {
+        synchronized (this.surfaceHitsLock) {
+            return !this.dirtySurfaceGuis.isEmpty();
+        }
+    }
+
+    public final List<Instance> drainDirtySurfaceGuis() {
+        synchronized (this.surfaceHitsLock) {
+            if (this.dirtySurfaceGuis.isEmpty()) {
+                return CollectionsKt.emptyList();
+            }
+            ArrayList<Instance> list = new ArrayList<>(this.dirtySurfaceGuis.keySet());
+            this.dirtySurfaceGuis.clear();
+            return list;
+        }
     }
 
     @Override
@@ -966,10 +1037,14 @@ public final class GuiOverlay extends View {
         ArrayList<Pair<Instance, RectF>> savedPicks = this.newPicks;
         LuaRuntime sr = this.rt;
         boolean savedRegHits = this.registerHits;
+        boolean savedModal = this.newHasModal;
         this.newHits = new ArrayList<>();
         this.newScrolls = new ArrayList<>();
         this.newPicks = new ArrayList<>();
-        this.registerHits = false;
+        PlaySession play = this.studio.getPlay();
+        this.rt = (play != null && play.getRt() != null) ? play.getRt() : this.studio.getEditRuntime();
+        this.registerHits = true;
+        this.newHasModal = false;
         RectF area = new RectF(0.0f, 0.0f, canvasW, canvasH);
         float su = this.absUnit;
         float si = this.absInset;
@@ -979,6 +1054,13 @@ public final class GuiOverlay extends View {
             setAbs(gui, area);
             float baseScale = this.d > 0.0f ? (1.0f / this.d) : 1.0f;
             drawLayerCollector(c, gui, area, baseScale, area);
+            ArrayList<Hit> captured = new ArrayList<>(this.newHits.size());
+            for (Hit h : this.newHits) {
+                captured.add(new Hit(h.getInst(), new RectF(h.getRect()), h.getRt(), h.getKind(), true));
+            }
+            synchronized (this.surfaceHitsLock) {
+                this.surfaceHits.put(gui, captured);
+            }
         } finally {
             this.newHits = savedHits;
             this.newScrolls = savedScrolls;
@@ -987,6 +1069,7 @@ public final class GuiOverlay extends View {
             this.absUnit = su;
             this.absInset = si;
             this.registerHits = savedRegHits;
+            this.newHasModal = savedModal;
         }
     }
 
@@ -1006,6 +1089,7 @@ public final class GuiOverlay extends View {
             this.newPicks = new ArrayList<>();
             this.newBoxes = new IdentityHashMap<>();
             this.registerHits = true;
+            this.newHasModal = false;
             PlaySession play = this.studio.getPlay();
             boolean playing = play != null;
 
@@ -1112,6 +1196,7 @@ public final class GuiOverlay extends View {
             this.scrolls = this.newScrolls;
             this.picks = this.newPicks;
             this.boxes = this.newBoxes;
+            this.hasVisibleModal = this.newHasModal;
             fireAbsChanges();
             this.hasContent = hasAny;
         }
@@ -2228,6 +2313,9 @@ public final class GuiOverlay extends View {
         }
         if (!rectF.isEmpty()) {
             this.newPicks.add(TuplesKt.to(c, new RectF(r)));
+            if (this.registerHits && Boolean.TRUE.equals(c.get("Modal"))) {
+                this.newHasModal = true;
+            }
             if (this.registerHits && isInteractable(c)) {
                 if ("TextBox".equals(c.getClassName())) {
                     this.newHits.add(new Hit(c, rectF, this.rt, 1));
@@ -3090,6 +3178,289 @@ public final class GuiOverlay extends View {
         }
         return null;
     }
+    public final Hit surfaceButtonAt(float screenX, float screenY) {
+        synchronized (this.studio.getLock()) {
+            Pair<Vector3, Vector3> ray = this.studio.getView().screenRay(screenX, screenY);
+            Vector3 rayO = ray.component1();
+            Vector3 rayD = ray.component2();
+            ArrayList<Instance> candidates = new ArrayList<>();
+            IdentityHashMap<Instance, Boolean> seen = new IdentityHashMap<>();
+            List<Instance> cached = this.studio.renderSurfaceGuis();
+            if (cached != null) {
+                for (Instance sg : cached) {
+                    if (sg != null && seen.put(sg, Boolean.TRUE) == null) {
+                        candidates.add(sg);
+                    }
+                }
+            }
+            PlaySession play = this.studio.getPlay();
+            if (play != null) {
+                Instance player = play.getPlayer();
+                Instance playerGui = player != null ? Instance.findFirstChild$default(player, "PlayerGui", false, 2, null) : null;
+                if (playerGui != null) {
+                    for (Instance desc : Instance.descendants$default(playerGui, null, 1, null)) {
+                        if ("SurfaceGui".equals(desc.getClassName()) && seen.put(desc, Boolean.TRUE) == null) {
+                            candidates.add(desc);
+                        }
+                    }
+                }
+            }
+            if (candidates.isEmpty()) {
+                return null;
+            }
+            LuaRuntime activeRt = (play != null && play.getRt() != null) ? play.getRt() : this.studio.getEditRuntime();
+            Hit bestHit = null;
+            float bestT = Float.MAX_VALUE;
+            boolean bestAlwaysOnTop = false;
+
+            for (Instance sg : candidates) {
+                if (sg.getParent() == null
+                        || Boolean.FALSE.equals(sg.get("Enabled"))
+                        || Boolean.FALSE.equals(sg.get("Active"))) {
+                    continue;
+                }
+                Object adorneeObj = sg.get("Adornee");
+                Instance part = adorneeObj instanceof Instance ? (Instance) adorneeObj : null;
+                if (part == null || !part.isA("BasePart")) {
+                    Instance parent = sg.getParent();
+                    part = (parent != null && parent.isA("BasePart")) ? parent : null;
+                }
+                if (part == null) {
+                    continue;
+                }
+                CFrame cf = PartData.INSTANCE.cframe(part);
+                Vector3 s = PartData.INSTANCE.size(part);
+                Object faceObj = sg.get("Face");
+                int faceId = faceObj instanceof EnumValue ? ((EnumValue) faceObj).getValue() : 5;
+                Vector3 nrm;
+                Vector3 up;
+                switch (faceId) {
+                    case 0:
+                        nrm = Vector3.INSTANCE.getX();
+                        up = Vector3.INSTANCE.getY();
+                        break;
+                    case 1:
+                        nrm = Vector3.INSTANCE.getY();
+                        up = new Vector3(0.0f, 0.0f, -1.0f);
+                        break;
+                    case 2:
+                        nrm = Vector3.INSTANCE.getZ();
+                        up = Vector3.INSTANCE.getY();
+                        break;
+                    case 3:
+                        nrm = new Vector3(-1.0f, 0.0f, 0.0f);
+                        up = Vector3.INSTANCE.getY();
+                        break;
+                    case 4:
+                        nrm = new Vector3(0.0f, -1.0f, 0.0f);
+                        up = Vector3.INSTANCE.getZ();
+                        break;
+                    default:
+                        nrm = new Vector3(0.0f, 0.0f, -1.0f);
+                        up = Vector3.INSTANCE.getY();
+                        break;
+                }
+                Vector3 right = up.cross(nrm);
+                float w = (Math.abs(right.getX()) * s.getX()) + (Math.abs(right.getY()) * s.getY()) + (Math.abs(right.getZ()) * s.getZ());
+                float h = (Math.abs(up.getX()) * s.getX()) + (Math.abs(up.getY()) * s.getY()) + (Math.abs(up.getZ()) * s.getZ());
+                float depth = (Math.abs(nrm.getX()) * s.getX()) + (Math.abs(nrm.getY()) * s.getY()) + (Math.abs(nrm.getZ()) * s.getZ());
+                if (w <= 0.01f || h <= 0.01f) {
+                    continue;
+                }
+                Vector3 locO = cf.pointToObject(rayO);
+                Vector3 locD = cf.vectorToObject(rayD);
+                float denom = locD.dot(nrm);
+                if (denom >= -1e-6f) {
+                    continue;
+                }
+                Vector3 faceCenter = nrm.times((depth * 0.5f) + 0.004f);
+                float t = faceCenter.minus(locO).dot(nrm) / denom;
+                if (t <= 0.0f) {
+                    continue;
+                }
+                Object maxDistObj = sg.get("MaxDistance");
+                float rawMaxD = maxDistObj instanceof Number ? ((Number) maxDistObj).floatValue() : 0.0f;
+                float maxD = rawMaxD > 0.0f ? Math.min(rawMaxD, 450.0f) : 450.0f;
+                if (t > maxD) {
+                    continue;
+                }
+                boolean alwaysOnTop = Boolean.TRUE.equals(sg.get("AlwaysOnTop"));
+                if (bestHit != null) {
+                    if (bestAlwaysOnTop && !alwaysOnTop) {
+                        continue;
+                    }
+                    if (bestAlwaysOnTop == alwaysOnTop && t >= bestT) {
+                        continue;
+                    }
+                }
+                Vector3 hitLocal = locO.plus(locD.times(t));
+                Vector3 rel = hitLocal.minus(faceCenter);
+                float lx = rel.dot(right);
+                float ly = rel.dot(up);
+                float halfW = w * 0.5f;
+                float halfH = h * 0.5f;
+                if (lx < -halfW || lx > halfW || ly < -halfH || ly > halfH) {
+                    continue;
+                }
+                float u = (lx / w) + 0.5f;
+                float v = 0.5f - (ly / h);
+                Object ppsObj = sg.get("PixelsPerStud");
+                float pps = Math.max(ppsObj instanceof Number ? ((Number) ppsObj).floatValue() : 50.0f, 1.0f);
+                Object csObj = sg.get("CanvasSize");
+                Vector2 cs = csObj instanceof Vector2 ? (Vector2) csObj : new Vector2(800.0f, 600.0f);
+                Object smObj = sg.get("SizingMode");
+                int smVal = smObj instanceof EnumValue ? ((EnumValue) smObj).getValue() : 0;
+                boolean fixed = smVal == 0 && sg.getProps().containsKey("CanvasSize");
+                float cw = fixed ? Math.max(cs.getX(), 1.0f) : w * pps;
+                float ch = fixed ? Math.max(cs.getY(), 1.0f) : h * pps;
+                float cx = u * cw;
+                float cy = v * ch;
+
+                List<Hit> sgHits = hitListForSurface(sg, cw, ch, activeRt);
+                Hit matched = null;
+                for (int idx = sgHits.size() - 1; idx >= 0; idx--) {
+                    Hit hit = sgHits.get(idx);
+                    if (!hit.getRect().contains(cx, cy)) {
+                        continue;
+                    }
+                    if (hit.getKind() != 2) {
+                        matched = hit;
+                        break;
+                    }
+                    if (!seeThrough(hit.getInst())) {
+                        break;
+                    }
+                }
+                if (matched != null) {
+                    bestHit = matched;
+                    bestT = t;
+                    bestAlwaysOnTop = alwaysOnTop;
+                }
+            }
+            return bestHit;
+        }
+    }
+
+    private List<Hit> hitListForSurface(Instance sg, float cw, float ch, LuaRuntime activeRt) {
+        synchronized (this.surfaceHitsLock) {
+            if (!this.dirtySurfaceGuis.containsKey(sg)) {
+                List<Hit> cached = this.surfaceHits.get(sg);
+                if (cached != null) {
+                    return cached;
+                }
+            }
+        }
+        ArrayList<Hit> computed = new ArrayList<>();
+        RectF area = new RectF(0.0f, 0.0f, cw, ch);
+        float baseScale = this.d > 0.0f ? (1.0f / this.d) : 1.0f;
+        if (GuiMath.isZIndexGlobal(sg)) {
+            ArrayList<GlobalDrawItem> items = new ArrayList<>();
+            collectSurfaceGlobalNodes(sg, area, baseScale, area, items);
+            java.util.Collections.sort(items, new Comparator<GlobalDrawItem>() {
+                @Override
+                public int compare(GlobalDrawItem a, GlobalDrawItem b) {
+                    int cmp = Integer.compare(a.zIndex, b.zIndex);
+                    return cmp != 0 ? cmp : Integer.compare(a.order, b.order);
+                }
+            });
+            for (GlobalDrawItem item : items) {
+                addSurfaceHit(item.node, item.clip, activeRt, computed);
+            }
+        } else {
+            collectSurfaceSiblingHits(sg, area, baseScale, area, activeRt, computed);
+        }
+        synchronized (this.surfaceHitsLock) {
+            this.surfaceHits.put(sg, computed);
+        }
+        return computed;
+    }
+
+    private void collectSurfaceGlobalNodes(Instance parent, RectF area, float scale, RectF clip, List<GlobalDrawItem> out) {
+        RectF content = padded(parent, area, scale);
+        List<Node> nodes = layoutChildren(parent, content, scale);
+        for (Node n : nodes) {
+            Instance c = n.getInst();
+            RectF r = n.getRect();
+            if ((r.width() <= 0.0f || r.height() <= 0.0f) && !"ScrollingFrame".equals(c.getClassName()) && Boolean.TRUE.equals(c.get("ClipsDescendants"))) {
+                continue;
+            }
+            float groupT = "CanvasGroup".equals(c.getClassName()) ? num(c, "GroupTransparency", 0.0f) : 0.0f;
+            if (groupT >= 0.999f) {
+                continue;
+            }
+            int zIdx = (int) num(c, "ZIndex", 1.0f);
+            out.add(new GlobalDrawItem(n, new RectF(clip), zIdx, out.size()));
+            boolean clips = Boolean.TRUE.equals(c.get("ClipsDescendants")) || "CanvasGroup".equals(c.getClassName()) || "ScrollingFrame".equals(c.getClassName());
+            RectF childClip;
+            if (clips) {
+                childClip = new RectF(r);
+                if (!childClip.intersect(clip)) {
+                    childClip.setEmpty();
+                }
+            } else {
+                childClip = clip;
+            }
+            collectSurfaceGlobalNodes(c, r, n.getScale(), childClip, out);
+        }
+    }
+
+    private void collectSurfaceSiblingHits(Instance parent, RectF area, float scale, RectF clip, LuaRuntime activeRt, List<Hit> out) {
+        RectF content = padded(parent, area, scale);
+        List<Node> nodes = layoutChildren(parent, content, scale);
+        if (nodes.size() > 1) {
+            ArrayList<Node> drawOrder = new ArrayList<>(nodes);
+            java.util.Collections.sort(drawOrder, new Comparator<Node>() {
+                @Override
+                public int compare(Node a, Node b) {
+                    int za = (int) num(a.getInst(), "ZIndex", 1.0f);
+                    int zb = (int) num(b.getInst(), "ZIndex", 1.0f);
+                    return Integer.compare(za, zb);
+                }
+            });
+            nodes = drawOrder;
+        }
+        for (Node n : nodes) {
+            Instance c = n.getInst();
+            RectF r = n.getRect();
+            if ((r.width() <= 0.0f || r.height() <= 0.0f) && !"ScrollingFrame".equals(c.getClassName()) && Boolean.TRUE.equals(c.get("ClipsDescendants"))) {
+                continue;
+            }
+            float groupT = "CanvasGroup".equals(c.getClassName()) ? num(c, "GroupTransparency", 0.0f) : 0.0f;
+            if (groupT >= 0.999f) {
+                continue;
+            }
+            addSurfaceHit(n, clip, activeRt, out);
+            boolean clips = Boolean.TRUE.equals(c.get("ClipsDescendants")) || "CanvasGroup".equals(c.getClassName()) || "ScrollingFrame".equals(c.getClassName());
+            RectF childClip;
+            if (clips) {
+                childClip = new RectF(r);
+                if (!childClip.intersect(clip)) {
+                    childClip.setEmpty();
+                }
+            } else {
+                childClip = clip;
+            }
+            collectSurfaceSiblingHits(c, r, n.getScale(), childClip, activeRt, out);
+        }
+    }
+
+    private void addSurfaceHit(Node n, RectF clip, LuaRuntime activeRt, List<Hit> out) {
+        Instance c = n.getInst();
+        RectF rectF = new RectF(n.getRect());
+        if (!rectF.intersect(clip) || rectF.isEmpty()) {
+            return;
+        }
+        if (!isInteractable(c)) {
+            return;
+        }
+        if ("TextBox".equals(c.getClassName())) {
+            out.add(new Hit(c, rectF, activeRt, 1, true));
+        } else if (c.isA("GuiButton")) {
+            out.add(new Hit(c, rectF, activeRt, 0, true));
+        } else if (Boolean.TRUE.equals(c.get("Active"))) {
+            out.add(new Hit(c, rectF, activeRt, 2, true));
+        }
+    }
 
     public final void hoverAt(float x, float y) {
         Hit cur = buttonAt(x, y);
@@ -3259,6 +3630,9 @@ public final class GuiOverlay extends View {
         }
         if (h.getKind() == 0) {
             this.pressed = h.getInst();
+            if (h.isSurface()) {
+                markSurfaceDirty(h.getInst());
+            }
         }
         LuaRuntime r = h.getRt();
         if (r == null) {
@@ -3505,6 +3879,9 @@ public final class GuiOverlay extends View {
         Intrinsics.checkNotNullParameter(h, "h");
         if (this.pressed == h.getInst()) {
             this.pressed = null;
+            if (h.isSurface()) {
+                markSurfaceDirty(h.getInst());
+            }
         }
         invalidate();
         switch (h.getKind()) {

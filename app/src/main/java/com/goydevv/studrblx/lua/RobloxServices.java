@@ -1023,33 +1023,168 @@ public final class RobloxServices {
                     }
                 }
                 return LuaValue.NIL;
-            case "Players":
+            case "Players": {
+                com.goydevv.studrblx.engine.PlaySession pl = rt.getPlay();
                 if ("GetPlayers".equals(name)) {
                     LuaTable tbl = new LuaTable();
-                    com.goydevv.studrblx.engine.PlaySession pl = rt.getPlay();
-                    if (pl != null && pl.getPlayer() != null) tbl.set(1, rt.wrap(pl.getPlayer()));
+                    java.util.ArrayList<Instance> list = new java.util.ArrayList<>();
+                    if (pl != null && pl.getPlayer() != null) {
+                        list.add(pl.getPlayer());
+                    }
+                    for (Instance ch : svc.getChildren()) {
+                        if ("Player".equals(ch.getClassName()) && !list.contains(ch)) {
+                            list.add(ch);
+                        }
+                    }
+                    for (int idx = 0; idx < list.size(); idx++) {
+                        tbl.set(idx + 1, rt.wrap(list.get(idx)));
+                    }
                     return tbl;
                 }
                 if ("GetPlayerFromCharacter".equals(name)) {
                     Object o = a.arg(2).isuserdata() ? a.arg(2).touserdata() : null;
-                    com.goydevv.studrblx.engine.PlaySession pl = rt.getPlay();
-                    if (pl != null && o instanceof Instance && o == pl.getCharacter() && pl.getPlayer() != null) {
-                        return rt.wrap(pl.getPlayer());
+                    if (o instanceof Instance) {
+                        Instance target = (Instance) o;
+                        if (pl != null && pl.getPlayer() != null && pl.getCharacter() != null) {
+                            if (target == pl.getCharacter() || target.isDescendantOf(pl.getCharacter())) {
+                                return rt.wrap(pl.getPlayer());
+                            }
+                        }
+                        for (Instance ch : svc.getChildren()) {
+                            if ("Player".equals(ch.getClassName())) {
+                                Object chrObj = ch.get("Character");
+                                if (chrObj instanceof Instance) {
+                                    Instance chr = (Instance) chrObj;
+                                    if (target == chr || target.isDescendantOf(chr)) {
+                                        return rt.wrap(ch);
+                                    }
+                                }
+                            }
+                        }
                     }
                     return LuaValue.NIL;
                 }
                 if ("GetPlayerByUserId".equals(name)) {
                     long uid = a.arg(2).optlong(-1L);
-                    com.goydevv.studrblx.engine.PlaySession pl = rt.getPlay();
                     if (pl != null && pl.getPlayer() != null) {
                         Object pUid = pl.getPlayer().get("UserId");
                         if (pUid instanceof Number && ((Number) pUid).longValue() == uid) {
                             return rt.wrap(pl.getPlayer());
                         }
                     }
+                    for (Instance ch : svc.getChildren()) {
+                        if ("Player".equals(ch.getClassName())) {
+                            Object pUid = ch.get("UserId");
+                            if (pUid instanceof Number && ((Number) pUid).longValue() == uid) {
+                                return rt.wrap(ch);
+                            }
+                        }
+                    }
                     return LuaValue.NIL;
                 }
+                if ("GetHumanoidDescriptionFromUserId".equals(name) || "GetHumanoidDescriptionFromUserIdAsync".equals(name)) {
+                    long uid = a.arg(2).optlong(1L);
+                    return rt.wrap(createDefaultHumanoidDescription(uid));
+                }
+                if ("GetHumanoidDescriptionFromOutfitId".equals(name) || "GetHumanoidDescriptionFromOutfitIdAsync".equals(name)) {
+                    long oid = a.arg(2).optlong(0L);
+                    return rt.wrap(createDefaultHumanoidDescription(oid));
+                }
+                if ("GetUserThumbnailAsync".equals(name)) {
+                    long uid = a.arg(2).optlong(1L);
+                    return LuaValue.varargsOf(
+                            LuaValue.valueOf("rbxthumb://type=AvatarHeadShot&id=" + uid + "&w=420&h=420"),
+                            LuaValue.TRUE
+                    );
+                }
+                if ("GetNameFromUserIdAsync".equals(name)) {
+                    long uid = a.arg(2).optlong(1L);
+                    if (pl != null && pl.getPlayer() != null) {
+                        Object pUid = pl.getPlayer().get("UserId");
+                        if (pUid instanceof Number && ((Number) pUid).longValue() == uid) {
+                            return LuaValue.valueOf(pl.getPlayer().getName());
+                        }
+                    }
+                    return LuaValue.valueOf("Player" + uid);
+                }
+                if ("GetUserIdFromNameAsync".equals(name)) {
+                    String uname = a.arg(2).optjstring("");
+                    if (pl != null && pl.getPlayer() != null && uname.equalsIgnoreCase(pl.getPlayer().getName())) {
+                        Object pUid = pl.getPlayer().get("UserId");
+                        if (pUid instanceof Number) {
+                            return LuaValue.valueOf((double) ((Number) pUid).longValue());
+                        }
+                    }
+                    return LuaValue.valueOf(1);
+                }
+                if ("GetFriendsAsync".equals(name)) {
+                    return emptyPages();
+                }
+                if ("CreateHumanoidModelFromUserId".equals(name) || "CreateHumanoidModelFromUserIdAsync".equals(name)) {
+                    long uid = a.arg(2).optlong(1L);
+                    String modelName = "Player" + uid;
+                    com.goydevv.studrblx.engine.Avatar.Spec spec = null;
+                    if (pl != null && pl.getPlayer() != null) {
+                        Object pUid = pl.getPlayer().get("UserId");
+                        if (pUid instanceof Number && ((Number) pUid).longValue() == uid) {
+                            modelName = pl.getPlayer().getName();
+                            spec = com.goydevv.studrblx.engine.Avatar.INSTANCE.getCurrent();
+                        }
+                    }
+                    if (spec == null || spec.getCharacter() != null) {
+                        spec = new com.goydevv.studrblx.engine.Avatar.Spec(
+                                com.goydevv.studrblx.engine.Avatar.INSTANCE.getCLASSIC_COLORS(),
+                                null, null, null, null,
+                                CollectionsKt.emptyList(), "Default", true,
+                                null, null, null, null, 3840, null
+                        );
+                    }
+                    Instance model = com.goydevv.studrblx.engine.Avatar.INSTANCE.buildR15(modelName, spec);
+                    Instance hum = model.findFirstChildOfClass("Humanoid");
+                    if (hum != null && hum.findFirstChildOfClass("Animator") == null) {
+                        Instance anim = com.goydevv.studrblx.model.InstanceFactory.INSTANCE.create("Animator");
+                        anim.setName("Animator");
+                        anim.attachRaw(hum);
+                    }
+                    return rt.wrap(model);
+                }
+                if ("CreateHumanoidModelFromDescription".equals(name) || "CreateHumanoidModelFromDescriptionAsync".equals(name)) {
+                    Object descObj = a.arg(2).isuserdata() ? a.arg(2).touserdata() : null;
+                    LuaValue rigArg = a.arg(3);
+                    boolean useR6 = false;
+                    if (rigArg.isuserdata() && rigArg.touserdata() instanceof EnumItemV) {
+                        EnumItemV ev = (EnumItemV) rigArg.touserdata();
+                        useR6 = "R6".equals(ev.getName()) || ev.getValue() == 0;
+                    } else if (rigArg.isnumber()) {
+                        useR6 = rigArg.toint() == 0;
+                    } else if (rigArg.isstring()) {
+                        useR6 = "R6".equalsIgnoreCase(rigArg.tojstring());
+                    }
+                    Instance model;
+                    if (useR6) {
+                        model = com.goydevv.studrblx.engine.PlaySession.INSTANCE.buildR6Rig("Character");
+                    } else {
+                        com.goydevv.studrblx.engine.Avatar.Spec spec = new com.goydevv.studrblx.engine.Avatar.Spec(
+                                com.goydevv.studrblx.engine.Avatar.INSTANCE.getCLASSIC_COLORS(),
+                                null, null, null, null,
+                                CollectionsKt.emptyList(), "Default", true,
+                                null, null, null, null, 3840, null
+                        );
+                        model = com.goydevv.studrblx.engine.Avatar.INSTANCE.buildR15("Character", spec);
+                    }
+                    Instance hum = model.findFirstChildOfClass("Humanoid");
+                    if (hum != null && hum.findFirstChildOfClass("Animator") == null) {
+                        Instance anim = com.goydevv.studrblx.model.InstanceFactory.INSTANCE.create("Animator");
+                        anim.setName("Animator");
+                        anim.attachRaw(hum);
+                    }
+                    if (descObj instanceof Instance) {
+                        applyHumanoidDescriptionToModel(model, hum, (Instance) descObj);
+                    }
+                    return rt.wrap(model);
+                }
                 return LuaValue.NIL;
+            }
             case "RunService":
                 if ("IsClient".equals(name) || "IsServer".equals(name) || "IsStudio".equals(name)) return LuaValue.TRUE;
                 if ("IsRunning".equals(name) || "IsRunMode".equals(name)) return LuaValue.valueOf(rt.getPlay() != null);
@@ -2383,6 +2518,104 @@ public final class RobloxServices {
     public final boolean areCollisionGroupsCollidable(String g1, String g2) {
         Boolean v = COLLISION_MATRIX.get(cgKey(g1, g2));
         return v == null || v.booleanValue();
+    }
+
+    public final void resetSessionState() {
+        CAS_ACTIONS.clear();
+        CAS_BTN_COUNT = 0;
+        CORE_GUI_ENABLED.clear();
+        CORE_VALUES.clear();
+        COLLISION_GROUPS.clear();
+        COLLISION_MATRIX.clear();
+        RENDER_STEP_BINDINGS.clear();
+    }
+
+    public final Instance createDefaultHumanoidDescription(long userOrOutfitId) {
+        Instance desc = com.goydevv.studrblx.model.InstanceFactory.INSTANCE.create("HumanoidDescription");
+        desc.setName("HumanoidDescription");
+        com.goydevv.studrblx.model.Color3 skin = com.goydevv.studrblx.model.Color3.INSTANCE.fromRGB(245, 205, 48);
+        com.goydevv.studrblx.model.Color3 torso = com.goydevv.studrblx.model.Color3.INSTANCE.fromRGB(13, 105, 172);
+        com.goydevv.studrblx.model.Color3 legs = com.goydevv.studrblx.model.Color3.INSTANCE.fromRGB(164, 189, 71);
+        desc.set("HeadColor", skin, false);
+        desc.set("TorsoColor", torso, false);
+        desc.set("LeftArmColor", skin, false);
+        desc.set("RightArmColor", skin, false);
+        desc.set("LeftLegColor", legs, false);
+        desc.set("RightLegColor", legs, false);
+        desc.set("HeadScale", Float.valueOf(1.0f), false);
+        desc.set("HeightScale", Float.valueOf(1.0f), false);
+        desc.set("WidthScale", Float.valueOf(1.0f), false);
+        desc.set("DepthScale", Float.valueOf(1.0f), false);
+        desc.set("BodyTypeScale", Float.valueOf(0.3f), false);
+        desc.set("ProportionScale", Float.valueOf(1.0f), false);
+        desc.set("Head", Long.valueOf(0L), false);
+        desc.set("Torso", Long.valueOf(0L), false);
+        desc.set("LeftArm", Long.valueOf(0L), false);
+        desc.set("RightArm", Long.valueOf(0L), false);
+        desc.set("LeftLeg", Long.valueOf(0L), false);
+        desc.set("RightLeg", Long.valueOf(0L), false);
+        desc.set("Face", Long.valueOf(0L), false);
+        desc.set("Shirt", Long.valueOf(0L), false);
+        desc.set("Pants", Long.valueOf(0L), false);
+        desc.set("GraphicTShirt", Long.valueOf(0L), false);
+        desc.set("HatAccessory", "", false);
+        desc.set("HairAccessory", "", false);
+        desc.set("FaceAccessory", "", false);
+        desc.set("NeckAccessory", "", false);
+        desc.set("ShouldersAccessory", "", false);
+        desc.set("FrontAccessory", "", false);
+        desc.set("BackAccessory", "", false);
+        desc.set("WaistAccessory", "", false);
+        desc.set("IdleAnimation", Long.valueOf(0L), false);
+        desc.set("WalkAnimation", Long.valueOf(0L), false);
+        desc.set("RunAnimation", Long.valueOf(0L), false);
+        desc.set("JumpAnimation", Long.valueOf(0L), false);
+        desc.set("FallAnimation", Long.valueOf(0L), false);
+        desc.set("ClimbAnimation", Long.valueOf(0L), false);
+        desc.set("SwimAnimation", Long.valueOf(0L), false);
+        desc.set("MoodAnimation", Long.valueOf(0L), false);
+        return desc;
+    }
+
+    public final void applyHumanoidDescriptionToModel(Instance model, Instance hum, Instance desc) {
+        if (desc == null) return;
+        if (hum != null) {
+            hum.getAttributes().put("__appliedDescription", desc);
+        }
+        if (model == null) return;
+        applyColorToParts(model, desc.get("HeadColor"), "Head");
+        applyColorToParts(model, desc.get("TorsoColor"), "Torso", "UpperTorso", "LowerTorso");
+        applyColorToParts(model, desc.get("LeftArmColor"), "Left Arm", "LeftUpperArm", "LeftLowerArm", "LeftHand");
+        applyColorToParts(model, desc.get("RightArmColor"), "Right Arm", "RightUpperArm", "RightLowerArm", "RightHand");
+        applyColorToParts(model, desc.get("LeftLegColor"), "Left Leg", "LeftUpperLeg", "LeftLowerLeg", "LeftFoot");
+        applyColorToParts(model, desc.get("RightLegColor"), "Right Leg", "RightUpperLeg", "RightLowerLeg", "RightFoot");
+        if (hum != null) {
+            applyScaleValue(hum, "BodyDepthScale", desc.get("DepthScale"));
+            applyScaleValue(hum, "BodyHeightScale", desc.get("HeightScale"));
+            applyScaleValue(hum, "BodyWidthScale", desc.get("WidthScale"));
+            applyScaleValue(hum, "HeadScale", desc.get("HeadScale"));
+            applyScaleValue(hum, "BodyProportionScale", desc.get("ProportionScale"));
+            applyScaleValue(hum, "BodyTypeScale", desc.get("BodyTypeScale"));
+        }
+    }
+
+    private static void applyColorToParts(Instance model, Object colorObj, String... partNames) {
+        if (!(colorObj instanceof com.goydevv.studrblx.model.Color3)) return;
+        com.goydevv.studrblx.model.Color3 c = (com.goydevv.studrblx.model.Color3) colorObj;
+        for (String pn : partNames) {
+            Instance part = Instance.findFirstChild$default(model, pn, false, 2, null);
+            if (part != null && part.isA("BasePart")) {
+                com.goydevv.studrblx.model.PartData.INSTANCE.setColor(part, c);
+            }
+        }
+    }
+
+    private static void applyScaleValue(Instance hum, String scaleName, Object val) {
+        if (!(val instanceof Number)) return;
+        Instance nv = Instance.findFirstChild$default(hum, scaleName, false, 2, null);
+        if (nv != null) {
+            nv.set("Value", Double.valueOf(((Number) val).doubleValue()), true);
+        }
     }
 
     private static LuaTable emptyPages() {

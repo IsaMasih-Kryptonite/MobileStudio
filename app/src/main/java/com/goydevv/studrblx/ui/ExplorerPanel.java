@@ -27,6 +27,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -54,6 +55,9 @@ public final class ExplorerPanel extends LinearLayout implements Studio.Listener
     private Pair<Float, Float> dragStart;
     private Instance dropTarget;
     private final Set<Instance> expanded;
+    private final HashSet<String> expandedPaths;
+    private DataModel lastEditModel;
+    private boolean dirtyWhileHidden;
     private String filter;
     private Pair<? extends Instance, Long> lastClick;
     private final RecyclerView list;
@@ -69,7 +73,8 @@ public final class ExplorerPanel extends LinearLayout implements Studio.Listener
 
     @Override // com.goydevv.studrblx.core.Studio.Listener
     public void onPlayStateChanged() {
-        Studio.Listener.super.onPlayStateChanged();
+        syncExpandedForCurrentModel();
+        rebuildIfVisible();
     }
 
     @Override // com.goydevv.studrblx.core.Studio.Listener
@@ -131,6 +136,8 @@ public final class ExplorerPanel extends LinearLayout implements Studio.Listener
         this.studio = studio;
         this.actions = actions;
         this.expanded = Collections.newSetFromMap(new IdentityHashMap());
+        this.expandedPaths = new HashSet<>();
+        this.lastEditModel = studio.getEditModel();
         this.rows = CollectionsKt.emptyList();
         this.list = new RecyclerView(ctx);
         this.adapter = new Adapter();
@@ -344,14 +351,19 @@ public final class ExplorerPanel extends LinearLayout implements Studio.Listener
                     return false;
                 }
                 synchronized (this.studio.getLock()) {
-                    this.studio.getUndo().begin("Reparent");
+                    boolean playing = this.studio.isPlaying();
+                    if (!playing) {
+                        this.studio.getUndo().begin("Reparent");
+                    }
                     for (Instance instance : payload.getItems()) {
                         if (instance != target && !target.isDescendantOf(instance) && instance.getParent() != target) {
                             this.studio.reparent(instance, target);
                         }
                     }
-                    this.studio.getUndo().commit();
-                    this.expanded.add(target);
+                    if (!playing) {
+                        this.studio.getUndo().commit();
+                    }
+                    markExpanded(target, true);
                 }
                 this.studio.select(payload.getItems());
                 return true;
@@ -422,19 +434,163 @@ public final class ExplorerPanel extends LinearLayout implements Studio.Listener
         this.adapter.notifyDataSetChanged();
     }
 
+    private final String pathOf(Instance inst) {
+        if (inst == null || (inst instanceof DataModel)) {
+            return null;
+        }
+        ArrayList<String> parts = new ArrayList<>();
+        for (Instance p = inst; p != null && !(p instanceof DataModel); p = p.getParent()) {
+            parts.add(p.getName());
+        }
+        if (parts.isEmpty()) {
+            return null;
+        }
+        StringBuilder sb = new StringBuilder();
+        for (int i = parts.size() - 1; i >= 0; i--) {
+            if (sb.length() > 0) {
+                sb.append('/');
+            }
+            sb.append(parts.get(i));
+        }
+        return sb.toString();
+    }
+
+    private final Instance resolveByPath(DataModel dm, String path) {
+        if (dm == null || path == null || path.isEmpty()) {
+            return null;
+        }
+        Instance cur = dm;
+        int start = 0;
+        int len = path.length();
+        while (start < len && cur != null) {
+            int slash = path.indexOf('/', start);
+            String seg = slash < 0 ? path.substring(start) : path.substring(start, slash);
+            Instance found = null;
+            ArrayList<Instance> ch = cur.getChildren();
+            for (int i = 0, n = ch.size(); i < n; i++) {
+                Instance c = ch.get(i);
+                if (seg.equals(c.getName())) {
+                    found = c;
+                    break;
+                }
+            }
+            cur = found;
+            if (slash < 0) {
+                break;
+            }
+            start = slash + 1;
+        }
+        return cur;
+    }
+
+    private final void markExpanded(Instance inst, boolean open) {
+        if (inst == null) {
+            return;
+        }
+        String path = pathOf(inst);
+        if (open) {
+            this.expanded.add(inst);
+            if (path != null) {
+                this.expandedPaths.add(path);
+            }
+        } else {
+            this.expanded.remove(inst);
+            if (path != null) {
+                this.expandedPaths.remove(path);
+            }
+        }
+    }
+
+    private final void syncExpandedForCurrentModel() {
+        synchronized (this.studio.getLock()) {
+            this.expanded.clear();
+            DataModel dm = this.studio.getModel();
+            for (String path : this.expandedPaths) {
+                Instance target = resolveByPath(dm, path);
+                if (target != null) {
+                    this.expanded.add(target);
+                }
+            }
+        }
+    }
+
     private final void expandDefaults() {
         this.expanded.clear();
+        this.expandedPaths.clear();
         synchronized (this.studio.getLock()) {
             Instance instanceFindService = this.studio.getModel().findService("Workspace");
             if (instanceFindService != null) {
-                Boolean.valueOf(this.expanded.add(instanceFindService));
+                markExpanded(instanceFindService, true);
             }
         }
     }
 
     private final void collapseAll() {
         this.expanded.clear();
+        this.expandedPaths.clear();
         rebuild();
+    }
+
+    private final boolean hasVisibleChildren(Instance i) {
+        ArrayList<Instance> ch = i.getChildren();
+        if (ch.isEmpty()) {
+            return false;
+        }
+        if (i instanceof DataModel) {
+            List<String> serviceNames = ClassDb.INSTANCE.getServiceNames();
+            for (int k = 0, n = ch.size(); k < n; k++) {
+                Instance c = ch.get(k);
+                if (c.getArchivable() || serviceNames.contains(c.getClassName())) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        if (i.isA("PartOperation")) {
+            for (int k = 0, n = ch.size(); k < n; k++) {
+                if (!ch.get(k).isA("BasePart")) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        return true;
+    }
+
+    private final void rebuildIfVisible() {
+        if (!isShown()) {
+            this.dirtyWhileHidden = true;
+            return;
+        }
+        this.dirtyWhileHidden = false;
+        rebuild();
+    }
+
+    @Override // android.view.ViewGroup, android.view.View
+    protected void onAttachedToWindow() {
+        super.onAttachedToWindow();
+        if (this.dirtyWhileHidden && isShown()) {
+            this.dirtyWhileHidden = false;
+            rebuild();
+        }
+    }
+
+    @Override // android.view.View
+    protected void onVisibilityChanged(View changedView, int visibility) {
+        super.onVisibilityChanged(changedView, visibility);
+        if (visibility == View.VISIBLE && this.dirtyWhileHidden && isShown()) {
+            this.dirtyWhileHidden = false;
+            rebuild();
+        }
+    }
+
+    @Override // android.view.View
+    protected void onWindowVisibilityChanged(int visibility) {
+        super.onWindowVisibilityChanged(visibility);
+        if (visibility == View.VISIBLE && this.dirtyWhileHidden && isShown()) {
+            this.dirtyWhileHidden = false;
+            rebuild();
+        }
     }
 
     private final List<Instance> visibleChildren(Instance i) {
@@ -503,6 +659,14 @@ public final class ExplorerPanel extends LinearLayout implements Studio.Listener
                     out.add(new Row(instance, 0, false, false, name + "  ·  " + strFullName));
                 }
             } else {
+                if (this.expandedPaths.size() > this.expanded.size()) {
+                    for (String path : this.expandedPaths) {
+                        Instance target = resolveByPath(model, path);
+                        if (target != null) {
+                            this.expanded.add(target);
+                        }
+                    }
+                }
                 rebuild$lambda$19$walk(this, out, model, 0);
             }
             Unit unit = Unit.INSTANCE;
@@ -513,8 +677,12 @@ public final class ExplorerPanel extends LinearLayout implements Studio.Listener
 
     private static final void rebuild$lambda$19$walk(ExplorerPanel this$0, ArrayList<Row> arrayList, Instance i, int depth) {
         for (Instance c : this$0.visibleChildren(i)) {
-            boolean open = this$0.expanded.contains(c);
-            arrayList.add(new Row(c, depth, !this$0.visibleChildren(c).isEmpty(), open, c.getName()));
+            if (arrayList.size() >= 10000) {
+                return;
+            }
+            boolean hasCh = this$0.hasVisibleChildren(c);
+            boolean open = hasCh && this$0.expanded.contains(c);
+            arrayList.add(new Row(c, depth, hasCh, open, c.getName()));
             if (open) {
                 rebuild$lambda$19$walk(this$0, arrayList, c, depth + 1);
             }
@@ -528,7 +696,7 @@ public final class ExplorerPanel extends LinearLayout implements Studio.Listener
         }
         synchronized (this.studio.getLock()) {
             for (Instance parent = first.getParent(); parent != null && !(parent instanceof DataModel); parent = parent.getParent()) {
-                this.expanded.add(parent);
+                markExpanded(parent, true);
             }
             Unit unit = Unit.INSTANCE;
         }
@@ -559,18 +727,28 @@ public final class ExplorerPanel extends LinearLayout implements Studio.Listener
 
     @Override // com.goydevv.studrblx.core.Studio.Listener
     public void onTreeChanged() {
-        rebuild();
+        rebuildIfVisible();
     }
 
     @Override // com.goydevv.studrblx.core.Studio.Listener
     public void onSelectionChanged() {
+        if (!isShown()) {
+            this.dirtyWhileHidden = true;
+            return;
+        }
         revealSelection();
     }
 
     @Override // com.goydevv.studrblx.core.Studio.Listener
     public void onModelReplaced() {
-        expandDefaults();
-        rebuild();
+        DataModel curEdit = this.studio.getEditModel();
+        if (curEdit != this.lastEditModel) {
+            this.lastEditModel = curEdit;
+            expandDefaults();
+        } else {
+            syncExpandedForCurrentModel();
+        }
+        rebuildIfVisible();
     }
 
     @Override // com.goydevv.studrblx.core.Studio.Listener
@@ -678,10 +856,8 @@ public final class ExplorerPanel extends LinearLayout implements Studio.Listener
     /* JADX INFO: Access modifiers changed from: private */
     public final void toggleExpand(Row r) {
         if (r.getHasChildren()) {
-            if (this.expanded.contains(r.getInst())) {
-                this.expanded.remove(r.getInst());
-            } else {
-                this.expanded.add(r.getInst());
+            synchronized (this.studio.getLock()) {
+                markExpanded(r.getInst(), !this.expanded.contains(r.getInst()));
             }
             rebuild();
         }
@@ -986,11 +1162,11 @@ public final class ExplorerPanel extends LinearLayout implements Studio.Listener
 
     private final void expandAll(Instance i) {
         synchronized (this.studio.getLock()) {
-            this.expanded.add(i);
+            markExpanded(i, true);
             int i2 = 0;
             for (Instance instance : Instance.descendants$default(i, null, 1, null)) {
                 if (!instance.getChildren().isEmpty()) {
-                    this.expanded.add(instance);
+                    markExpanded(instance, true);
                     i2++;
                     if (i2 > 500) {
                         break;

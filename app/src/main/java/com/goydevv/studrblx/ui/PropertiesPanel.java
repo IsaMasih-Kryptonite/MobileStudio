@@ -61,6 +61,7 @@ public final class PropertiesPanel extends LinearLayout implements Studio.Listen
     private List<Row> rows;
     private final Studio studio;
     private final TextView title;
+    private boolean dirtyWhileHidden;
     private static final List<String> ORDER = CollectionsKt.listOf(new String[]{"Appearance", "Data", "Text", "Image", "Behavior", "Transform", "Pivot", "Collision", "Part", "Surface", "Assembly", "Playback", "Emitter", "Character", "Health", "Movement", "Rigging", "Camera", "Controls", "Mobile", "Shape", "Emission", "Motion", "Particles", "Light", "Scripting", "Model", "Physics", "Attachments", "Constraints", "Input", "Layout", "State", "Teams", "Game", "Other"});
 
     @Override // com.goydevv.studrblx.core.Studio.Listener
@@ -70,7 +71,7 @@ public final class PropertiesPanel extends LinearLayout implements Studio.Listen
 
     @Override // com.goydevv.studrblx.core.Studio.Listener
     public void onPlayStateChanged() {
-        Studio.Listener.super.onPlayStateChanged();
+        rebuildIfVisible();
     }
 
     @Override // com.goydevv.studrblx.core.Studio.Listener
@@ -219,10 +220,41 @@ public final class PropertiesPanel extends LinearLayout implements Studio.Listen
         }
     }
 
+    private final void rebuildIfVisible() {
+        if (!isShown()) {
+            this.dirtyWhileHidden = true;
+            return;
+        }
+        this.dirtyWhileHidden = false;
+        rebuild();
+    }
+
     @Override // android.view.ViewGroup, android.view.View
     protected void onAttachedToWindow() {
         super.onAttachedToWindow();
         AudioEngine.INSTANCE.getPreviewListeners().add(this.previewListener);
+        if (this.dirtyWhileHidden && isShown()) {
+            this.dirtyWhileHidden = false;
+            rebuild();
+        }
+    }
+
+    @Override // android.view.View
+    protected void onVisibilityChanged(View changedView, int visibility) {
+        super.onVisibilityChanged(changedView, visibility);
+        if (visibility == View.VISIBLE && this.dirtyWhileHidden && isShown()) {
+            this.dirtyWhileHidden = false;
+            rebuild();
+        }
+    }
+
+    @Override // android.view.View
+    protected void onWindowVisibilityChanged(int visibility) {
+        super.onWindowVisibilityChanged(visibility);
+        if (visibility == View.VISIBLE && this.dirtyWhileHidden && isShown()) {
+            this.dirtyWhileHidden = false;
+            rebuild();
+        }
     }
 
     @Override // android.view.ViewGroup, android.view.View
@@ -233,17 +265,17 @@ public final class PropertiesPanel extends LinearLayout implements Studio.Listen
 
     @Override // com.goydevv.studrblx.core.Studio.Listener
     public void onSelectionChanged() {
-        rebuild();
+        rebuildIfVisible();
     }
 
     @Override // com.goydevv.studrblx.core.Studio.Listener
     public void onPropsChanged() {
-        rebuild();
+        rebuildIfVisible();
     }
 
     @Override // com.goydevv.studrblx.core.Studio.Listener
     public void onModelReplaced() {
-        rebuild();
+        rebuildIfVisible();
     }
 
     /* JADX WARN: Can't fix incorrect switch cases order, some code will duplicate */
@@ -282,24 +314,13 @@ public final class PropertiesPanel extends LinearLayout implements Studio.Listen
     */
     private final java.lang.String categoryOf(com.goydevv.studrblx.model.Instance inst, java.lang.String name, int type) {
         if (name == null) return "Data";
-        switch (name) {
-            case "Position": case "Size": case "CFrame": case "Orientation": case "Rotation": case "AnchorPoint":
+        if ("Position".equals(name) || "Size".equals(name) || "Rotation".equals(name)) {
+            if (inst != null && (inst.isA("GuiObject") || inst.isA("BasePart"))) {
                 return "Transform";
-            case "Color": case "Color3": case "BrickColor": case "Material": case "Transparency":
-            case "Reflectance": case "Visible": case "CastShadow": case "BackgroundColor3":
-            case "BackgroundTransparency": case "BorderColor3": case "BorderSizePixel":
-            case "ImageColor3": case "ImageTransparency": case "Image":
-                return "Appearance";
-            case "Text": case "TextColor3": case "TextTransparency": case "TextSize":
-            case "TextScaled": case "TextWrapped": case "Font": case "FontFace":
-            case "TextXAlignment": case "TextYAlignment": case "RichText":
-                return "Text";
-            case "Anchored": case "CanCollide": case "CanTouch": case "CanQuery":
-            case "Locked": case "Massless": case "Enabled": case "Disabled": case "Active":
-                return "Behavior";
-            default:
-                return "Data";
+            }
         }
+        String mapped = CATEGORY.get(name);
+        return mapped != null ? mapped : "Data";
     }
 
     /* JADX WARN: Multi-variable type inference failed */
@@ -328,7 +349,7 @@ public final class PropertiesPanel extends LinearLayout implements Studio.Listen
         ArrayList arrayList = new ArrayList();
         synchronized (this.studio.getLock()) {
             final Instance instance = (Instance) CollectionsKt.firstOrNull((List) this.studio.getSelection());
-            if (instance == null) {
+            if (instance == null || instance.getDestroyed() || instance.root() != this.studio.getModel()) {
                 this.title.setText("");
             } else {
                 TextView textView = this.title;
@@ -757,28 +778,78 @@ public final class PropertiesPanel extends LinearLayout implements Studio.Listen
     /* JADX WARN: Code duplicated, block: B:91:0x0227 A[Catch: all -> 0x026c, TryCatch #0 {, blocks: (B:8:0x000f, B:9:0x003f, B:11:0x0045, B:12:0x0051, B:72:0x01cc, B:74:0x01d6, B:76:0x01e4, B:79:0x01ee, B:81:0x01f9, B:83:0x01fd, B:84:0x0208, B:86:0x0210, B:88:0x0214, B:89:0x021f, B:91:0x0227, B:93:0x022f, B:95:0x023b, B:97:0x023f, B:14:0x0056, B:16:0x005e, B:18:0x0066, B:19:0x0080, B:21:0x0088, B:23:0x0090, B:27:0x00a9, B:29:0x00c9, B:30:0x00d2, B:35:0x00e4, B:37:0x00ec, B:41:0x00fd, B:42:0x0104, B:44:0x010e, B:33:0x00dc, B:45:0x0115, B:47:0x011d, B:49:0x0123, B:50:0x012c, B:52:0x0134, B:54:0x013c, B:55:0x0174, B:57:0x017c, B:59:0x0182, B:60:0x0190, B:63:0x0199, B:65:0x01a1, B:67:0x01af, B:70:0x01b5, B:71:0x01bb, B:98:0x0256), top: B:105:0x000f }] */
     /* JADX WARN: Failed to restore switch over string. Please report as a decompilation issue */
     private final void applyEdit(Row r, Object newValue) {
-        String str;
         String prop = r.getProp();
         if (prop == null) {
             return;
         }
         synchronized (this.studio.getLock()) {
-            this.studio.getUndo().begin("Change " + r.getDisplay());
-            for (Instance instance : CollectionsKt.toList(this.studio.getSelection())) {
-                switch (prop.hashCode()) {
-                    case -1598813355:
-                        if (prop.equals("PivotOffset")) {
-                            if (instance.isA("BasePart")) {
-                                Studio studio = this.studio;
-                                Object obj = instance.get("PivotOffset");
-                                CFrame identity = obj instanceof CFrame ? (CFrame) obj : null;
-                                if (identity == null) {
-                                    identity = CFrame.INSTANCE.getIDENTITY();
-                                }
-                                Intrinsics.checkNotNull(newValue, "null cannot be cast to non-null type com.goydevv.studrblx.model.Vector3");
-                                studio.setProp(instance, "PivotOffset", identity.withPosition((Vector3) newValue));
+            boolean playing = this.studio.isPlaying();
+            com.goydevv.studrblx.model.DataModel curModel = this.studio.getModel();
+            List<Instance> selSnapshot = CollectionsKt.toList(this.studio.getSelection());
+            Instance firstSel = (Instance) CollectionsKt.firstOrNull((List) selSnapshot);
+            if (!playing) {
+                this.studio.getUndo().begin("Change " + r.getDisplay());
+            }
+            for (Instance instance : selSnapshot) {
+                if (instance == null || instance.getDestroyed() || instance.root() != curModel) {
+                    continue;
+                }
+                switch (prop) {
+                    case "PivotOffset":
+                        if (instance.isA("BasePart")) {
+                            Object obj = instance.get("PivotOffset");
+                            CFrame identity = obj instanceof CFrame ? (CFrame) obj : CFrame.INSTANCE.getIDENTITY();
+                            Intrinsics.checkNotNull(newValue, "null cannot be cast to non-null type com.goydevv.studrblx.model.Vector3");
+                            this.studio.setProp(instance, "PivotOffset", identity.withPosition((Vector3) newValue));
+                        }
+                        break;
+                    case "@Archivable":
+                        if (!instance.getIsService()) {
+                            instance.setArchivable(Intrinsics.areEqual(newValue, (Object) true));
+                        }
+                        break;
+                    case "@Orientation":
+                        if (instance.isA("BasePart")) {
+                            Intrinsics.checkNotNull(newValue, "null cannot be cast to non-null type com.goydevv.studrblx.model.Vector3");
+                            Vector3 vector3Times = ((Vector3) newValue).times(RAD);
+                            this.studio.setProp(instance, "CFrame", CFrame.INSTANCE.fromOrientation(vector3Times.getX(), vector3Times.getY(), vector3Times.getZ()).withPosition(PartData.INSTANCE.cframe(instance).getPosition()));
+                        }
+                        break;
+                    case "@Position":
+                        if (instance.isA("BasePart")) {
+                            CFrame cframe = PartData.INSTANCE.cframe(instance);
+                            Intrinsics.checkNotNull(newValue, "null cannot be cast to non-null type com.goydevv.studrblx.model.Vector3");
+                            this.studio.setProp(instance, "CFrame", cframe.withPosition((Vector3) newValue));
+                        }
+                        break;
+                    case "@BrickColor":
+                        if (instance.isA("BasePart")) {
+                            Intrinsics.checkNotNull(newValue, "null cannot be cast to non-null type com.goydevv.studrblx.model.BrickColorV");
+                            BrickColorV brickColorV = (BrickColorV) newValue;
+                            String colorKey = instance.getProps().containsKey("Color") ? "Color" : "Color3uint8";
+                            this.studio.setProp(instance, colorKey, brickColorV.getColor());
+                            instance.getPropTypes().putIfAbsent(colorKey, 26);
+                            if (instance.getProps().containsKey("BrickColor")) {
+                                this.studio.setProp(instance, "BrickColor", brickColorV);
                             }
-                        } else if (!instance.getProps().containsKey(prop) || instance == CollectionsKt.first((List) this.studio.getSelection()) || instance.isA("BasePart")) {
+                        }
+                        break;
+                    case "Name":
+                        if (!instance.getIsService()) {
+                            this.studio.setProp(instance, "Name", newValue);
+                        }
+                        break;
+                    case "Size":
+                    case "size":
+                        if (instance.isA("BasePart")) {
+                            String sizeKey = instance.getProps().containsKey("size") ? "size" : "Size";
+                            this.studio.setProp(instance, sizeKey, newValue);
+                        } else if (instance.getProps().containsKey(prop) || instance == firstSel) {
+                            this.studio.setProp(instance, prop, newValue);
+                        }
+                        break;
+                    default:
+                        if (instance.getProps().containsKey(prop) || instance == firstSel || instance.isA("BasePart")) {
                             this.studio.setProp(instance, prop, newValue);
                             if (r.getType() == 26 && (newValue instanceof Color3)) {
                                 instance.getPropTypes().putIfAbsent(prop, 26);
@@ -786,191 +857,19 @@ public final class PropertiesPanel extends LinearLayout implements Studio.Listen
                             if (r.getType() == 18 && (newValue instanceof EnumValue)) {
                                 instance.getPropTypes().putIfAbsent(prop, 18);
                             }
-                            if (!Intrinsics.areEqual(prop, "Color3uint8") || Intrinsics.areEqual(prop, "Color")) {
-                                if (!instance.getProps().containsKey("BrickColor") && (newValue instanceof Color3)) {
+                            if ((Intrinsics.areEqual(prop, "Color3uint8") || Intrinsics.areEqual(prop, "Color")) && (newValue instanceof Color3)) {
+                                if (instance.getProps().containsKey("BrickColor")) {
                                     this.studio.setProp(instance, "BrickColor", new BrickColorV(BrickColors.INSTANCE.closest((Color3) newValue)));
                                 }
                             }
                         }
                         break;
-                    case -1446934467:
-                        if (!prop.equals("@Archivable")) {
-                            if (!instance.getProps().containsKey(prop)) {
-                            }
-                            this.studio.setProp(instance, prop, newValue);
-                            if (r.getType() == 26) {
-                                instance.getPropTypes().putIfAbsent(prop, 26);
-                            }
-                            if (r.getType() == 18) {
-                                instance.getPropTypes().putIfAbsent(prop, 18);
-                            }
-                            if (!Intrinsics.areEqual(prop, "Color3uint8")) {
-                            }
-                            if (!instance.getProps().containsKey("BrickColor")) {
-                            }
-                        } else if (!instance.getIsService()) {
-                            instance.setArchivable(Intrinsics.areEqual(newValue, (Object) true));
-                        }
-                        break;
-                    case -100272784:
-                        if (!prop.equals("@Orientation")) {
-                            if (!instance.getProps().containsKey(prop)) {
-                            }
-                            this.studio.setProp(instance, prop, newValue);
-                            if (r.getType() == 26) {
-                                instance.getPropTypes().putIfAbsent(prop, 26);
-                            }
-                            if (r.getType() == 18) {
-                                instance.getPropTypes().putIfAbsent(prop, 18);
-                            }
-                            if (!Intrinsics.areEqual(prop, "Color3uint8")) {
-                            }
-                            if (!instance.getProps().containsKey("BrickColor")) {
-                            }
-                        } else if (instance.isA("BasePart")) {
-                            Intrinsics.checkNotNull(newValue, "null cannot be cast to non-null type com.goydevv.studrblx.model.Vector3");
-                            Vector3 vector3Times = ((Vector3) newValue).times(RAD);
-                            this.studio.setProp(instance, "CFrame", CFrame.INSTANCE.fromOrientation(vector3Times.getX(), vector3Times.getY(), vector3Times.getZ()).withPosition(PartData.INSTANCE.cframe(instance).getPosition()));
-                        }
-                        break;
-                    case 2420395:
-                        if (!prop.equals("Name")) {
-                            if (!instance.getProps().containsKey(prop)) {
-                            }
-                            this.studio.setProp(instance, prop, newValue);
-                            if (r.getType() == 26) {
-                                instance.getPropTypes().putIfAbsent(prop, 26);
-                            }
-                            if (r.getType() == 18) {
-                                instance.getPropTypes().putIfAbsent(prop, 18);
-                            }
-                            if (!Intrinsics.areEqual(prop, "Color3uint8")) {
-                            }
-                            if (!instance.getProps().containsKey("BrickColor")) {
-                            }
-                        } else if (!instance.getIsService()) {
-                            this.studio.setProp(instance, "Name", newValue);
-                        }
-                        break;
-                    case 2577441:
-                        if (!prop.equals("Size")) {
-                            if (!instance.getProps().containsKey(prop)) {
-                            }
-                            this.studio.setProp(instance, prop, newValue);
-                            if (r.getType() == 26) {
-                                instance.getPropTypes().putIfAbsent(prop, 26);
-                            }
-                            if (r.getType() == 18) {
-                                instance.getPropTypes().putIfAbsent(prop, 18);
-                            }
-                            if (!Intrinsics.areEqual(prop, "Color3uint8")) {
-                            }
-                            if (!instance.getProps().containsKey("BrickColor")) {
-                            }
-                        } else if (instance.isA("BasePart")) {
-                            if (instance.getProps().containsKey("size")) {
-                                str = "size";
-                            } else {
-                                str = "Size";
-                            }
-                            this.studio.setProp(instance, str, newValue);
-                        } else if (instance.getProps().containsKey(prop)) {
-                            this.studio.setProp(instance, prop, newValue);
-                        }
-                        break;
-                    case 3530753:
-                        if (!prop.equals("size")) {
-                            if (!instance.getProps().containsKey(prop)) {
-                            }
-                            this.studio.setProp(instance, prop, newValue);
-                            if (r.getType() == 26) {
-                                instance.getPropTypes().putIfAbsent(prop, 26);
-                            }
-                            if (r.getType() == 18) {
-                                instance.getPropTypes().putIfAbsent(prop, 18);
-                            }
-                            if (!Intrinsics.areEqual(prop, "Color3uint8")) {
-                            }
-                            if (!instance.getProps().containsKey("BrickColor")) {
-                            }
-                        } else if (instance.isA("BasePart")) {
-                            if (instance.getProps().containsKey("size")) {
-                                str = "size";
-                            } else {
-                                str = "Size";
-                            }
-                            this.studio.setProp(instance, str, newValue);
-                        } else if (instance.getProps().containsKey(prop)) {
-                            this.studio.setProp(instance, prop, newValue);
-                        }
-                        break;
-                    case 91513858:
-                        if (!prop.equals("@BrickColor")) {
-                            if (!instance.getProps().containsKey(prop)) {
-                            }
-                            this.studio.setProp(instance, prop, newValue);
-                            if (r.getType() == 26) {
-                                instance.getPropTypes().putIfAbsent(prop, 26);
-                            }
-                            if (r.getType() == 18) {
-                                instance.getPropTypes().putIfAbsent(prop, 18);
-                            }
-                            if (!Intrinsics.areEqual(prop, "Color3uint8")) {
-                            }
-                            if (!instance.getProps().containsKey("BrickColor")) {
-                            }
-                        } else if (instance.isA("BasePart")) {
-                            Intrinsics.checkNotNull(newValue, "null cannot be cast to non-null type com.goydevv.studrblx.model.BrickColorV");
-                            BrickColorV brickColorV = (BrickColorV) newValue;
-                            String str2 = instance.getProps().containsKey("Color") ? "Color" : "Color3uint8";
-                            this.studio.setProp(instance, str2, brickColorV.getColor());
-                            instance.getPropTypes().putIfAbsent(str2, 26);
-                            if (instance.getProps().containsKey("BrickColor")) {
-                                this.studio.setProp(instance, "BrickColor", brickColorV);
-                            }
-                        }
-                        break;
-                    case 1099480457:
-                        if (!prop.equals("@Position")) {
-                            if (!instance.getProps().containsKey(prop)) {
-                            }
-                            this.studio.setProp(instance, prop, newValue);
-                            if (r.getType() == 26) {
-                                instance.getPropTypes().putIfAbsent(prop, 26);
-                            }
-                            if (r.getType() == 18) {
-                                instance.getPropTypes().putIfAbsent(prop, 18);
-                            }
-                            if (!Intrinsics.areEqual(prop, "Color3uint8")) {
-                            }
-                            if (!instance.getProps().containsKey("BrickColor")) {
-                            }
-                        } else if (instance.isA("BasePart")) {
-                            Studio studio2 = this.studio;
-                            CFrame cframe = PartData.INSTANCE.cframe(instance);
-                            Intrinsics.checkNotNull(newValue, "null cannot be cast to non-null type com.goydevv.studrblx.model.Vector3");
-                            studio2.setProp(instance, "CFrame", cframe.withPosition((Vector3) newValue));
-                        }
-                        break;
-                    default:
-                        if (!instance.getProps().containsKey(prop)) {
-                        }
-                        this.studio.setProp(instance, prop, newValue);
-                        if (r.getType() == 26) {
-                            instance.getPropTypes().putIfAbsent(prop, 26);
-                        }
-                        if (r.getType() == 18) {
-                            instance.getPropTypes().putIfAbsent(prop, 18);
-                        }
-                        if (!Intrinsics.areEqual(prop, "Color3uint8")) {
-                        }
-                        if (!instance.getProps().containsKey("BrickColor")) {
-                        }
-                        break;
                 }
             }
-            this.studio.getUndo().commit();
-            this.studio.markDirty();
+            if (!playing) {
+                this.studio.getUndo().commit();
+                this.studio.markDirty();
+            }
             Unit unit = Unit.INSTANCE;
         }
         rebuild();

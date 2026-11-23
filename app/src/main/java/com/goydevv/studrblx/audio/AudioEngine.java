@@ -18,6 +18,8 @@ import com.goydevv.studrblx.model.Instance;
 import com.goydevv.studrblx.model.PartData;
 import com.goydevv.studrblx.model.Vector3;
 import com.goydevv.studrblx.net.AssetFetcher;
+import com.goydevv.studrblx.net.CloudPlace;
+import com.goydevv.studrblx.net.RobloxApi;
 import com.goydevv.studrblx.render.FlyCamera;
 import java.io.File;
 import java.util.ArrayList;
@@ -333,6 +335,8 @@ public final class AudioEngine {
         private final Instance sound;
         private volatile boolean ticking;
         private volatile boolean wantPlay;
+        private volatile boolean usingCodecFallback;
+        private volatile boolean corruptPurged;
 
         public Voice(Instance sound, long id) {
             Intrinsics.checkNotNullParameter(sound, "sound");
@@ -566,6 +570,22 @@ public final class AudioEngine {
         public final void setNotifiedLoopCount(int i) {
             this.notifiedLoopCount = i;
         }
+
+        public final boolean getUsingCodecFallback() {
+            return this.usingCodecFallback;
+        }
+
+        public final void setUsingCodecFallback(boolean z) {
+            this.usingCodecFallback = z;
+        }
+
+        public final boolean getCorruptPurged() {
+            return this.corruptPurged;
+        }
+
+        public final void setCorruptPurged(boolean z) {
+            this.corruptPurged = z;
+        }
     }
 
     public final Function1<Instance, Unit> getOnLoaded() {
@@ -592,13 +612,31 @@ public final class AudioEngine {
         onDidLoop = function2;
     }
 
+    private static Long parseSoundProp(Object val) {
+        if (val == null) return null;
+        Long id = AssetFetcher.INSTANCE.idOf(val);
+        if (id != null && id.longValue() > 0L) return id;
+        String raw = val instanceof com.goydevv.studrblx.model.ContentValue
+                ? ((com.goydevv.studrblx.model.ContentValue) val).getUri()
+                : val.toString();
+        if (raw == null) return null;
+        String trimmed = raw.trim();
+        if (trimmed.isEmpty()) return null;
+        String low = trimmed.toLowerCase(java.util.Locale.ROOT);
+        if (low.startsWith("rbxasset://") && !low.startsWith("rbxassetid://")) {
+            return null;
+        }
+        Long parsed = RobloxApi.INSTANCE.parseAssetId(trimmed);
+        return (parsed != null && parsed.longValue() > 0L) ? parsed : null;
+    }
+
     public static Long resolveSoundId(Instance s) {
         if (s == null) return null;
-        Long id = AssetFetcher.INSTANCE.idOf(s.get("AudioContent"));
+        Long id = parseSoundProp(s.get("AudioContent"));
         if (id != null) return id;
-        id = AssetFetcher.INSTANCE.idOf(s.get("SoundContent"));
+        id = parseSoundProp(s.get("SoundContent"));
         if (id != null) return id;
-        return AssetFetcher.INSTANCE.idOf(s.get("SoundId"));
+        return parseSoundProp(s.get("SoundId"));
     }
 
     private final Long soundId(Instance s) {
@@ -741,8 +779,33 @@ public final class AudioEngine {
         return null;
     }
 
+    private static void collectServiceSounds(Instance root, ArrayList<Instance> out, Set<Instance> seen) {
+        if (root == null) return;
+        java.util.ArrayDeque<Instance> stack = new java.util.ArrayDeque<>();
+        stack.push(root);
+        while (!stack.isEmpty()) {
+            Instance cur = stack.pop();
+            if ("Sound".equals(cur.getClassName())) {
+                if (seen.add(cur)) {
+                    out.add(cur);
+                }
+            }
+            List<Instance> children = cur.getChildren();
+            for (int i = children.size() - 1; i >= 0; i--) {
+                Instance ch = children.get(i);
+                if (ch != null) {
+                    stack.push(ch);
+                }
+            }
+        }
+    }
+
     public final void update(Studio studio) {
         Intrinsics.checkNotNullParameter(studio, "studio");
+        CloudPlace cp = studio.getCloud();
+        if (cp != null && cp.getPlaceId() > 0L) {
+            RobloxApi.INSTANCE.setActivePlaceId(cp.getPlaceId());
+        }
         PlaySession play = studio.getPlay();
         if (play == null) {
             if (!voices.isEmpty() || !transientSounds.isEmpty()) {
@@ -751,11 +814,22 @@ public final class AudioEngine {
             return;
         }
         List<Instance> audible = studio.audibleSounds();
-        ArrayList<Instance> allSounds = new ArrayList<>(audible.size() + transientSounds.size());
+        ArrayList<Instance> allSounds = new ArrayList<>(audible.size() + transientSounds.size() + 16);
         Set<Instance> seen = Collections.newSetFromMap(new IdentityHashMap<Instance, Boolean>());
         for (Instance s : audible) {
             if (s != null && seen.add(s)) {
                 allSounds.add(s);
+            }
+        }
+        collectServiceSounds(studio.getModel().findService("ReplicatedStorage"), allSounds, seen);
+        collectServiceSounds(studio.getModel().findService("StarterGui"), allSounds, seen);
+        collectServiceSounds(studio.getModel().findService("StarterPack"), allSounds, seen);
+        collectServiceSounds(studio.getModel().findService("Lighting"), allSounds, seen);
+        Instance player = play.getPlayer();
+        if (player != null) {
+            Object chObj = player.get("Character");
+            if (chObj instanceof Instance) {
+                collectServiceSounds((Instance) chObj, allSounds, seen);
             }
         }
         for (Instance ts : transientSounds) {
@@ -901,7 +975,10 @@ public final class AudioEngine {
             }
 
             if (v.getFailed()) {
-                if (isTransient) {
+                if (v.getCorruptPurged()) {
+                    voices.remove(s);
+                    missing.remove(id);
+                } else if (isTransient) {
                     transientSounds.remove(s);
                 }
                 continue;
@@ -1009,6 +1086,9 @@ public final class AudioEngine {
                 if (isTransient) {
                     transientSounds.remove(s);
                 }
+                if (v.getUsingCodecFallback()) {
+                    voices.remove(s);
+                }
                 Function1<? super Instance, Unit> endedCb = onEnded;
                 if (endedCb != null) {
                     endedCb.invoke(s);
@@ -1092,6 +1172,11 @@ public final class AudioEngine {
                 return;
             }
             File f = INSTANCE.prepareAudioFile($v.getId(), new File(strCacheFile));
+            if (f == null || !f.isFile() || f.length() <= 32) {
+                $v.setCorruptPurged(true);
+                $v.setFailed(true);
+                return;
+            }
             MediaPlayer mp = new MediaPlayer();
             mp.setAudioAttributes(new AudioAttributes.Builder().setUsage(14).setContentType(4).build());
             try {
@@ -1198,16 +1283,13 @@ public final class AudioEngine {
         String cf = AssetFetcher.INSTANCE.cacheFile($v.getId());
         if (cf != null) {
             final File af = INSTANCE.prepareAudioFile($v.getId(), new File(cf));
-            if (af.isFile() && af.length() > 32) {
+            if (af != null && af.isFile() && af.length() > 32) {
+                $v.setUsingCodecFallback(true);
                 $v.setPrepared(true);
                 new Thread(new Runnable() {
                     @Override
                     public void run() {
                         if (!INSTANCE.playWithMediaCodec($v, af)) {
-                            if ($v.getId() == 9114222045L) {
-                                File syn = INSTANCE.writeSynthJumpWav(new File(af.getParentFile(), "9114222045_synth.wav"));
-                                if (syn.isFile() && INSTANCE.playWithMediaCodec($v, syn)) return;
-                            }
                             if (!$v.getReleased()) {
                                 $v.setFailed(true);
                                 OutputLog.INSTANCE.warn("Sound rbxassetid://" + $v.getId() + " unsupported audio codec");
@@ -1216,6 +1298,10 @@ public final class AudioEngine {
                     }
                 }, "AudioFallback-" + $v.getId()).start();
                 return true;
+            } else if (af == null) {
+                $v.setCorruptPurged(true);
+                $v.setFailed(true);
+                return true;
             }
         }
         $v.setFailed(true);
@@ -1223,53 +1309,43 @@ public final class AudioEngine {
         return true;
     }
 
-    private final File writeSynthJumpWav(File out) {
-        try {
-            if (out.isFile() && out.length() > 128) return out;
-            int sr = 22050;
-            int n = (int) (sr * 0.14f);
-            byte[] wav = new byte[44 + n * 2];
-            int dataLen = n * 2;
-            int totalLen = dataLen + 36;
-            wav[0]='R'; wav[1]='I'; wav[2]='F'; wav[3]='F';
-            wav[4]=(byte)(totalLen & 0xFF); wav[5]=(byte)((totalLen>>8)&0xFF); wav[6]=(byte)((totalLen>>16)&0xFF); wav[7]=(byte)((totalLen>>24)&0xFF);
-            wav[8]='W'; wav[9]='A'; wav[10]='V'; wav[11]='E';
-            wav[12]='f'; wav[13]='m'; wav[14]='t'; wav[15]=' ';
-            wav[16]=16; wav[20]=1; wav[22]=1;
-            wav[24]=(byte)(sr & 0xFF); wav[25]=(byte)((sr>>8)&0xFF);
-            int br = sr * 2;
-            wav[28]=(byte)(br & 0xFF); wav[29]=(byte)((br>>8)&0xFF); wav[30]=(byte)((br>>16)&0xFF);
-            wav[32]=2; wav[34]=16;
-            wav[36]='d'; wav[37]='a'; wav[38]='t'; wav[39]='a';
-            wav[40]=(byte)(dataLen & 0xFF); wav[41]=(byte)((dataLen>>8)&0xFF); wav[42]=(byte)((dataLen>>16)&0xFF); wav[43]=(byte)((dataLen>>24)&0xFF);
-            double phase = 0.0;
-            for (int i = 0; i < n; i++) {
-                double t = (double) i / (double) n;
-                double freq = 260.0 + 340.0 * t;
-                phase += (2.0 * Math.PI * freq) / sr;
-                double env = Math.sin(Math.PI * Math.min(1.0, t * 5.0)) * Math.pow(1.0 - t, 1.4);
-                short smp = (short) (Math.sin(phase) * env * 12000.0);
-                wav[44 + i * 2] = (byte) (smp & 0xFF);
-                wav[45 + i * 2] = (byte) ((smp >> 8) & 0xFF);
-            }
-            try (java.io.FileOutputStream fos = new java.io.FileOutputStream(out)) {
-                fos.write(wav);
-            }
-            return out;
+    private static boolean hasValidAudioHeader(File f) {
+        try (java.io.FileInputStream fis = new java.io.FileInputStream(f)) {
+            byte[] hbuf = new byte[32];
+            int n = fis.read(hbuf);
+            if (n < 4) return false;
+            int i = 0;
+            while (i < n && (hbuf[i] == ' ' || hbuf[i] == '\n' || hbuf[i] == '\r' || hbuf[i] == '\t')) i++;
+            if (i < n && (hbuf[i] == '{' || hbuf[i] == '<')) return false;
+            return true;
         } catch (Throwable t) {
-            return out;
+            return false;
+        }
+    }
+
+    private static void deleteNormalizedVariants(File normDir, long id) {
+        String[] exts = {".ogg", ".mp3", ".wav", ".flac", ".m4a", ".aac"};
+        for (String ex : exts) {
+            try {
+                File f = new File(normDir, id + ex);
+                if (f.exists()) f.delete();
+            } catch (Throwable ignored) {
+            }
         }
     }
 
     private final File prepareAudioFile(long id, File rawFile) {
         try {
-            if (rawFile == null || !rawFile.isFile()) return rawFile;
+            if (rawFile == null || !rawFile.isFile()) return null;
             File normDir = new File(rawFile.getParentFile(), "audio_norm");
             if (!normDir.exists()) normDir.mkdirs();
-            String[] exts = {".ogg", ".mp3", ".wav", ".flac", ".m4a"};
+            long rawMod = rawFile.lastModified();
+            String[] exts = {".ogg", ".mp3", ".wav", ".flac", ".m4a", ".aac"};
             for (String ex : exts) {
                 File cached = new File(normDir, id + ex);
-                if (cached.isFile() && cached.length() > 32) return cached;
+                if (cached.isFile() && cached.length() > 32 && cached.lastModified() >= rawMod && hasValidAudioHeader(cached)) {
+                    return cached;
+                }
             }
             byte[] data;
             try (java.io.FileInputStream in = new java.io.FileInputStream(rawFile)) {
@@ -1290,47 +1366,87 @@ public final class AudioEngine {
                 }
             }
             // Reject HTML/JSON/XML error payloads from Roblox CDN and purge corrupt cache
-            if (data.length < 32 || data[0] == '{' || data[0] == '<' || (data[0] == '[' && data[1] == '{')) {
+            int ws = 0;
+            while (ws < data.length && ws < 32 && (data[ws] == ' ' || data[ws] == '\n' || data[ws] == '\r' || data[ws] == '\t')) {
+                ws++;
+            }
+            if (data.length < 32 || ws >= data.length || data[ws] == '{' || data[ws] == '<'
+                    || (data[ws] == '[' && ws + 1 < data.length && data[ws + 1] == '{')) {
                 try { rawFile.delete(); } catch (Throwable ignored) {}
-                if (id == 9114222045L) {
-                    return writeSynthJumpWav(new File(normDir, id + ".wav"));
-                }
-                return rawFile;
+                deleteNormalizedVariants(normDir, id);
+                return null;
             }
             int offset = 0;
-            String ext = ".ogg";
+            String ext = null;
             int scanLim = Math.min(data.length - 4, 4096);
-            boolean matched = false;
             for (int i = 0; i <= scanLim; i++) {
                 int b0 = data[i] & 0xFF, b1 = data[i + 1] & 0xFF, b2 = data[i + 2] & 0xFF, b3 = data[i + 3] & 0xFF;
                 if (b0 == 'O' && b1 == 'g' && b2 == 'g' && b3 == 'S') {
-                    offset = i; ext = ".ogg"; matched = true; break;
+                    offset = i; ext = ".ogg"; break;
                 }
-                if (b0 == 'R' && b1 == 'I' && b2 == 'F' && b3 == 'F' && i + 11 < data.length && data[i + 8] == 'W' && data[i + 9] == 'A' && data[i + 10] == 'V' && data[i + 11] == 'E') {
-                    offset = i; ext = ".wav"; matched = true; break;
+                if (b0 == 'R' && b1 == 'I' && b2 == 'F' && b3 == 'F' && i + 11 < data.length
+                        && data[i + 8] == 'W' && data[i + 9] == 'A' && data[i + 10] == 'V' && data[i + 11] == 'E') {
+                    offset = i; ext = ".wav"; break;
                 }
                 if (b0 == 'I' && b1 == 'D' && b2 == '3') {
-                    offset = i; ext = ".mp3"; matched = true; break;
+                    offset = i; ext = ".mp3"; break;
                 }
                 if (b0 == 'f' && b1 == 'L' && b2 == 'a' && b3 == 'C') {
-                    offset = i; ext = ".flac"; matched = true; break;
+                    offset = i; ext = ".flac"; break;
                 }
                 if (i >= 4 && b0 == 'f' && b1 == 't' && b2 == 'y' && b3 == 'p') {
-                    offset = i - 4; ext = ".m4a"; matched = true; break;
+                    offset = i - 4; ext = ".m4a"; break;
                 }
             }
-            if (!matched && data.length >= 2 && (data[0] & 0xFF) == 0xFF && ((data[1] & 0xE0) == 0xE0)) {
-                ext = ".mp3";
+            if (ext == null) {
+                int syncLim = Math.min(data.length - 2, 4096);
+                for (int i = 0; i <= syncLim; i++) {
+                    int b0 = data[i] & 0xFF;
+                    int b1 = data[i + 1] & 0xFF;
+                    if (b0 == 0xFF && (b1 & 0xF6) == 0xF0) {
+                        offset = i; ext = ".aac"; break;
+                    }
+                    if (b0 == 0xFF && (b1 & 0xE0) == 0xE0 && (b1 & 0x06) != 0) {
+                        offset = i; ext = ".mp3"; break;
+                    }
+                }
             }
+            if (ext == null) {
+                ext = ".ogg";
+            }
+            deleteNormalizedVariants(normDir, id);
             File out = new File(normDir, id + ext);
             File tmp = new File(normDir, id + ext + ".tmp");
             try (java.io.FileOutputStream fos = new java.io.FileOutputStream(tmp)) {
                 fos.write(data, offset, data.length - offset);
             }
-            tmp.renameTo(out);
+            if (!tmp.renameTo(out)) {
+                try (java.io.FileOutputStream fos = new java.io.FileOutputStream(out)) {
+                    fos.write(data, offset, data.length - offset);
+                }
+                tmp.delete();
+            }
             return out.isFile() ? out : rawFile;
         } catch (Throwable t) {
             return rawFile;
+        }
+    }
+
+    private static void applyTrackSpeed(android.media.AudioTrack track, Voice v, float[] appliedSpeedOut) {
+        if (Build.VERSION.SDK_INT < 23 || track == null) return;
+        float speed = RangesKt.coerceIn(v.getLastSpeed(), 0.05f, 8.0f);
+        if (Math.abs(speed - appliedSpeedOut[0]) <= 0.001f) return;
+        try {
+            track.setPlaybackParams(track.getPlaybackParams().setSpeed(speed).setPitch(speed));
+            appliedSpeedOut[0] = speed;
+        } catch (Throwable e) {
+            try {
+                float safe = RangesKt.coerceIn(speed, 0.5f, 2.0f);
+                track.setPlaybackParams(track.getPlaybackParams().setSpeed(safe).setPitch(safe));
+                appliedSpeedOut[0] = speed;
+            } catch (Throwable ignored) {
+                appliedSpeedOut[0] = speed;
+            }
         }
     }
 
@@ -1340,8 +1456,12 @@ public final class AudioEngine {
         android.media.AudioTrack track = null;
         try {
             extractor = new android.media.MediaExtractor();
-            try (java.io.FileInputStream fis = new java.io.FileInputStream(audioFile)) {
-                extractor.setDataSource(fis.getFD());
+            try {
+                extractor.setDataSource(audioFile.getAbsolutePath());
+            } catch (Throwable pathEx) {
+                try (java.io.FileInputStream fis = new java.io.FileInputStream(audioFile)) {
+                    extractor.setDataSource(fis.getFD());
+                }
             }
             int trackIdx = -1;
             android.media.MediaFormat fmt = null;
@@ -1381,7 +1501,65 @@ public final class AudioEngine {
             track.setStereoVolume(initL, initR);
             track.play();
             v.setStarted(true);
+            float[] appliedSpeed = new float[]{1.0f};
+            applyTrackSpeed(track, v, appliedSpeed);
             boolean trackPaused = false;
+
+            // Direct PCM streaming for uncompressed WAV ("audio/raw") without MediaCodec
+            if ("audio/raw".equalsIgnoreCase(mime)) {
+                java.nio.ByteBuffer pcmBuf = java.nio.ByteBuffer.allocate(16384);
+                byte[] chunk = new byte[16384];
+                while (!v.getReleased() && !v.getFailed()) {
+                    if (!v.getWantPlay() || appPaused || v.getLastSpeed() <= 0.001f) {
+                        if (!trackPaused) {
+                            try { track.pause(); } catch (Throwable ignored) {}
+                            trackPaused = true;
+                        }
+                        v.setLoudness(0.0f);
+                        try { Thread.sleep(30L); } catch (InterruptedException ignored) {}
+                        continue;
+                    }
+                    if (trackPaused) {
+                        try { track.play(); } catch (Throwable ignored) {}
+                        trackPaused = false;
+                    }
+                    double pSeek = v.consumePendingSeek();
+                    if (pSeek >= 0.0d) {
+                        extractor.seekTo((long) (pSeek * 1000000.0d), android.media.MediaExtractor.SEEK_TO_CLOSEST_SYNC);
+                        v.setPosition(pSeek);
+                    }
+                    track.setStereoVolume(Math.max(0.0f, v.getLastL()), Math.max(0.0f, v.getLastR()));
+                    applyTrackSpeed(track, v, appliedSpeed);
+                    pcmBuf.clear();
+                    int n = extractor.readSampleData(pcmBuf, 0);
+                    if (n < 0) {
+                        if (v.getLooped() && v.getWantPlay() && !v.getReleased()) {
+                            v.incrementLoopCount();
+                            extractor.seekTo(0L, android.media.MediaExtractor.SEEK_TO_CLOSEST_SYNC);
+                            v.setPosition(0.0d);
+                            continue;
+                        }
+                        break;
+                    }
+                    long pts = extractor.getSampleTime();
+                    if (n > chunk.length) chunk = new byte[n];
+                    pcmBuf.position(0);
+                    pcmBuf.get(chunk, 0, n);
+                    track.write(chunk, 0, n);
+                    if (pts >= 0L) v.setPosition(pts / 1000000.0d);
+                    v.setLoudness(computePcmLoudness(chunk, n));
+                    extractor.advance();
+                }
+                if (!v.getReleased()) {
+                    v.setEnded(true);
+                    v.setWantPlay(false);
+                    v.setStarted(false);
+                    v.setLoudness(0.0f);
+                    v.setPosition(0.0d);
+                }
+                return true;
+            }
+
             codec = android.media.MediaCodec.createDecoderByType(mime);
             codec.configure(fmt, null, null, 0);
             codec.start();
@@ -1411,6 +1589,7 @@ public final class AudioEngine {
                     v.setPosition(pSeek);
                 }
                 track.setStereoVolume(Math.max(0.0f, v.getLastL()), Math.max(0.0f, v.getLastR()));
+                applyTrackSpeed(track, v, appliedSpeed);
                 if (!sawInputEOS) {
                     int inIdx = codec.dequeueInputBuffer(10000L);
                     if (inIdx >= 0) {
@@ -1426,7 +1605,17 @@ public final class AudioEngine {
                     }
                 }
                 int outIdx = codec.dequeueOutputBuffer(info, 10000L);
-                if (outIdx >= 0) {
+                if (outIdx == android.media.MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+                    try {
+                        android.media.MediaFormat outFmt = codec.getOutputFormat();
+                        int newSr = outFmt.containsKey(android.media.MediaFormat.KEY_SAMPLE_RATE) ? outFmt.getInteger(android.media.MediaFormat.KEY_SAMPLE_RATE) : sampleRate;
+                        if (newSr > 0 && newSr != sampleRate) {
+                            sampleRate = newSr;
+                            track.setPlaybackRate(sampleRate);
+                        }
+                    } catch (Throwable ignored) {
+                    }
+                } else if (outIdx >= 0) {
                     java.nio.ByteBuffer outBuf = codec.getOutputBuffer(outIdx);
                     if (outBuf != null && info.size > 0) {
                         byte[] pcm = new byte[info.size];
@@ -1457,6 +1646,7 @@ public final class AudioEngine {
             if (!v.getReleased()) {
                 v.setEnded(true);
                 v.setWantPlay(false);
+                v.setStarted(false);
                 v.setLoudness(0.0f);
                 v.setPosition(0.0d);
             }
@@ -1488,7 +1678,12 @@ public final class AudioEngine {
         }
         try {
             if (mp.isPlaying()) {
-                mp.setPlaybackParams(mp.getPlaybackParams().setSpeed(clamped).setPitch(clamped));
+                try {
+                    mp.setPlaybackParams(mp.getPlaybackParams().setSpeed(clamped).setPitch(clamped));
+                } catch (Exception rangeEx) {
+                    float safe = RangesKt.coerceIn(clamped, 0.5f, 2.0f);
+                    mp.setPlaybackParams(mp.getPlaybackParams().setSpeed(safe).setPitch(safe));
+                }
                 v.setAppliedSpeed(clamped);
             }
         } catch (Exception ignored) {
@@ -1736,8 +1931,19 @@ public final class AudioEngine {
             String strCacheFile = AssetFetcher.INSTANCE.cacheFile($id);
             Intrinsics.checkNotNull(strCacheFile);
             File pf = INSTANCE.prepareAudioFile($id, new File(strCacheFile));
-            try (java.io.FileInputStream pfis = new java.io.FileInputStream(pf)) {
-                mp.setDataSource(pfis.getFD());
+            if (pf == null || !pf.isFile() || pf.length() <= 32) {
+                mp.release();
+                $p.setState(PreviewState.ERROR);
+                $p.setError("Invalid audio data returned by Roblox");
+                INSTANCE.notifyPreview();
+                return;
+            }
+            try {
+                mp.setDataSource(pf.getAbsolutePath());
+            } catch (Exception pathEx) {
+                try (java.io.FileInputStream pfis = new java.io.FileInputStream(pf)) {
+                    mp.setDataSource(pfis.getFD());
+                }
             }
             mp.setOnPreparedListener(new MediaPlayer.OnPreparedListener() { // from class: com.goydevv.studrblx.audio.AudioEngine$$ExternalSyntheticLambda1
                 @Override // android.media.MediaPlayer.OnPreparedListener
