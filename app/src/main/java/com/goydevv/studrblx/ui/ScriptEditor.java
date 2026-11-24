@@ -36,6 +36,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import kotlin.Lazy;
 import kotlin.LazyKt;
 import kotlin.Pair;
@@ -50,9 +52,6 @@ import kotlin.jvm.internal.ArrayIteratorKt;
 import kotlin.jvm.internal.DefaultConstructorMarker;
 import kotlin.jvm.internal.Intrinsics;
 import kotlin.ranges.RangesKt;
-import kotlin.sequences.SequencesKt;
-import kotlin.text.MatchResult;
-import kotlin.text.Regex;
 import kotlin.text.StringsKt;
 import kotlin.text.Typography;
 import org.luaj.vm2.Globals;
@@ -73,6 +72,7 @@ public final class ScriptEditor extends LinearLayout {
     private CodeEdit editor;
     private final Runnable highlightRunnable;
     private boolean highlighting;
+    private boolean internalEdit;
     private HorizontalScrollView hsv;
     private int lineCount;
     private final TextView lines;
@@ -88,6 +88,9 @@ public final class ScriptEditor extends LinearLayout {
     /* JADX INFO: renamed from: Companion, reason: from kotlin metadata */
     public static final Companion INSTANCE = new Companion(null);
     private static final Set<String> keywords = SetsKt.setOf(new String[]{"and", "break", "do", "else", "elseif", "end", "false", "for", "function", "if", "in", "local", "nil", "not", "or", "repeat", "return", "then", "true", "until", "while", "continue", "export", "type", "self"});
+    private static final Pattern FUNC_OPEN_PATTERN = Pattern.compile("(^|[^\\w])function\\s*[\\w.:]*\\s*\\([^)]*\\)\\s*$");
+    private static final Pattern PAREN_FUNC_PATTERN = Pattern.compile("\\(\\s*function");
+    private static final Pattern LINE_NUM_PATTERN = Pattern.compile(":(\\d+):");
 
     /* JADX WARN: 'super' call moved to the top of the method (can break code semantics) */
     public ScriptEditor(Context ctx, Studio studio, Instance script) {
@@ -237,41 +240,43 @@ String str;
 
                     @Override // android.text.TextWatcher
                     public void onTextChanged(CharSequence s2, int start, int before, int count) {
-                        this.autoIndent = count == 1 && before == 0 && s2 != null && start < s2.length() && s2.charAt(start) == '\n';
-                        this.typed = (count != 1 || before != 0 || s2 == null || start >= s2.length()) ? null : Character.valueOf(s2.charAt(start));
-                        this.typedAt = start;
+                        if (ScriptEditor.this.highlighting || ScriptEditor.this.internalEdit) {
+                            return;
+                        }
+                        if (count == 0 && before > 0 && ScriptEditor.this.autoClosedAt >= 0 && start <= ScriptEditor.this.autoClosedAt) {
+                            ScriptEditor.this.autoClosedAt = -1;
+                        }
+                        boolean singleInsert = count == 1 && before == 0 && s2 != null && start >= 0 && start < s2.length();
+                        this.autoIndent = singleInsert && s2.charAt(start) == '\n';
+                        this.typed = singleInsert ? Character.valueOf(s2.charAt(start)) : null;
+                        this.typedAt = singleInsert ? start : -1;
                     }
 
                     @Override // android.text.TextWatcher
                     public void afterTextChanged(Editable s2) {
-                        try {
-                            if (ScriptEditor.this.highlighting || s2 == null) {
-                                return;
-                            }
-                            if (this.autoIndent && Settings.INSTANCE.getAutoIndent()) {
-                                this.autoIndent = false;
-                                ScriptEditor.this.handleNewline(s2);
-                            } else if (this.typed != null && Settings.INSTANCE.getAutoCloseBrackets()) {
-                                ScriptEditor scriptEditor = ScriptEditor.this;
-                                Character ch = this.typed;
-                                Intrinsics.checkNotNull(ch);
-                                scriptEditor.handleTypedChar(s2, ch.charValue(), this.typedAt);
-                            }
-                            this.typed = null;
-                            ScriptEditor.this.dirtyText = true;
-                            ScriptEditor.this.updateLines();
-                            ScriptEditor.this.removeCallbacks(ScriptEditor.this.highlightRunnable);
-                            ScriptEditor.this.postDelayed(ScriptEditor.this.highlightRunnable, 250L);
-                            ScriptEditor.this.removeCallbacks(ScriptEditor.this.commitRunnable);
-                            ScriptEditor.this.postDelayed(ScriptEditor.this.commitRunnable, 800L);
-                            if (Settings.INSTANCE.getAutocomplete() && !ScriptEditor.this.suppressCompletion) {
-                                ScriptEditor.this.removeCallbacks(ScriptEditor.this.completeRunnable);
-                                ScriptEditor.this.postDelayed(ScriptEditor.this.completeRunnable, 70L);
-                            }
-                        } catch (Throwable _t) {
-                            if (_t instanceof RuntimeException) throw (RuntimeException) _t;
-                            if (_t instanceof Error) throw (Error) _t;
-                            throw new RuntimeException(_t);
+                        if (ScriptEditor.this.highlighting || ScriptEditor.this.internalEdit || s2 == null) {
+                            return;
+                        }
+                        boolean doAutoIndent = this.autoIndent;
+                        Character ch = this.typed;
+                        int at = this.typedAt;
+                        this.autoIndent = false;
+                        this.typed = null;
+                        this.typedAt = -1;
+                        if (doAutoIndent && Settings.INSTANCE.getAutoIndent()) {
+                            ScriptEditor.this.handleNewline(s2, at);
+                        } else if (ch != null && Settings.INSTANCE.getAutoCloseBrackets()) {
+                            ScriptEditor.this.handleTypedChar(s2, ch.charValue(), at);
+                        }
+                        ScriptEditor.this.dirtyText = true;
+                        ScriptEditor.this.updateLines();
+                        ScriptEditor.this.removeCallbacks(ScriptEditor.this.highlightRunnable);
+                        ScriptEditor.this.postDelayed(ScriptEditor.this.highlightRunnable, 250L);
+                        ScriptEditor.this.removeCallbacks(ScriptEditor.this.commitRunnable);
+                        ScriptEditor.this.postDelayed(ScriptEditor.this.commitRunnable, 800L);
+                        if (Settings.INSTANCE.getAutocomplete() && !ScriptEditor.this.suppressCompletion) {
+                            ScriptEditor.this.removeCallbacks(ScriptEditor.this.completeRunnable);
+                            ScriptEditor.this.postDelayed(ScriptEditor.this.completeRunnable, 70L);
                         }
                     }
                 });
@@ -483,16 +488,27 @@ String str;
     /* JADX WARN: Code duplicated, block: B:70:0x0145  */
     /* JADX WARN: Code duplicated, block: B:72:0x0148 A[Catch: all -> 0x02e8, TRY_ENTER, TryCatch #5 {all -> 0x02e8, blocks: (B:59:0x0126, B:72:0x0148, B:74:0x014e, B:79:0x016a, B:94:0x01b8, B:64:0x0135), top: B:180:0x0126 }] */
     public final void handleNewline(Editable s) {
+        handleNewline(s, -1);
+    }
+
+    public final void handleNewline(Editable s, int newlineAt) {
         if (s == null) {
             return;
         }
-        int pos = this.editor.getSelectionStart();
-        if (pos <= 0 || pos > s.length()) {
+        int len = s.length();
+        int pos;
+        if (newlineAt >= 0 && newlineAt < len && s.charAt(newlineAt) == '\n') {
+            pos = newlineAt + 1;
+        } else {
+            pos = this.editor.getSelectionStart();
+        }
+        if (pos <= 0 || pos > len) {
             return;
         }
-        int prevNl = StringsKt.lastIndexOf((CharSequence) s, '\n', Math.max(0, pos - 2), false);
+        int prevNl = pos >= 2 ? StringsKt.lastIndexOf((CharSequence) s, '\n', pos - 2, false) : -1;
         int prevStart = prevNl < 0 ? 0 : prevNl + 1;
-        String prevLine = s.subSequence(prevStart, Math.max(prevStart, pos - 1)).toString();
+        int prevEnd = Math.min(len, Math.max(prevStart, pos - 1));
+        String prevLine = s.subSequence(prevStart, prevEnd).toString();
         int indentEnd = 0;
         while (indentEnd < prevLine.length()) {
             char ch = prevLine.charAt(indentEnd);
@@ -503,37 +519,40 @@ String str;
         }
         String baseIndent = prevLine.substring(0, indentEnd);
         String t = StringsKt.trim((CharSequence) prevLine).toString();
-        boolean opensFunction = new Regex("(^|[^\\w])function\\s*[\\w.:]*\\s*\\([^)]*\\)\\s*$").containsMatchIn(t);
-        boolean endsThen = StringsKt.endsWith(t, " then", false) || Intrinsics.areEqual(t, "then");
-        boolean endsDo = StringsKt.endsWith(t, " do", false) || Intrinsics.areEqual(t, "do");
-        boolean isRepeat = Intrinsics.areEqual(t, "repeat");
-        boolean isElse = Intrinsics.areEqual(t, "else");
-        boolean isElseIf = StringsKt.startsWith(t, "elseif", false) && StringsKt.endsWith(t, "then", false);
-        boolean opensBrace = StringsKt.endsWith(t, "{", false);
+        boolean isComment = StringsKt.startsWith(t, "--", false);
+        boolean opensFunction = !isComment && FUNC_OPEN_PATTERN.matcher(t).find();
+        boolean endsThen = !isComment && (StringsKt.endsWith(t, " then", false) || Intrinsics.areEqual(t, "then"));
+        boolean endsDo = !isComment && (StringsKt.endsWith(t, " do", false) || Intrinsics.areEqual(t, "do"));
+        boolean isRepeat = !isComment && Intrinsics.areEqual(t, "repeat");
+        boolean isElse = !isComment && Intrinsics.areEqual(t, "else");
+        boolean isElseIf = !isComment && StringsKt.startsWith(t, "elseif", false) && StringsKt.endsWith(t, "then", false);
+        boolean opensBrace = !isComment && StringsKt.endsWith(t, "{", false);
         boolean opensBlock = endsThen || endsDo || opensFunction || isRepeat || opensBrace || isElse || isElseIf;
         String indent = opensBlock ? (baseIndent + "    ") : baseIndent;
 
+        this.autoClosedAt = -1;
         this.suppressCompletion = true;
+        this.internalEdit = true;
         try {
-            if (indent.length() > 0) {
+            if (indent.length() > 0 && pos <= s.length()) {
                 s.insert(pos, indent);
             }
-            int cur = pos + indent.length();
+            int cur = Math.min(pos + indent.length(), s.length());
             boolean needsEnd = (endsThen && !isElseIf) || endsDo || opensFunction;
             if (needsEnd && !isElse) {
                 int restLineEnd = StringsKt.indexOf((CharSequence) s, '\n', cur, false);
                 if (restLineEnd < 0) {
                     restLineEnd = s.length();
                 }
-                String afterCursor = s.subSequence(cur, restLineEnd).toString();
+                String afterCursor = s.subSequence(cur, Math.min(restLineEnd, s.length())).toString();
                 int nextLineStart = restLineEnd < s.length() ? restLineEnd + 1 : -1;
                 String nextLine;
-                if (nextLineStart >= 0) {
+                if (nextLineStart >= 0 && nextLineStart <= s.length()) {
                     int nextLineEnd = StringsKt.indexOf((CharSequence) s, '\n', nextLineStart, false);
                     if (nextLineEnd < 0) {
                         nextLineEnd = s.length();
                     }
-                    nextLine = s.subSequence(nextLineStart, nextLineEnd).toString();
+                    nextLine = s.subSequence(nextLineStart, Math.min(nextLineEnd, s.length())).toString();
                 } else {
                     nextLine = "";
                 }
@@ -555,72 +574,126 @@ String str;
                         || unbalancedEnds(s.toString()) <= 0;
                 if (!closed) {
                     String close = "end";
-                    if ((opensFunction && new Regex("\\(\\s*function").containsMatchIn(t))
+                    if ((opensFunction && PAREN_FUNC_PATTERN.matcher(t).find())
                             || (StringsKt.endsWith(t, "function()", false) && StringsKt.contains((CharSequence) prevLine, (CharSequence) "(", false))) {
                         close = "end)";
                     }
+                    cur = Math.min(cur, s.length());
                     s.insert(cur, "\n" + baseIndent + close);
-                    this.editor.setSelection(cur);
+                    this.editor.setSelection(Math.min(cur, s.length()));
                 }
             }
         } finally {
+            this.internalEdit = false;
             this.suppressCompletion = false;
         }
     }
 
-    /* JADX WARN: Failed to restore switch over string. Please report as a decompilation issue */
     private final int unbalancedEnds(String text) {
+        if (text == null || text.isEmpty()) {
+            return 0;
+        }
         int opens = 0;
         int ends = 0;
-        String noStrings = new Regex("--\\[(=*)\\[[\\s\\S]*?]\\1]|--[^\\n]*|\"(\\\\.|[^\"\\\\\\n])*\"|'(\\\\.|[^'\\\\\\n])*'|\\[(=*)\\[[\\s\\S]*?]\\5]").replace(text, " ");
-        for (MatchResult m : SequencesKt.asIterable((new Regex("\\b(function|do|then|end|repeat|until|elseif)\\b")).findAll(noStrings, 0))) {
-            String value = m.getValue();
-            switch (value.hashCode()) {
-                case -1300156394:
-                    if (value.equals("elseif")) {
-                        opens--;
-                    }
-                    break;
-                case -934531685:
-                    if (value.equals("repeat")) {
-                        opens++;
-                    }
-                    break;
-                case 3211:
-                    if (value.equals("do")) {
-                        opens++;
-                    }
-                    break;
-                case 100571:
-                    if (value.equals("end")) {
-                        ends++;
-                    }
-                    break;
-                case 3558941:
-                    if (value.equals("then")) {
-                        opens++;
-                    }
-                    break;
-                case 111443806:
-                    if (value.equals("until")) {
-                        ends++;
-                    }
-                    break;
-                case 1380938712:
-                    if (value.equals("function")) {
-                        opens++;
-                    }
-                    break;
+        int n = text.length();
+        int i = 0;
+        while (i < n) {
+            char c = text.charAt(i);
+            if (c == '-' && i + 1 < n && text.charAt(i + 1) == '-') {
+                int lvl = highlight$longLevel(n, text, i + 2);
+                if (lvl >= 0) {
+                    i = highlight$longClose(text, n, i + 4 + lvl, lvl);
+                } else {
+                    int nl = text.indexOf('\n', i + 2);
+                    i = nl < 0 ? n : nl + 1;
+                }
+                continue;
             }
+            if (c == '\"' || c == '\'') {
+                int j = i + 1;
+                while (j < n) {
+                    char ch = text.charAt(j);
+                    if (ch == '\\') {
+                        j += 2;
+                        continue;
+                    }
+                    if (ch == c || ch == '\n') {
+                        j++;
+                        break;
+                    }
+                    j++;
+                }
+                i = Math.min(j, n);
+                continue;
+            }
+            if (c == '`') {
+                int j = i + 1;
+                while (j < n) {
+                    char ch = text.charAt(j);
+                    if (ch == '\\') {
+                        j += 2;
+                        continue;
+                    }
+                    if (ch == '`') {
+                        j++;
+                        break;
+                    }
+                    j++;
+                }
+                i = Math.min(j, n);
+                continue;
+            }
+            if (c == '[') {
+                int lvl = highlight$longLevel(n, text, i);
+                if (lvl >= 0) {
+                    i = highlight$longClose(text, n, i + 2 + lvl, lvl);
+                    continue;
+                }
+            }
+            if (Character.isLetter(c) || c == '_') {
+                int start = i;
+                i++;
+                while (i < n && (Character.isLetterOrDigit(text.charAt(i)) || text.charAt(i) == '_')) {
+                    i++;
+                }
+                boolean prevDot = start > 0 && (text.charAt(start - 1) == '.' || text.charAt(start - 1) == ':');
+                if (!prevDot) {
+                    String word = text.substring(start, i);
+                    switch (word) {
+                        case "function":
+                        case "do":
+                        case "then":
+                        case "repeat":
+                            opens++;
+                            break;
+                        case "elseif":
+                            opens--;
+                            break;
+                        case "end":
+                        case "until":
+                            ends++;
+                            break;
+                        default:
+                            break;
+                    }
+                }
+                continue;
+            }
+            i++;
         }
         return opens - ends;
     }
 
     /* JADX INFO: Access modifiers changed from: private */
     public final void handleTypedChar(Editable s, char c, int at) {
+        if (s == null || at < 0 || at >= s.length()) {
+            return;
+        }
         this.suppressCompletion = true;
+        this.internalEdit = true;
         try {
-            if (this.autoClosedAt == at && at + 1 < s.length() && s.charAt(at + 1) == c && SetsKt.setOf(new Character[]{')', ']', '}', Character.valueOf(Typography.quote), '\''}).contains(Character.valueOf(c))) {
+            boolean isClose = c == ')' || c == ']' || c == '}' || c == '\"' || c == '\'';
+            if (this.autoClosedAt == at && at + 1 < s.length() && s.charAt(at + 1) == c && isClose) {
                 s.delete(at + 1, at + 2);
                 this.autoClosedAt = -1;
                 return;
@@ -641,20 +714,27 @@ String str;
                 if ((c == '\"' || c == '\'') && at > 0 && (Character.isLetterOrDigit(s.charAt(at - 1)) || s.charAt(at - 1) == c)) {
                     return;
                 }
-                s.insert(at + 1, String.valueOf(close));
-                this.editor.setSelection(at + 1);
-                this.autoClosedAt = at + 1;
+                int insertPos = Math.min(at + 1, s.length());
+                s.insert(insertPos, String.valueOf(close));
+                this.editor.setSelection(Math.min(insertPos, s.length()));
+                this.autoClosedAt = insertPos;
             }
         } finally {
+            this.internalEdit = false;
             this.suppressCompletion = false;
         }
     }
 
     /* JADX INFO: Access modifiers changed from: private */
     public final void insert(String s) {
-        int st = RangesKt.coerceAtLeast(this.editor.getSelectionStart(), 0);
-        int en = RangesKt.coerceAtLeast(this.editor.getSelectionEnd(), 0);
-        this.editor.getText().replace(Math.min(st, en), Math.max(st, en), s);
+        Editable text = this.editor.getText();
+        if (text == null || s == null) {
+            return;
+        }
+        int len = text.length();
+        int st = RangesKt.coerceIn(this.editor.getSelectionStart(), 0, len);
+        int en = RangesKt.coerceIn(this.editor.getSelectionEnd(), 0, len);
+        text.replace(Math.min(st, en), Math.max(st, en), s);
     }
 
     /* JADX INFO: Access modifiers changed from: private */
@@ -669,13 +749,15 @@ String str;
             hidePopup();
             return;
         }
+        Editable edText = this.editor.getText();
+        if (edText == null) {
+            hidePopup();
+            return;
+        }
         try {
-            try {
-                r = Autocomplete.INSTANCE.complete(this.studio, this.script, this.editor.getText().toString(), cur, explicit);
-            } catch (Exception e) {
-                r = null;
-            }
-        } catch (Exception e2) {
+            r = Autocomplete.INSTANCE.complete(this.studio, this.script, edText.toString(), Math.min(cur, edText.length()), explicit);
+        } catch (Throwable e) {
+            r = null;
         }
         if (r == null || r.getItems().isEmpty()) {
             hidePopup();
@@ -730,16 +812,22 @@ String str;
         Pair<Integer, Integer> pairCursorScreenPos = cursorScreenPos(h);
         int x = pairCursorScreenPos.component1().intValue();
         int y = pairCursorScreenPos.component2().intValue();
-        if (p.isShowing()) {
-            p.update(x, y, w, h);
-        } else {
-            p.showAtLocation(this.editor, 0, x, y);
+        if (!this.editor.isAttachedToWindow() || this.editor.getWindowToken() == null) {
+            return;
+        }
+        try {
+            if (p.isShowing()) {
+                p.update(x, y, w, h);
+            } else {
+                p.showAtLocation(this.editor, 0, x, y);
+            }
+        } catch (Exception ignored) {
         }
     }
 
     private final void positionPopup() {
         PopupWindow p = this.popup;
-        if (p == null) {
+        if (p == null || !p.isShowing() || !this.editor.isAttachedToWindow() || this.editor.getWindowToken() == null) {
             return;
         }
         Pair<Integer, Integer> pairPopupSize = popupSize();
@@ -748,16 +836,22 @@ String str;
         Pair<Integer, Integer> pairCursorScreenPos = cursorScreenPos(h);
         int x = pairCursorScreenPos.component1().intValue();
         int y = pairCursorScreenPos.component2().intValue();
-        p.update(x, y, w, h);
+        try {
+            p.update(x, y, w, h);
+        } catch (Exception ignored) {
+        }
     }
 
     private final Pair<Integer, Integer> cursorScreenPos(int popupH) {
         Layout layout = this.editor.getLayout();
-        if (layout == null) {
+        Editable text = this.editor.getText();
+        if (layout == null || text == null || layout.getLineCount() <= 0) {
             return TuplesKt.to(0, 0);
         }
-        int cur = RangesKt.coerceIn(this.editor.getSelectionStart(), 0, this.editor.getText().length());
-        int line = layout.getLineForOffset(cur);
+        CharSequence layoutText = layout.getText();
+        int maxOffset = layoutText != null ? Math.min(text.length(), layoutText.length()) : text.length();
+        int cur = RangesKt.coerceIn(this.editor.getSelectionStart(), 0, Math.max(0, maxOffset));
+        int line = RangesKt.coerceIn(layout.getLineForOffset(cur), 0, layout.getLineCount() - 1);
         int[] loc = new int[2];
         this.editor.getLocationOnScreen(loc);
         int x = loc[0] + this.editor.getTotalPaddingLeft() + ((int) layout.getPrimaryHorizontal(cur));
@@ -778,7 +872,10 @@ String str;
         if (popupWindow == null || !popupWindow.isShowing()) {
             return;
         }
-        popupWindow.dismiss();
+        try {
+            popupWindow.dismiss();
+        } catch (Exception ignored) {
+        }
     }
 
     /* JADX INFO: Access modifiers changed from: private */
@@ -789,10 +886,14 @@ String str;
             return;
         }
         int n = items.size();
+        if (n <= 0) {
+            return;
+        }
         this.selectedIdx = RangesKt.coerceIn(this.selectedIdx + delta, 0, n - 1);
         ListAdapter adapter = this.popupList.getAdapter();
-        Intrinsics.checkNotNull(adapter, "null cannot be cast to non-null type android.widget.BaseAdapter");
-        ((BaseAdapter) adapter).notifyDataSetChanged();
+        if (adapter instanceof BaseAdapter) {
+            ((BaseAdapter) adapter).notifyDataSetChanged();
+        }
         this.popupList.smoothScrollToPosition(this.selectedIdx);
     }
 
@@ -804,20 +905,34 @@ String str;
             return;
         }
         Editable text = this.editor.getText();
-        int end = RangesKt.coerceIn(this.editor.getSelectionStart(), r.getStart(), text.length());
+        if (text == null) {
+            return;
+        }
+        int len = text.length();
+        int start = RangesKt.coerceIn(r.getStart(), 0, len);
+        int end = RangesKt.coerceIn(this.editor.getSelectionStart(), start, len);
         int wordEnd = end;
-        while (wordEnd < text.length() && (Character.isLetterOrDigit(text.charAt(wordEnd)) || text.charAt(wordEnd) == '_')) {
+        while (wordEnd < len && (Character.isLetterOrDigit(text.charAt(wordEnd)) || text.charAt(wordEnd) == '_')) {
             wordEnd++;
         }
         removeCallbacks(this.completeRunnable);
         hidePopup();
         this.suppressCompletion = true;
+        this.internalEdit = true;
         try {
-            text.replace(r.getStart(), wordEnd, item.getInsert());
-            this.editor.setSelection(RangesKt.coerceAtMost(r.getStart() + item.getInsert().length(), this.editor.getText().length()));
+            String insertStr = item.getInsert();
+            text.replace(start, wordEnd, insertStr);
+            this.editor.setSelection(RangesKt.coerceIn(start + insertStr.length(), 0, text.length()));
         } finally {
+            this.internalEdit = false;
             this.suppressCompletion = false;
         }
+        this.dirtyText = true;
+        updateLines();
+        removeCallbacks(this.highlightRunnable);
+        postDelayed(this.highlightRunnable, 250L);
+        removeCallbacks(this.commitRunnable);
+        postDelayed(this.commitRunnable, 800L);
     }
 
     /* JADX INFO: compiled from: ScriptEditor.kt */
@@ -842,7 +957,7 @@ String str;
             if (result == null || (items = result.getItems()) == null) {
                 return null;
             }
-            return items.get(p);
+            return (Autocomplete.Item) CollectionsKt.getOrNull(items, p);
         }
 
         @Override // android.widget.Adapter
@@ -915,7 +1030,10 @@ String str;
             Intrinsics.checkNotNullExpressionValue(lowerCase2, "toLowerCase(...)");
             int iIndexOf$default = StringsKt.indexOf((CharSequence) str, lowerCase2, 0, false);
             if ((prefix.length() > 0) && iIndexOf$default >= 0) {
-                spannableString.setSpan(new StyleSpan(1), iIndexOf$default, prefix.length() + iIndexOf$default, 33);
+                int spanEnd = Math.min(prefix.length() + iIndexOf$default, spannableString.length());
+                if (spanEnd > iIndexOf$default) {
+                    spannableString.setSpan(new StyleSpan(1), iIndexOf$default, spanEnd, 33);
+                }
             }
             textView5.setText(spannableString);
             textView5.setTextColor(Ui.INSTANCE.getEDITOR_TEXT());
@@ -930,8 +1048,7 @@ String str;
     /* JADX INFO: Access modifiers changed from: private */
     public final void updateLines() {
         CharSequence text = this.editor.getText();
-        Intrinsics.checkNotNullExpressionValue(text, "getText(...)");
-        CharSequence charSequence = text;
+        CharSequence charSequence = text != null ? text : "";
         int i = 0;
         int i2 = 0;
         while (true) {
@@ -979,7 +1096,8 @@ String str;
     public final void commit() {
         if (this.dirtyText) {
             this.dirtyText = false;
-            String text = this.editor.getText().toString();
+            Editable ed = this.editor.getText();
+            String text = ed != null ? ed.toString() : "";
             synchronized (this.studio.getLock()) {
                 if (!Intrinsics.areEqual(this.script.get("Source"), text)) {
                     Instance.set$default(this.script, "Source", text, false, 4, null);
@@ -991,43 +1109,44 @@ String str;
     }
 
     private final void checkSyntax() {
-        List<String> groupValues;
-        String str;
-        Integer intOrNull;
         commit();
+        Editable ed = this.editor.getText();
+        String srcText = ed != null ? ed.toString() : "";
         try {
-            INSTANCE.getSyntaxCheck().load(LuauTranspiler.transpile$default(LuauTranspiler.INSTANCE, this.editor.getText().toString(), false, 2, null), "=" + this.script.getName());
+            INSTANCE.getSyntaxCheck().load(LuauTranspiler.transpile$default(LuauTranspiler.INSTANCE, srcText, false, 2, null), "=" + this.script.getName());
             this.status.setText("No syntax errors");
             this.status.setTextColor(-13726889);
-        } catch (LuaError e) {
-            TextView textView = this.status;
+        } catch (Throwable e) {
             String message = e.getMessage();
-            if (message == null) {
+            if (message == null || message.isEmpty()) {
                 message = "Syntax error";
             }
-            textView.setText(message);
+            this.status.setText(message);
             this.status.setTextColor(Ui.ERROR);
-            Regex regex = new Regex(":(\\d+):");
-            String message2 = e.getMessage();
-            if (message2 == null) {
-                message2 = "";
-            }
-            MatchResult matchResultFind$default = (regex).find(message2, 0);
-            if (matchResultFind$default != null && (groupValues = matchResultFind$default.getGroupValues()) != null && (str = groupValues.get(1)) != null && (intOrNull = StringsKt.toIntOrNull(str)) != null) {
-                goToLine(intOrNull.intValue());
+            Matcher matcher = LINE_NUM_PATTERN.matcher(message);
+            if (matcher.find()) {
+                String lineStr = matcher.group(1);
+                Integer intOrNull = lineStr != null ? StringsKt.toIntOrNull(lineStr) : null;
+                if (intOrNull != null) {
+                    goToLine(intOrNull.intValue());
+                }
             }
         }
     }
 
     private final void goToLine(int line) {
         Editable t = this.editor.getText();
+        if (t == null) {
+            return;
+        }
         int i = line - 1;
         int idx = 0;
         for (int idx2 = 0; idx2 < i; idx2++) {
-            Intrinsics.checkNotNull(t);
             int iIndexOf$default = StringsKt.indexOf((CharSequence) t, '\n', idx, false);
             if (iIndexOf$default >= 0) {
                 idx = iIndexOf$default + 1;
+            } else {
+                break;
             }
         }
         this.editor.requestFocus();
@@ -1051,14 +1170,15 @@ String str;
         if (q.length() == 0) {
             return Unit.INSTANCE;
         }
-        String t = this$0.editor.getText().toString();
+        Editable ed = this$0.editor.getText();
+        String t = ed != null ? ed.toString() : "";
         int i = StringsKt.indexOf((CharSequence) t, q, RangesKt.coerceAtLeast(this$0.editor.getSelectionEnd(), 0), false);
         if (i < 0) {
             i = StringsKt.indexOf((CharSequence) t, q, 0, false);
         }
         if (i >= 0) {
             this$0.editor.requestFocus();
-            this$0.editor.setSelection(i, q.length() + i);
+            this$0.editor.setSelection(i, Math.min(q.length() + i, t.length()));
         } else {
             this$0.status.setText("\"" + q + "\" not found");
         }
@@ -1072,6 +1192,9 @@ String str;
         int j;
         int e;
         Editable s = this.editor.getText();
+        if (s == null) {
+            return;
+        }
         Theme th = Ui.INSTANCE.getTheme();
         int kw = th.getSynKeyword();
         int str = th.getSynString();
@@ -1092,13 +1215,14 @@ String str;
             int rangeEnd = n;
             if (n > 32768) {
                 Layout layout = this.editor.getLayout();
-                if (layout != null && this.scroll != null) {
+                if (layout != null && this.scroll != null && layout.getLineCount() > 0) {
                     int scrollY = this.scroll.getScrollY();
                     int viewH = Math.max(this.scroll.getHeight(), 1200);
-                    int firstLine = Math.max(0, layout.getLineForVertical(Math.max(0, scrollY - 400)) - 10);
-                    int lastLine = Math.min(layout.getLineCount() - 1, layout.getLineForVertical(scrollY + viewH + 400) + 10);
-                    rangeStart = Math.max(0, layout.getLineStart(firstLine));
-                    rangeEnd = Math.min(n, layout.getLineEnd(lastLine));
+                    int maxLine = layout.getLineCount() - 1;
+                    int firstLine = RangesKt.coerceIn(layout.getLineForVertical(Math.max(0, scrollY - 400)) - 10, 0, maxLine);
+                    int lastLine = RangesKt.coerceIn(layout.getLineForVertical(scrollY + viewH + 400) + 10, firstLine, maxLine);
+                    rangeStart = RangesKt.coerceIn(layout.getLineStart(firstLine), 0, n);
+                    rangeEnd = RangesKt.coerceIn(layout.getLineEnd(lastLine), rangeStart, n);
                 } else {
                     rangeEnd = 32768;
                 }
@@ -1184,8 +1308,11 @@ String str;
     }
 
     private static final void highlight$span(Editable s, int n, int a, int b, int c) {
-        if (b > a) {
-            s.setSpan(new ForegroundColorSpan(c), a, Math.min(b, n), 33);
+        int len = Math.min(n, s.length());
+        int start = Math.max(0, a);
+        int end = Math.min(b, len);
+        if (end > start) {
+            s.setSpan(new ForegroundColorSpan(c), start, end, 33);
         }
     }
 

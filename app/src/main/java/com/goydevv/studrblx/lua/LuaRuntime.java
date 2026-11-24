@@ -119,7 +119,9 @@ public final class LuaRuntime {
     private final TreeListener treeListener;
     private final ArrayList<Tween> tweens;
     private final ArrayList<Waiting> waiting;
+    private final Set<LuaThread> cancelledThreads;
     private Instance focusedTextBox;
+    private static final java.util.regex.Pattern CLEAN_ERR_PATTERN = java.util.regex.Pattern.compile("(^|\\s)=(?=[^=:\\n]+:\\d+)");
 
     public final Instance getFocusedTextBox() {
         return this.focusedTextBox;
@@ -171,7 +173,7 @@ public final class LuaRuntime {
         return out;
     }
     private static String transpileSafe(String src, boolean hoistTopLocals) {
-        try { return LuauTranspiler.INSTANCE.transpile(src, hoistTopLocals); } catch (Exception e) { return src; }
+        try { return LuauTranspiler.INSTANCE.transpile(src, hoistTopLocals); } catch (Throwable e) { return src; }
     }
 
 
@@ -187,6 +189,7 @@ public final class LuaRuntime {
         this.instanceMeta = new LuaTable();
         this.api = new InstanceApi(this);
         this.waiting = new ArrayList<>();
+        this.cancelledThreads = Collections.newSetFromMap(new WeakHashMap<LuaThread, Boolean>());
         this.deferred = new ArrayList<>();
         this.childWaits = new ArrayList<>();
         this.conns = new IdentityHashMap<>();
@@ -420,12 +423,18 @@ public final class LuaRuntime {
         private final double at;
         private final LuaThread co;
         private final double start;
+        private final Varargs resumeArgs;
 
         public Waiting(LuaThread co, double at, double start) {
+            this(co, at, start, null);
+        }
+
+        public Waiting(LuaThread co, double at, double start, Varargs resumeArgs) {
             Intrinsics.checkNotNullParameter(co, "co");
             this.co = co;
             this.at = at;
             this.start = start;
+            this.resumeArgs = resumeArgs;
         }
 
         public final double getAt() {
@@ -438,6 +447,10 @@ public final class LuaRuntime {
 
         public final double getStart() {
             return this.start;
+        }
+
+        public final Varargs getResumeArgs() {
+            return this.resumeArgs;
         }
     }
 
@@ -567,10 +580,20 @@ public final class LuaRuntime {
         this.waiting.clear();
         this.deferred.clear();
         this.childWaits.clear();
+        this.timers.clear();
+        this.mainQueue.clear();
         this.conns.clear();
         this.signalWaiters.clear();
         this.tweens.clear();
+        this.callbacks.clear();
         this.loadingModules.clear();
+        this.moduleCache.clear();
+        this.moduleEnvs.clear();
+        this.cancelledThreads.clear();
+        this.focusedTextBox = null;
+        if (LuaTypes.getActiveRuntime() == this) {
+            LuaTypes.setActiveRuntime(null);
+        }
     }
 
     public final LuaValue wrap(Instance inst) {
@@ -1009,8 +1032,9 @@ public final class LuaRuntime {
                 message = e2.toString();
             }
             reportError(message);
-        } catch (RuntimeException e3) {
-            reportError(e3.toString());
+        } catch (Throwable e3) {
+            String msg = e3.getMessage();
+            reportError(msg != null && !msg.isEmpty() ? msg : e3.toString());
         } finally {
             this.resumeStart = outer;
             LuaTypes.setActiveRuntime(prevRt);
@@ -1036,7 +1060,7 @@ public final class LuaRuntime {
     public final void resume(LuaThread co, Varargs args) {
         Intrinsics.checkNotNullParameter(co, "co");
         Intrinsics.checkNotNullParameter(args, "args");
-        if (this.stopped || !Intrinsics.areEqual(co.getStatus(), "suspended")) {
+        if (this.stopped || this.cancelledThreads.contains(co) || !Intrinsics.areEqual(co.getStatus(), "suspended")) {
             return;
         }
         long outer = this.resumeStart;
@@ -1069,7 +1093,7 @@ public final class LuaRuntime {
 
     public final String cleanError(String m) {
         Intrinsics.checkNotNullParameter(m, "m");
-        return new Regex("(^|\\s)=(?=[^=:\\n]+:\\d+)").replace(m, "$1");
+        return CLEAN_ERR_PATTERN.matcher(m).replaceAll("$1");
     }
 
     public final Varargs yieldFor(double seconds) {
@@ -1087,6 +1111,16 @@ public final class LuaRuntime {
     public final void delay(double seconds, LuaThread co) {
         Intrinsics.checkNotNullParameter(co, "co");
         this.waiting.add(new Waiting(co, this.time + RangesKt.coerceAtLeast(seconds, 0.0d), this.time));
+    }
+
+    public final void delayWithArgs(double seconds, LuaThread co, Varargs args) {
+        Intrinsics.checkNotNullParameter(co, "co");
+        Intrinsics.checkNotNullParameter(args, "args");
+        this.waiting.add(new Waiting(co, this.time + RangesKt.coerceAtLeast(seconds, 0.0d), this.time, args));
+    }
+
+    public final boolean isCancelled(LuaThread co) {
+        return co != null && this.cancelledThreads.contains(co);
     }
 
     public final void defer(LuaThread co, Varargs args) {
@@ -1107,6 +1141,7 @@ public final class LuaRuntime {
 
     public final void cancel(final LuaThread co) {
         Intrinsics.checkNotNullParameter(co, "co");
+        this.cancelledThreads.add(co);
         CollectionsKt.removeAll((List) this.waiting, new Function1() { // from class: com.goydevv.studrblx.lua.LuaRuntime$$ExternalSyntheticLambda7
             @Override // kotlin.jvm.functions.Function1
             public final Object invoke(Object obj) {
@@ -1119,6 +1154,21 @@ public final class LuaRuntime {
                 return Boolean.valueOf(LuaRuntime.cancel$lambda$14(co, (Pair) obj));
             }
         });
+        Iterator<ChildWait> cwIt = this.childWaits.iterator();
+        while (cwIt.hasNext()) {
+            if (cwIt.next().getCo() == co) {
+                cwIt.remove();
+            }
+        }
+        for (HashMap<String, ArrayList<LuaThread>> sigMap : this.signalWaiters.values()) {
+            if (sigMap != null) {
+                for (ArrayList<LuaThread> list : sigMap.values()) {
+                    if (list != null) {
+                        list.remove(co);
+                    }
+                }
+            }
+        }
     }
 
     static final boolean cancel$lambda$14(LuaThread $co, Pair it) {
@@ -1179,8 +1229,12 @@ public final class LuaRuntime {
             Function0<Unit> function0Poll = this.mainQueue.poll();
             if (function0Poll == null) {
                 break;
-            } else {
+            }
+            try {
                 function0Poll.invoke();
+            } catch (Throwable e) {
+                String msg = e.getMessage();
+                reportError(msg != null && !msg.isEmpty() ? msg : e.toString());
             }
         }
         if (!this.waiting.isEmpty()) {
@@ -1213,9 +1267,14 @@ public final class LuaRuntime {
                     }
                     ran.add(w);
                     LuaThread co = w.getCo();
-                    Varargs varargsVarargsOf = LuaValue.varargsOf(LuaValue.valueOf(this.time - w.getStart()), LuaValue.valueOf(this.time));
-                    Intrinsics.checkNotNullExpressionValue(varargsVarargsOf, "varargsOf(...)");
-                    resume(co, varargsVarargsOf);
+                    if (this.cancelledThreads.contains(co)) {
+                        continue;
+                    }
+                    Varargs resumeArgs = w.getResumeArgs();
+                    if (resumeArgs == null) {
+                        resumeArgs = LuaValue.varargsOf(LuaValue.valueOf(this.time - w.getStart()), LuaValue.valueOf(this.time));
+                    }
+                    resume(co, resumeArgs);
                 }
                 ArrayList<Waiting> arrayList2 = this.waiting;
                 Intrinsics.checkNotNull(ran);
@@ -1239,10 +1298,10 @@ public final class LuaRuntime {
                     Function0 f = (Function0) ((Pair) it.next()).component2();
                     try {
                         f.invoke();
-                    } catch (LuaError e) {
+                    } catch (Throwable e) {
                         String message = e.getMessage();
-                        if (message == null) {
-                            message = "error";
+                        if (message == null || message.isEmpty()) {
+                            message = e.toString();
                         }
                         reportError(message);
                     }
@@ -1449,165 +1508,98 @@ public final class LuaRuntime {
         return luaFunctionLoad;
     }
 
-    /* JADX WARN: Code duplicated, block: B:25:0x0078  */
     private final Prototype compileLuau(String source, String chunkName) throws Exception {
         boolean limit = false;
         try {
-            Globals globals = this.globals;
             byte[] bytes = transpileCached(source, false).getBytes(Charsets.UTF_8);
-            Intrinsics.checkNotNullExpressionValue(bytes, "getBytes(...)");
-            Prototype prototypeCompilePrototype = globals.compilePrototype(new ByteArrayInputStream(bytes), "=" + chunkName);
-            Intrinsics.checkNotNull(prototypeCompilePrototype);
-            return prototypeCompilePrototype;
-        } catch (Exception e) {
+            Prototype proto = this.globals.compilePrototype(new ByteArrayInputStream(bytes), "=" + chunkName);
+            if (proto == null) {
+                throw new LuaError(chunkName + ": failed to compile script");
+            }
+            return proto;
+        } catch (Throwable e) {
             if (e instanceof NullPointerException) {
                 limit = true;
             } else if (e instanceof LuaError) {
-                String message = ((LuaError) e).getMessage();
-                if (message != null && StringsKt.contains((CharSequence) message, (CharSequence) "upvalue", false)) {
+                String message = e.getMessage();
+                if (message != null && (message.contains("upvalue") || message.contains("local variables"))) {
                     limit = true;
-                } else {
-                    String message2 = ((LuaError) e).getMessage();
-                    if (message2 != null && StringsKt.contains((CharSequence) message2, (CharSequence) "local variables", false)) {
-                        limit = true;
-                    }
                 }
             }
-            if (!limit) {
+            if (limit) {
                 try {
-                    byte[] rawBytes = source.getBytes(Charsets.UTF_8);
-                    Prototype rawProto = this.globals.compilePrototype(new ByteArrayInputStream(rawBytes), "=" + chunkName);
-                    if (rawProto != null) {
-                        return rawProto;
+                    byte[] bytes2 = transpileCached(source, true).getBytes(Charsets.UTF_8);
+                    Prototype proto2 = this.globals.compilePrototype(new ByteArrayInputStream(bytes2), "=" + chunkName);
+                    if (proto2 != null) {
+                        return proto2;
                     }
-                } catch (Throwable ignored) {
+                } catch (Throwable e2) {
+                    e = e2;
                 }
-                String tf = LuauTranspiler.INSTANCE.getLastFailure();
-                if (tf != null) {
-                    OutputLog.INSTANCE.warn("Luau transpile failed (" + chunkName + "): " + tf);
-                }
-                throw e;
             }
-            Globals globals2 = this.globals;
-            byte[] bytes2 = transpileCached(source, true).getBytes(Charsets.UTF_8);
-            Intrinsics.checkNotNullExpressionValue(bytes2, "getBytes(...)");
-            Prototype prototypeCompilePrototype2 = globals2.compilePrototype(new ByteArrayInputStream(bytes2), "=" + chunkName);
-            Intrinsics.checkNotNull(prototypeCompilePrototype2);
-            return prototypeCompilePrototype2;
+            try {
+                byte[] rawBytes = source.getBytes(Charsets.UTF_8);
+                Prototype rawProto = this.globals.compilePrototype(new ByteArrayInputStream(rawBytes), "=" + chunkName);
+                if (rawProto != null) {
+                    return rawProto;
+                }
+            } catch (Throwable ignored) {
+            }
+            String tf = LuauTranspiler.INSTANCE.getLastFailure();
+            if (tf != null) {
+                OutputLog.INSTANCE.warn("Luau transpile failed (" + chunkName + "): " + tf);
+            }
+            if (e instanceof LuaError) {
+                throw (LuaError) e;
+            }
+            String msg = e.getMessage();
+            throw new LuaError(chunkName + ": " + (msg != null && !msg.isEmpty() ? msg : e.getClass().getSimpleName()));
         }
     }
 
-    /* JADX WARN: Code duplicated, block: B:24:0x007e A[Catch: all -> 0x00c5, TryCatch #1 {all -> 0x00c5, blocks: (B:16:0x0064, B:18:0x006a, B:24:0x007e, B:25:0x0081, B:26:0x008a, B:27:0x009a, B:29:0x00a0, B:32:0x00b5), top: B:63:0x0064 }] */
-    /* JADX WARN: Code duplicated, block: B:76:0x0081 A[SYNTHETIC] */
-    /* JADX WARN: Multi-variable type inference failed */
     private final File diskFile(String chunkName, String source) {
         try {
-        int i;
-        File[] fileArr;
-        boolean z = false;
-        LuaRuntime luaRuntime = this;
-        try {
             File dir = luacDir;
-            try {
-                if (dir == null) {
-                    try {
-                        synchronized (protoCache) {
-                            int i2 = 0;
-                            try {
-                                File cacheDir = luaRuntime.studio.getApp().getCacheDir();
-                                String str = "luac-" + INSTANCE.buildStamp(luaRuntime.studio.getApp());
-                                File[] fileArrListFiles = cacheDir.listFiles();
-                                if (fileArrListFiles != null) {
-                                    Collection arrayList = new ArrayList();
-                                    int length = fileArrListFiles.length;
-                                    int i3 = 0;
-                                    while (i3 < length) {
-                                        File file = fileArrListFiles[i3];
-                                        if (file.isDirectory()) {
-                                            String name = file.getName();
-                                            Intrinsics.checkNotNullExpressionValue(name, "getName(...)");
-                                            i = i2;
-                                            fileArr = fileArrListFiles;
-                                            try {
-                                                if (StringsKt.startsWith(name, "luac", false) && !Intrinsics.areEqual(file.getName(), str)) {
-                                                    z = true;
-                                                }
-                                                if (z) {
-                                                    arrayList.add(file);
-                                                }
-                                                i3++;
-                                                fileArrListFiles = fileArr;
-                                                i2 = i;
-                                            } catch (Throwable th) {
-                                                throw th;
-                                            }
-                                        } else {
-                                            i = i2;
-                                            fileArr = fileArrListFiles;
-                                        }
-                                        z = false;
-                                        if (z) {
-                                            arrayList.add(file);
-                                        }
-                                        i3++;
-                                        fileArrListFiles = fileArr;
-                                        i2 = i;
+            if (dir == null) {
+                synchronized (protoCache) {
+                    dir = luacDir;
+                    if (dir == null) {
+                        File cacheDir = this.studio.getApp().getCacheDir();
+                        String str = "luac-" + INSTANCE.buildStamp(this.studio.getApp());
+                        File[] entries = cacheDir.listFiles();
+                        if (entries != null) {
+                            for (File file : entries) {
+                                if (file != null && file.isDirectory()) {
+                                    String name = file.getName();
+                                    if (name != null && name.startsWith("luac") && !name.equals(str)) {
+                                        FilesKt.deleteRecursively(file);
                                     }
-                                    luaRuntime = null;
-                                    for (File file2 : (List<File>) arrayList) {
-                                        Intrinsics.checkNotNull(file2);
-                                        FilesKt.deleteRecursively(file2);
-                                    }
-                                } else {
-                                    luaRuntime = null;
                                 }
-                                dir = new File(cacheDir, str);
-                                dir.mkdirs();
-                                Companion companion = INSTANCE;
-                                luacDir = dir;
-                            } catch (Throwable th2) {
-                                Throwable th = th2;
                             }
                         }
-                    } catch (Exception e) {
-                        return null;
+                        dir = new File(cacheDir, str);
+                        dir.mkdirs();
+                        luacDir = dir;
                     }
-                } else {
-                    luaRuntime = null;
                 }
-                MessageDigest md = MessageDigest.getInstance("SHA-1");
-                try {
-                    byte[] bytes = chunkName.getBytes(Charsets.UTF_8);
-                    Intrinsics.checkNotNullExpressionValue(bytes, "getBytes(...)");
-                    md.update(bytes);
-                    md.update((byte) 0);
-                    try {
-                        byte[] bytes2 = source.getBytes(Charsets.UTF_8);
-                        Intrinsics.checkNotNullExpressionValue(bytes2, "getBytes(...)");
-                        md.update(bytes2);
-                        byte[] bArrDigest = md.digest();
-                        Intrinsics.checkNotNullExpressionValue(bArrDigest, "digest(...)");
-                        return new File(dir, ArraysKt.joinToString(bArrDigest, (CharSequence) "", "", "", -1, "...", new Function1() { // from class: com.goydevv.studrblx.lua.LuaRuntime$$ExternalSyntheticLambda0
-                            @Override // kotlin.jvm.functions.Function1
-                            public final Object invoke(Object obj) {
-                                return LuaRuntime.diskFile$lambda$34(((Byte) obj).byteValue());
-                            }
-                        }) + ".luac");
-                    } catch (Exception e2) {
-                        return null;
-                    }
-                } catch (Exception e3) {
-                    return null;
-                }
-            } catch (Exception e4) {
+            }
+            if (dir == null) {
                 return null;
             }
-        } catch (Exception e5) {
+            MessageDigest md = MessageDigest.getInstance("SHA-1");
+            md.update(chunkName.getBytes(Charsets.UTF_8));
+            md.update((byte) 0);
+            md.update(source.getBytes(Charsets.UTF_8));
+            byte[] digest = md.digest();
+            StringBuilder hex = new StringBuilder(digest.length * 2 + 5);
+            for (byte b : digest) {
+                hex.append(Character.forDigit((b >>> 4) & 0xF, 16));
+                hex.append(Character.forDigit(b & 0xF, 16));
+            }
+            hex.append(".luac");
+            return new File(dir, hex.toString());
+        } catch (Throwable e) {
             return null;
-        }
-    }
-        catch (Throwable _ktEx) {
-            throw com.goydevv.studrblx.util.KtCompat.sneakyThrow(_ktEx);
         }
     }
 
@@ -1639,7 +1631,7 @@ public final class LuaRuntime {
                             throw th2;
                         }
                     }
-                } catch (Exception e) {
+                } catch (Throwable e) {
                     f.delete();
                     return null;
                 }
@@ -1651,8 +1643,8 @@ public final class LuaRuntime {
     private final void toDisk(String chunkName, String source, Prototype p) {
         File f;
         if (source.length() >= 2000 && (f = diskFile(chunkName, source)) != null) {
+            File tmp = new File(f.getPath() + ".tmp");
             try {
-                File tmp = new File(f.getPath() + ".tmp");
                 OutputStream fileOutputStream = new FileOutputStream(tmp);
                 BufferedOutputStream bufferedOutputStream = fileOutputStream instanceof BufferedOutputStream ? (BufferedOutputStream) fileOutputStream : new BufferedOutputStream(fileOutputStream, 8192);
                 try {
@@ -1667,7 +1659,8 @@ public final class LuaRuntime {
                         throw th2;
                     }
                 }
-            } catch (Exception e) {
+            } catch (Throwable e) {
+                try { tmp.delete(); } catch (Throwable ignored) {}
             }
         }
     }
@@ -1763,11 +1756,11 @@ public final class LuaRuntime {
             LuaValue NONE = LuaValue.NONE;
             Intrinsics.checkNotNullExpressionValue(NONE, "NONE");
             spawn(fn, NONE);
-        } catch (LuaError e) {
+        } catch (Throwable e) {
             OutputLog outputLog = OutputLog.INSTANCE;
             String message = e.getMessage();
-            if (message == null) {
-                message = "Syntax error";
+            if (message == null || message.isEmpty()) {
+                message = e.getClass().getSimpleName() + " in CommandBar";
             }
             outputLog.error(cleanError(message));
         }
@@ -1799,39 +1792,49 @@ public final class LuaRuntime {
         if (str == null) {
             str = "";
         }
-        LuaValue fn = compile(str, module.fullName(), env);
-        LuaThread co = this.globals.running;
-        Map map = this.moduleEnvs;
-        ArrayList<LuaTable> arrayList2 = (ArrayList<LuaTable>) map.get(co);
-        if (arrayList2 == null) {
-            arrayList = new ArrayList<>();
-            map.put(co, arrayList);
-        } else {
-            arrayList = arrayList2;
+        LuaValue fn;
+        try {
+            fn = compile(str, module.fullName(), env);
+        } catch (LuaError e) {
+            throw e;
+        } catch (Throwable e) {
+            String msg = e.getMessage();
+            throw new LuaError("Requested module experienced an error while loading: " + cleanError(msg != null && !msg.isEmpty() ? msg : e.getClass().getSimpleName()));
         }
-        ArrayList<LuaTable> arrayList3 = arrayList;
-        arrayList3.add(env);
+        LuaThread co = this.globals.running;
+        ArrayList<LuaTable> envStack = this.moduleEnvs.get(co);
+        if (envStack == null) {
+            envStack = new ArrayList<>();
+            this.moduleEnvs.put(co, envStack);
+        }
+        envStack.add(env);
         this.loadingModules.add(module);
         try {
-            LuaValue r = fn.call();
-            this.loadingModules.remove(module);
-            arrayList3.remove(arrayList3.size() - 1);
-            if (arrayList3.isEmpty()) {
-                this.moduleEnvs.remove(co);
-            }
-            if (r.isnil()) {
+            Varargs res = fn.invoke();
+            if (res.narg() != 1) {
                 throw new LuaError("Module code did not return exactly one value");
             }
+            LuaValue r = res.arg1();
+            if (r == null) {
+                r = LuaValue.NIL;
+            }
             this.moduleCache.put(module, r);
-            Intrinsics.checkNotNull(r);
             return r;
+        } catch (LuaError e) {
+            throw e;
+        } catch (StackOverflowError e) {
+            throw new LuaError("stack overflow while requiring " + module.fullName());
         } catch (Throwable th) {
+            String msg = th.getMessage();
+            throw new LuaError("Requested module experienced an error while loading: " + cleanError(msg != null && !msg.isEmpty() ? msg : th.getClass().getSimpleName()));
+        } finally {
             this.loadingModules.remove(module);
-            arrayList3.remove(arrayList3.size() - 1);
-            if (arrayList3.isEmpty()) {
+            if (!envStack.isEmpty()) {
+                envStack.remove(envStack.size() - 1);
+            }
+            if (envStack.isEmpty()) {
                 this.moduleEnvs.remove(co);
             }
-            throw com.goydevv.studrblx.util.KtCompat.sneakyThrow(th);
         }
     }
 

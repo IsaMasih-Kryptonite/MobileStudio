@@ -141,11 +141,20 @@ public final class LuauTranspiler {
         try { return luauTranspiler.transpile(str, z); } catch (Throwable _ktEx) { throw com.goydevv.studrblx.util.KtCompat.sneakyThrow(_ktEx); }
     }
 
+    private static boolean isWordChar(char c) {
+        return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_';
+    }
+
     public final String transpile(String src, boolean hoistTopLocals) throws Exception {
+        return transpileInternal(src, hoistTopLocals, true);
+    }
+
+    private final String transpileInternal(String src, boolean hoistTopLocals, boolean recordFailure) {
         String str;
-        Exception e;
         Intrinsics.checkNotNullParameter(src, "src");
-        lastFailure = null;
+        if (recordFailure) {
+            lastFailure = null;
+        }
         Parser parser = null;
         ArrayList<Tok> arrayListLex = null;
         try {
@@ -164,54 +173,67 @@ public final class LuauTranspiler {
                     if (prev != null && prev.getK() == K.NUMBER && t.isOp("..") && t.getTrivia().isEmpty()) {
                         sb.append(' ');
                     }
-                    sb.append(t.getTrivia());
-                    sb.append(t.getPrefix());
-                    sb.append(t.getOut());
-                    sb.append(t.getSuffix());
+                    String trivia = t.getTrivia();
+                    String prefix = t.getPrefix();
+                    String out = t.getOut();
+                    String suffix = t.getSuffix();
+                    if (trivia.isEmpty() && sb.length() > 0 && isWordChar(sb.charAt(sb.length() - 1))) {
+                        char firstOut = 0;
+                        if (!prefix.isEmpty()) {
+                            firstOut = prefix.charAt(0);
+                        } else if (!out.isEmpty()) {
+                            firstOut = out.charAt(0);
+                        } else if (!suffix.isEmpty()) {
+                            firstOut = suffix.charAt(0);
+                        }
+                        if (firstOut != 0 && isWordChar(firstOut)) {
+                            sb.append(' ');
+                        }
+                    }
+                    sb.append(trivia);
+                    sb.append(prefix);
+                    sb.append(out);
+                    sb.append(suffix);
                     prev = t;
                 }
                 String string = sb.toString();
                 Intrinsics.checkNotNull(string);
                 return string;
-            } catch (Exception e2) {
-                e = e2;
-                if (!(e instanceof ParseError) && !(e instanceof IndexOutOfBoundsException)) {
-                    throw e;
+            } catch (Throwable e2) {
+                if (!(e2 instanceof ParseError) && !(e2 instanceof IndexOutOfBoundsException) && !(e2 instanceof StackOverflowError)) {
+                    if (recordFailure) {
+                        lastFailure = e2.getClass().getSimpleName();
+                    }
+                    return src;
                 }
                 ArrayList<Tok> arrayList = arrayListLex;
                 int pp = parser != null ? parser.getP() : 0;
                 if (arrayList == null) {
                     str = null;
                 } else {
+                    int safePp = Math.min(Math.max(pp, 0), arrayList.size());
                     int i = 0;
-                    for (Tok tok : (List<Tok>) CollectionsKt.take(arrayList, pp)) {
+                    for (Tok tok : (List<Tok>) CollectionsKt.take(arrayList, safePp)) {
                         CharSequence trivia = tok.getTrivia();
                         int i2 = 0;
-                        int i3 = 0;
-                        while (true) {
-                            if (i3 >= trivia.length()) {
-                                break;
-                            }
+                        for (int i3 = 0; i3 < trivia.length(); i3++) {
                             if (trivia.charAt(i3) == '\n') {
                                 i2++;
                             }
-                            i3++;
                         }
                         CharSequence text = tok.getText();
                         int i4 = 0;
-                        int i5 = 0;
-                        while (i5 < text.length()) {
-                            CharSequence charSequence = text;
-                            if ((text.charAt(i5) == '\n' ? (char) 1 : (char) 0) != 0) {
+                        for (int i5 = 0; i5 < text.length(); i5++) {
+                            if (text.charAt(i5) == '\n') {
                                 i4++;
                             }
-                            i5++;
-                            text = charSequence;
                         }
                         i += i2 + i4;
                     }
                     int line = i + 1;
-                    List<Tok> listSubList = arrayList.subList(RangesKt.coerceAtLeast(pp - 6, 0), RangesKt.coerceAtMost(pp + 4, arrayList.size()));
+                    int fromIdx = Math.min(Math.max(safePp - 6, 0), arrayList.size());
+                    int toIdx = Math.min(Math.max(safePp + 4, fromIdx), arrayList.size());
+                    List<Tok> listSubList = arrayList.subList(fromIdx, toIdx);
                     Intrinsics.checkNotNullExpressionValue(listSubList, "subList(...)");
                     str = "line " + line + " near: " + CollectionsKt.joinToString(listSubList, " ", "", "", -1, "...", new Function1() { // from class: com.goydevv.studrblx.lua.LuauTranspiler$$ExternalSyntheticLambda0
                         @Override // kotlin.jvm.functions.Function1
@@ -220,10 +242,12 @@ public final class LuauTranspiler {
                         }
                     });
                 }
-                lastFailure = str;
+                if (recordFailure) {
+                    lastFailure = str;
+                }
                 return src;
             }
-        } catch (Exception e3) {
+        } catch (Throwable e3) {
             return src;
         }
     }
@@ -244,7 +268,8 @@ public final class LuauTranspiler {
             return text;
         }
         int lvl = 1;
-        while (StringsKt.contains((CharSequence) inner, (CharSequence) ("]" + StringsKt.repeat("=", lvl) + "]"), false)) {
+        while (StringsKt.contains((CharSequence) inner, (CharSequence) ("]" + StringsKt.repeat("=", lvl) + "]"), false)
+                || StringsKt.endsWith(inner, "]" + StringsKt.repeat("=", lvl), false)) {
             lvl++;
         }
         String eq = StringsKt.repeat("=", lvl);
@@ -267,16 +292,6 @@ public final class LuauTranspiler {
                 if (nxt == '\\') {
                     sb.append("\\\\");
                     i += 2;
-                } else if (nxt == 'z') {
-                    i += 2;
-                    while (i < len - 1) {
-                        char wc = lit.charAt(i);
-                        if (wc == ' ' || wc == '\t' || wc == '\n' || wc == '\r' || wc == '\f' || wc == 0x0B) {
-                            i++;
-                        } else {
-                            break;
-                        }
-                    }
                 } else if (nxt == 'u' && i + 2 < len && lit.charAt(i + 2) == '{') {
                     int close = lit.indexOf('}', i + 3);
                     if (close > i + 3) {
@@ -428,7 +443,7 @@ public final class LuauTranspiler {
                 String strLit = s.substring(i2, lvl);
                 Intrinsics.checkNotNullExpressionValue(strLit, "substring(...)");
                 Tok strTok = new Tok(K.STRING, strLit, tr);
-                if (strLit.indexOf("\\u{") >= 0 || strLit.indexOf("\\z") >= 0) {
+                if (strLit.indexOf("\\u{") >= 0) {
                     strTok.setOut(rewriteStringEscapes(strLit));
                 }
                 arrayList.add(strTok);
@@ -501,13 +516,15 @@ public final class LuauTranspiler {
             if (c == '\\' && i + 1 < s.length()) {
                 char nx = s.charAt(i + 1);
                 if (nx == '\r' && i + 2 < s.length() && s.charAt(i + 2) == '\n') {
-                    lit.append("\\n");
+                    lit.append("\\\n");
                     i += 3;
                 } else if (nx == 'z') {
+                    lit.append("\\z");
                     i += 2;
                     while (i < s.length()) {
                         char wc = s.charAt(i);
                         if (wc == ' ' || wc == '\t' || wc == '\n' || wc == '\r' || wc == '\f' || wc == 0x0B) {
+                            lit.append(wc);
                             i++;
                         } else {
                             break;
@@ -532,7 +549,7 @@ public final class LuauTranspiler {
                 } else {
                     switch (nx) {
                         case '\n':
-                            lit.append("\\n");
+                            lit.append("\\\n");
                             break;
                         case '\r':
                             lit.append("\\r");
@@ -549,51 +566,34 @@ public final class LuauTranspiler {
                     }
                     i += 2;
                 }
+            } else if (c == '\\') {
+                lit.append("\\\\");
+                i++;
             } else if (c == '{') {
                 interpolated$flush(lit, parts);
-                int depth = 1;
-                int j = i + 1;
-                while (j < s.length() && depth > 0) {
-                    char cj = s.charAt(j);
-                    if (cj == '"' || cj == '\'') {
-                        char q = cj;
-                        while (true) {
-                            j++;
-                            if (j >= s.length() || s.charAt(j) == q) {
-                                break;
-                            } else if (s.charAt(j) == '\\') {
-                                j++;
-                            }
-                        }
-                    } else if (cj == '-' && j + 1 < s.length() && s.charAt(j + 1) == '-') {
-                        int nl = s.indexOf('\n', j + 2);
-                        j = nl < 0 ? s.length() - 1 : nl;
-                    } else if (cj == '{') {
-                        depth++;
-                    } else if (cj == '}') {
-                        depth--;
-                    }
-                    if (depth > 0) {
-                        j++;
-                    }
-                }
+                int j = skipInterpBrace(s, i + 1);
                 String expr = s.substring(i + 1, Math.min(j, s.length()));
                 Intrinsics.checkNotNullExpressionValue(expr, "substring(...)");
-                parts.add("tostring(" + transpileExpr(expr) + ")");
+                String trimmed = expr.trim();
+                if (trimmed.isEmpty()) {
+                    parts.add("tostring(nil)");
+                } else {
+                    parts.add("tostring((" + transpileExpr(expr) + "))");
+                }
                 i = j + 1;
             } else if (c == '\"') {
                 lit.append("\\\"");
                 i++;
             } else if (c == '\r') {
                 if (i + 1 < s.length() && s.charAt(i + 1) == '\n') {
-                    lit.append("\\n");
+                    lit.append("\\\n");
                     i += 2;
                 } else {
                     lit.append("\\r");
                     i++;
                 }
             } else if (c == '\n') {
-                lit.append("\\n");
+                lit.append("\\\n");
                 i++;
             } else {
                 lit.append(c);
@@ -613,8 +613,70 @@ public final class LuauTranspiler {
         }
     }
 
+    private static int skipInterpBrace(String s, int start) {
+        int n = s.length();
+        int depth = 1;
+        int j = start;
+        while (j < n && depth > 0) {
+            char cj = s.charAt(j);
+            if (cj == '"' || cj == '\'') {
+                char q = cj;
+                j++;
+                while (j < n && s.charAt(j) != q) {
+                    if (s.charAt(j) == '\\') {
+                        j += 2;
+                    } else if (s.charAt(j) == '\n') {
+                        break;
+                    } else {
+                        j++;
+                    }
+                }
+                if (j < n) {
+                    j++;
+                }
+            } else if (cj == '`') {
+                j++;
+                while (j < n && s.charAt(j) != '`') {
+                    char cb = s.charAt(j);
+                    if (cb == '\\') {
+                        j += 2;
+                    } else if (cb == '{') {
+                        j = skipInterpBrace(s, j + 1) + 1;
+                    } else {
+                        j++;
+                    }
+                }
+                if (j < n) {
+                    j++;
+                }
+            } else if (cj == '-' && j + 1 < n && s.charAt(j + 1) == '-') {
+                int lvl = lex$longBracketLevel(n, s, j + 2);
+                if (lvl >= 0) {
+                    j = lex$skipLong(s, n, j + 2, lvl);
+                } else {
+                    int nl = s.indexOf('\n', j + 2);
+                    j = nl < 0 ? n : nl + 1;
+                }
+            } else if (cj == '[' && lex$longBracketLevel(n, s, j) >= 0) {
+                int lvl = lex$longBracketLevel(n, s, j);
+                j = lex$skipLong(s, n, j, lvl);
+            } else if (cj == '{') {
+                depth++;
+                j++;
+            } else if (cj == '}') {
+                depth--;
+                if (depth > 0) {
+                    j++;
+                }
+            } else {
+                j++;
+            }
+        }
+        return j;
+    }
+
     private final String transpileExpr(String e) {
-        String r = transpile$default(this, "return " + e, false, 2, null);
+        String r = transpileInternal("return " + e, false, false);
         if (!StringsKt.startsWith(r, "return ", false)) {
             return e;
         }
@@ -627,9 +689,30 @@ public final class LuauTranspiler {
     private static final class LoopCtx {
         private final int id;
         private boolean usesContinue;
+        private int currentTopStmtStart = -1;
+        private int firstContinueStmtStart = -1;
 
         public LoopCtx(int id) {
             this.id = id;
+        }
+
+        public final int getCurrentTopStmtStart() {
+            return this.currentTopStmtStart;
+        }
+
+        public final void setCurrentTopStmtStart(int v) {
+            this.currentTopStmtStart = v;
+        }
+
+        public final int getFirstContinueStmtStart() {
+            return this.firstContinueStmtStart;
+        }
+
+        public final void markContinue() {
+            this.usesContinue = true;
+            if (this.firstContinueStmtStart < 0 && this.currentTopStmtStart >= 0) {
+                this.firstContinueStmtStart = this.currentTopStmtStart;
+            }
         }
 
         public final int getId() {
@@ -648,8 +731,14 @@ public final class LuauTranspiler {
     /* JADX INFO: Access modifiers changed from: private */
     /* JADX INFO: compiled from: LuauTranspiler.kt */
     static final class Parser {
+        private static final int MAX_DEPTH = 256;
         private int castDepth;
         private int depth;
+        private int exprDepth;
+        private boolean lastSuffixHadCall;
+        private int lastSuffixKind;
+        private int lastSuffixStart;
+        private int lastSuffixEnd;
         private final boolean hoist;
         private int labelCounter;
         private final ArrayList<LoopCtx> loops;
@@ -781,20 +870,30 @@ public final class LuauTranspiler {
 
         public final void block() throws IOException, ParseError {
             this.depth++;
-            while (!blockEnd()) {
-                if (peek$default(this, 0, 1, null).isKw("return")) {
-                    next();
-                    if (!blockEnd() && !peek$default(this, 0, 1, null).isOp(";")) {
-                        exprList();
-                    }
-                    if (peek$default(this, 0, 1, null).isOp(";")) {
-                        next();
-                    }
-                } else {
-                    statement();
-                }
+            if (this.depth > MAX_DEPTH) {
+                throw new ParseError();
             }
-            this.depth--;
+            try {
+                while (!blockEnd()) {
+                    int before = this.p;
+                    if (peek$default(this, 0, 1, null).isKw("return")) {
+                        next();
+                        if (!blockEnd() && !peek$default(this, 0, 1, null).isOp(";")) {
+                            exprList();
+                        }
+                        if (peek$default(this, 0, 1, null).isOp(";")) {
+                            next();
+                        }
+                    } else {
+                        statement();
+                    }
+                    if (this.p == before) {
+                        throw new ParseError();
+                    }
+                }
+            } finally {
+                this.depth--;
+            }
         }
 
         public final Tok loopBody(String endKw) throws IOException, ParseError {
@@ -803,15 +902,49 @@ public final class LuauTranspiler {
             LoopCtx ctx = new LoopCtx(this.labelCounter);
             this.loops.add(ctx);
             int bodyStart = this.p;
-            block();
-            this.loops.remove(this.loops.size() - 1);
+            try {
+                if (Intrinsics.areEqual(endKw, "until")) {
+                    this.depth++;
+                    if (this.depth > MAX_DEPTH) {
+                        throw new ParseError();
+                    }
+                    try {
+                        while (!blockEnd()) {
+                            int before = this.p;
+                            ctx.setCurrentTopStmtStart(before);
+                            if (peek$default(this, 0, 1, null).isKw("return")) {
+                                next();
+                                if (!blockEnd() && !peek$default(this, 0, 1, null).isOp(";")) {
+                                    exprList();
+                                }
+                                if (peek$default(this, 0, 1, null).isOp(";")) {
+                                    next();
+                                }
+                            } else {
+                                statement();
+                            }
+                            if (this.p == before) {
+                                throw new ParseError();
+                            }
+                        }
+                    } finally {
+                        this.depth--;
+                    }
+                } else {
+                    block();
+                }
+            } finally {
+                this.loops.remove(this.loops.size() - 1);
+            }
             Tok e = expectKw(endKw);
             if (ctx.getUsesContinue()) {
                 if (Intrinsics.areEqual(endKw, "end")) {
                     this.t.get(bodyStart).setPrefix("do " + this.t.get(bodyStart).getPrefix());
                     e.setPrefix(e.getPrefix() + " end ::__continue" + ctx.getId() + ":: ");
                 } else {
-                    e.setPrefix("::__continue" + ctx.getId() + ":: ");
+                    int wrapStart = ctx.getFirstContinueStmtStart() >= 0 ? ctx.getFirstContinueStmtStart() : bodyStart;
+                    this.t.get(wrapStart).setPrefix("do " + this.t.get(wrapStart).getPrefix());
+                    e.setPrefix(e.getPrefix() + " end ::__continue" + ctx.getId() + ":: ");
                 }
             }
             return e;
@@ -949,7 +1082,7 @@ public final class LuauTranspiler {
                                         if (ctx == null) {
                                             throw new ParseError();
                                         }
-                                        ctx.setUsesContinue(true);
+                                        ctx.markContinue();
                                         tok3.setOut("goto __continue" + ctx.getId());
                                         Unit unit4 = Unit.INSTANCE;
                                         return;
@@ -1143,7 +1276,7 @@ public final class LuauTranspiler {
                                         if (nk == K.NAME || nk == K.NUMBER || nk == K.STRING
                                                 || nxt.isKw("true") || nxt.isKw("false") || nxt.isKw("nil")
                                                 || nxt.isKw("not") || nxt.isOp("(") || nxt.isOp("{")
-                                                || nxt.isOp("[") || nxt.isOp("#")) {
+                                                || nxt.isOp("[") || nxt.isOp("#") || nxt.isOp("-")) {
                                             return false;
                                         }
                                     }
@@ -1256,6 +1389,18 @@ public final class LuauTranspiler {
         }
 
         public final void simpleType() throws IOException, ParseError {
+            this.exprDepth++;
+            if (this.exprDepth > MAX_DEPTH) {
+                throw new ParseError();
+            }
+            try {
+                simpleTypeBody();
+            } finally {
+                this.exprDepth--;
+            }
+        }
+
+        private final void simpleTypeBody() throws IOException, ParseError {
             Tok k = peek$default(this, 0, 1, null);
             if (k.isOp("<")) {
                 skipAngle();
@@ -1268,7 +1413,7 @@ public final class LuauTranspiler {
                 }
             } else if (k.isOp("{")) {
                 skipBalanced("{", "}");
-            } else if (k.isName("typeof")) {
+            } else if (k.isName("typeof") && peek(1).isOp("(")) {
                 next();
                 skipBalanced("(", ")");
                 while (true) {
@@ -1332,27 +1477,63 @@ public final class LuauTranspiler {
                 return;
             }
             if (k.getK() == K.OP && k.getText().length() >= 2 && StringsKt.endsWith(k.getText(), "=", false) && !SetsKt.setOf(new String[]{"==", "~=", "<=", ">="}).contains(k.getText())) {
+                boolean hadCall = this.lastSuffixHadCall;
+                int sufKind = this.lastSuffixKind;
+                int sufStart = this.lastSuffixStart;
+                int sufEnd = this.lastSuffixEnd;
                 Tok opTok = next();
+                int opIdx = this.p - 1;
                 String base = StringsKt.dropLast(opTok.getText(), 1);
-                String lhs = CollectionsKt.joinToString(RangesKt.until(start, this.p - 1), " ", "", "", -1, "...", new Function1() { // from class: com.goydevv.studrblx.lua.LuauTranspiler$Parser$$ExternalSyntheticLambda0
-                    @Override // kotlin.jvm.functions.Function1
-                    public final Object invoke(Object obj) {
-                        Tok tok = Parser.this.t.get(((Integer) obj).intValue());
-                        return tok.getPrefix() + tok.getOut() + tok.getSuffix();
+                boolean lhsHasNewline = false;
+                for (int li = start; li < opIdx; li++) {
+                    if (this.t.get(li).getOut().indexOf('\n') >= 0) {
+                        lhsHasNewline = true;
+                        break;
                     }
-                });
+                }
                 int rhsStart = this.p;
                 expr();
-                Tok last = this.t.get(this.p - 1);
-                if (Intrinsics.areEqual(base, "//")) {
-                    opTok.setOut("= math.floor(" + lhs + " / (");
-                    last.setSuffix(last.getSuffix() + "))");
-                } else {
-                    opTok.setOut("= " + lhs + " " + base + " (");
-                    last.setSuffix(last.getSuffix() + ")");
-                }
                 if (rhsStart == this.p) {
                     throw new ParseError();
+                }
+                Tok last = this.t.get(this.p - 1);
+                if ((hadCall || lhsHasNewline) && sufKind == 1 && sufStart > start && sufEnd < opIdx) {
+                    String fieldName = this.t.get(sufEnd).getOut();
+                    this.t.get(start).setPrefix("do local __t = (" + this.t.get(start).getPrefix());
+                    this.t.get(sufStart).setOut("); __t.");
+                    if (Intrinsics.areEqual(base, "//")) {
+                        opTok.setOut("= math.floor(__t." + fieldName + " / (");
+                        last.setSuffix(last.getSuffix() + ")) end");
+                    } else {
+                        opTok.setOut("= __t." + fieldName + " " + base + " (");
+                        last.setSuffix(last.getSuffix() + ") end");
+                    }
+                } else if ((hadCall || lhsHasNewline) && sufKind == 2 && sufStart > start && sufEnd < opIdx) {
+                    this.t.get(start).setPrefix("do local __t, __k = (" + this.t.get(start).getPrefix());
+                    this.t.get(sufStart).setOut("), (");
+                    this.t.get(sufEnd).setOut("); __t[__k]");
+                    if (Intrinsics.areEqual(base, "//")) {
+                        opTok.setOut("= math.floor(__t[__k] / (");
+                        last.setSuffix(last.getSuffix() + ")) end");
+                    } else {
+                        opTok.setOut("= __t[__k] " + base + " (");
+                        last.setSuffix(last.getSuffix() + ") end");
+                    }
+                } else {
+                    String lhs = CollectionsKt.joinToString(RangesKt.until(start, opIdx), " ", "", "", -1, "...", new Function1() { // from class: com.goydevv.studrblx.lua.LuauTranspiler$Parser$$ExternalSyntheticLambda0
+                        @Override // kotlin.jvm.functions.Function1
+                        public final Object invoke(Object obj) {
+                            Tok tok = Parser.this.t.get(((Integer) obj).intValue());
+                            return tok.getPrefix() + tok.getOut() + tok.getSuffix();
+                        }
+                    });
+                    if (Intrinsics.areEqual(base, "//")) {
+                        opTok.setOut("= math.floor(" + lhs + " / (");
+                        last.setSuffix(last.getSuffix() + "))");
+                    } else {
+                        opTok.setOut("= " + lhs + " " + base + " (");
+                        last.setSuffix(last.getSuffix() + ")");
+                    }
                 }
             }
         }
@@ -1372,26 +1553,53 @@ public final class LuauTranspiler {
         }
 
         public final void suffixedExpr() throws IOException, ParseError {
+            boolean savedHadCall = this.lastSuffixHadCall;
+            boolean hadCall = false;
+            int kind = 0;
+            int sufStart = -1;
+            int sufEnd = -1;
+            this.lastSuffixHadCall = false;
             primaryExpr();
+            hadCall |= this.lastSuffixHadCall;
             while (true) {
                 Tok k = peek$default(this, 0, 1, null);
                 if (k.isOp(".")) {
+                    int dotIdx = this.p;
                     next();
                     if (peek$default(this, 0, 1, null).getK() != K.NAME && peek$default(this, 0, 1, null).getK() != K.KEYWORD) {
                         throw new ParseError();
                     }
+                    int fieldIdx = this.p;
                     next();
+                    kind = 1;
+                    sufStart = dotIdx;
+                    sufEnd = fieldIdx;
                 } else if (k.isOp("[")) {
+                    int openIdx = this.p;
                     next();
+                    this.lastSuffixHadCall = false;
                     expr();
+                    hadCall |= this.lastSuffixHadCall;
+                    int closeIdx = this.p;
                     expectOp("]");
+                    kind = 2;
+                    sufStart = openIdx;
+                    sufEnd = closeIdx;
                 } else if (k.isOp(":")) {
                     next();
                     expectName();
                     callArgs();
+                    hadCall = true;
+                    kind = 0;
                 } else if (k.isOp("(") || k.isOp("{") || k.getK() == K.STRING) {
                     callArgs();
+                    hadCall = true;
+                    kind = 0;
                 } else {
+                    this.lastSuffixHadCall = savedHadCall || hadCall;
+                    this.lastSuffixKind = kind;
+                    this.lastSuffixStart = sufStart;
+                    this.lastSuffixEnd = sufEnd;
                     return;
                 }
             }
@@ -1498,16 +1706,22 @@ public final class LuauTranspiler {
             expectKw("else").setOut("else return");
             expr();
             boolean hasVararg = false;
-            int fnDepth = 0;
+            int fnBlockDepth = 0;
             for (int i = ifStart + 1; i < this.p; i++) {
                 Tok tk = this.t.get(i);
-                if (tk.isKw("function")) {
-                    fnDepth++;
-                } else if (tk.isKw("end") && fnDepth > 0) {
-                    fnDepth--;
-                } else if (fnDepth == 0 && tk.isOp("...") && !tk.getOut().isEmpty()) {
-                    hasVararg = true;
-                    break;
+                if (fnBlockDepth == 0) {
+                    if (tk.isKw("function")) {
+                        fnBlockDepth = 1;
+                    } else if (tk.isOp("...") && !tk.getOut().isEmpty()) {
+                        hasVararg = true;
+                        break;
+                    }
+                } else {
+                    if (tk.isKw("function") || tk.isKw("do") || (tk.isKw("if") && !tk.getOut().startsWith("(function"))) {
+                        fnBlockDepth++;
+                    } else if (tk.isKw("end")) {
+                        fnBlockDepth--;
+                    }
                 }
             }
             ifTok.setOut(hasVararg ? "(function(...) if" : "(function() if");
@@ -1615,6 +1829,18 @@ public final class LuauTranspiler {
         }
 
         public final void subExpr(int limit) throws IOException, ParseError {
+            this.exprDepth++;
+            if (this.exprDepth > MAX_DEPTH) {
+                throw new ParseError();
+            }
+            try {
+                subExprBody(limit);
+            } finally {
+                this.exprDepth--;
+            }
+        }
+
+        private final void subExprBody(int limit) throws IOException, ParseError {
             int start = this.p;
             Tok k = peek$default(this, 0, 1, null);
             if (k.isKw("not") || k.isOp("-") || k.isOp("#")) {

@@ -3,6 +3,7 @@ package com.goydevv.studrblx.lua;
 import kotlin.collections.CollectionsKt;
 import kotlin.jvm.internal.Intrinsics;
 import org.luaj.vm2.Globals;
+import org.luaj.vm2.LuaError;
 import org.luaj.vm2.LuaString;
 import org.luaj.vm2.LuaTable;
 import org.luaj.vm2.LuaValue;
@@ -49,42 +50,58 @@ public final class LuaSandbox {
                 if (chunk.isfunction()) {
                     StringBuilder sb = new StringBuilder();
                     int guard = 0;
-                    while (true) {
-                        int guard2 = guard + 1;
-                        if (guard >= 100000) {
-                            break;
-                        }
-                        LuaValue piece = chunk.call();
-                        if (piece.isnil()) {
-                            break;
-                        }
-                        if (piece.isstring()) {
-                            String str2 = piece.tojstring();
-                            Intrinsics.checkNotNullExpressionValue(str2, "tojstring(...)");
-                            if (str2.length() == 0) {
+                    try {
+                        while (guard < 100000) {
+                            guard++;
+                            LuaValue piece = chunk.call();
+                            if (piece.isnil()) {
                                 break;
                             }
+                            if (!piece.isstring() && !piece.isnumber()) {
+                                return LuaValue.varargsOf(LuaValue.NIL, LuaValue.valueOf("reader function must return a string"));
+                            }
+                            String str2 = piece.tojstring();
+                            if (str2 == null || str2.length() == 0) {
+                                break;
+                            }
+                            sb.append(str2);
+                            if (sb.length() > 50000000) {
+                                return LuaValue.varargsOf(LuaValue.NIL, LuaValue.valueOf("chunk too large"));
+                            }
                         }
-                        sb.append(piece.checkjstring());
-                        if (sb.length() > 50000000) {
-                            Varargs varargsVarargsOf = LuaValue.varargsOf(LuaValue.NIL, LuaValue.valueOf("chunk too large"));
-                            Intrinsics.checkNotNullExpressionValue(varargsVarargsOf, "varargsOf(...)");
-                            return varargsVarargsOf;
-                        }
-                        guard = guard2;
+                    } catch (Throwable e) {
+                        String msg = e.getMessage();
+                        return LuaValue.varargsOf(LuaValue.NIL, LuaValue.valueOf(msg != null ? msg : "error in reader function"));
                     }
                     chunk = LuaValue.valueOf(sb.toString());
                 }
-                LuaSandbox luaSandbox = LuaSandbox.INSTANCE;
-                Intrinsics.checkNotNull(chunk);
-                if (luaSandbox.isBytecode(chunk)) {
-                    Varargs varargsVarargsOf2 = LuaValue.varargsOf(LuaValue.NIL, LuaValue.valueOf("bytecode is not allowed"));
-                    Intrinsics.checkNotNullExpressionValue(varargsVarargsOf2, "varargsOf(...)");
-                    return varargsVarargsOf2;
+                if (LuaSandbox.INSTANCE.isBytecode(chunk)) {
+                    return LuaValue.varargsOf(LuaValue.NIL, LuaValue.valueOf("bytecode is not allowed"));
                 }
-                Varargs varargsInvoke = realLoad.invoke(LuaValue.varargsOf(new LuaValue[]{chunk, a.arg(2), LuaValue.valueOf("t"), a.arg(4)}));
-                Intrinsics.checkNotNullExpressionValue(varargsInvoke, "invoke(...)");
-                return varargsInvoke;
+                LuaValue rawChunk = chunk;
+                if (chunk.isstring()) {
+                    String src = chunk.tojstring();
+                    if (src != null) {
+                        String transpiled = LuaRuntime.transpileCached(src, false);
+                        chunk = LuaValue.valueOf(transpiled);
+                    }
+                }
+                try {
+                    Varargs res = realLoad.invoke(LuaValue.varargsOf(new LuaValue[]{chunk, a.arg(2), LuaValue.valueOf("t"), a.arg(4)}));
+                    if (res.arg1().isnil() && rawChunk != chunk && rawChunk.isstring()) {
+                        try {
+                            Varargs fallback = realLoad.invoke(LuaValue.varargsOf(new LuaValue[]{rawChunk, a.arg(2), LuaValue.valueOf("t"), a.arg(4)}));
+                            if (!fallback.arg1().isnil()) {
+                                return fallback;
+                            }
+                        } catch (Throwable ignored) {
+                        }
+                    }
+                    return res;
+                } catch (Throwable e) {
+                    String msg = e.getMessage();
+                    return LuaValue.varargsOf(LuaValue.NIL, LuaValue.valueOf(msg != null ? msg : "syntax error"));
+                }
             }
         });
     }

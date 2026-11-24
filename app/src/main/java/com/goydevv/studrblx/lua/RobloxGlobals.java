@@ -42,6 +42,16 @@ public final class RobloxGlobals {
     public static final RobloxGlobals INSTANCE = new RobloxGlobals();
     private static final java.util.Set<LuaTable> FROZEN_TABLES = java.util.Collections.synchronizedSet(
             java.util.Collections.newSetFromMap(new java.util.WeakHashMap<LuaTable, Boolean>()));
+    private static final java.util.Map<LuaTable, LuaValue> FROZEN_ORIG_MT = java.util.Collections.synchronizedMap(
+            new java.util.WeakHashMap<LuaTable, LuaValue>());
+
+    private static int toU32(LuaValue v) {
+        return (int) (long) v.checkdouble();
+    }
+
+    private static LuaValue fromU32(int n) {
+        return LuaValue.valueOf(((long) n) & 0xFFFFFFFFL);
+    }
 
     public static boolean isFrozenTable(LuaValue v) {
         return (v instanceof LuaTable) && FROZEN_TABLES.contains((LuaTable) v);
@@ -123,30 +133,7 @@ public final class RobloxGlobals {
         Intrinsics.checkNotNullParameter(rt, "rt");
         final Globals g = rt.getGlobals();
         final long start = System.nanoTime();
-        LuaValue luaValue = g.get("bit32");
-        if (!luaValue.istable()) {
-            luaValue = null;
-        }
-        if (luaValue != null) {
-            luaValue.set("countlz", LuaTypesKt.fnv(new Function1() { // from class: com.goydevv.studrblx.lua.RobloxGlobals$$ExternalSyntheticLambda2
-                @Override // kotlin.jvm.functions.Function1
-                public final Object invoke(Object obj) {
-                    return RobloxGlobals.install$lambda$5$lambda$2((Varargs) obj);
-                }
-            }));
-            luaValue.set("countrz", LuaTypesKt.fnv(new Function1() { // from class: com.goydevv.studrblx.lua.RobloxGlobals$$ExternalSyntheticLambda13
-                @Override // kotlin.jvm.functions.Function1
-                public final Object invoke(Object obj) {
-                    return RobloxGlobals.install$lambda$5$lambda$3((Varargs) obj);
-                }
-            }));
-            luaValue.set("byteswap", LuaTypesKt.fnv(new Function1() { // from class: com.goydevv.studrblx.lua.RobloxGlobals$$ExternalSyntheticLambda24
-                @Override // kotlin.jvm.functions.Function1
-                public final Object invoke(Object obj) {
-                    return RobloxGlobals.install$lambda$5$lambda$4((Varargs) obj);
-                }
-            }));
-        }
+        installBit32(g);
         g.set("print", LuaTypesKt.fnv(new Function1() { // from class: com.goydevv.studrblx.lua.RobloxGlobals$$ExternalSyntheticLambda35
             @Override // kotlin.jvm.functions.Function1
             public final Object invoke(Object obj) {
@@ -214,7 +201,7 @@ public final class RobloxGlobals {
             }
         }));
         g.set("unpack", g.get("table").get("unpack"));
-        g.set("ypcall", g.get("pcall"));
+        installSafePcall(g);
         g.set("require", LuaTypesKt.fn1(new Function1() { // from class: com.goydevv.studrblx.lua.RobloxGlobals$$ExternalSyntheticLambda6
             @Override // kotlin.jvm.functions.Function1
             public final Object invoke(Object obj) {
@@ -412,6 +399,20 @@ public final class RobloxGlobals {
                 return RobloxGlobals.install$lambda$60((Varargs) obj);
             }
         }));
+        math.set("log", LuaTypesKt.fnv(new Function1() {
+            @Override
+            public final Object invoke(Object obj) {
+                Varargs a = (Varargs) obj;
+                double x = a.arg(1).checkdouble();
+                if (a.arg(2).isnil()) {
+                    return LuaValue.valueOf(Math.log(x));
+                }
+                double base = a.arg(2).checkdouble();
+                if (base == 2.0d) return LuaValue.valueOf(Math.log(x) / Math.log(2.0d));
+                if (base == 10.0d) return LuaValue.valueOf(Math.log10(x));
+                return LuaValue.valueOf(Math.log(x) / Math.log(base));
+            }
+        }));
         LuaValue string = g.get("string");
         string.set("split", LuaTypesKt.fnv(new Function1() { // from class: com.goydevv.studrblx.lua.RobloxGlobals$$ExternalSyntheticLambda37
             @Override // kotlin.jvm.functions.Function1
@@ -478,7 +479,11 @@ public final class RobloxGlobals {
                 if (i > j) {
                     return LuaValue.NONE;
                 }
-                int count = (j - i) + 1;
+                long lcount = ((long) j - (long) i) + 1L;
+                if (lcount > 1000000L) {
+                    throw new LuaError("too many results to unpack");
+                }
+                int count = (int) lcount;
                 LuaValue[] out = new LuaValue[count];
                 for (int idx = 0; idx < count; idx++) {
                     out[idx] = t.get(i + idx);
@@ -550,10 +555,10 @@ public final class RobloxGlobals {
                 return RobloxGlobals.install$lambda$73((Varargs) obj);
             }
         }));
-        utf8.set("len", LuaTypesKt.fn1(new Function1() { // from class: com.goydevv.studrblx.lua.RobloxGlobals$$ExternalSyntheticLambda48
-            @Override // kotlin.jvm.functions.Function1
+        utf8.set("len", LuaTypesKt.fnv(new Function1() {
+            @Override
             public final Object invoke(Object obj) {
-                return RobloxGlobals.install$lambda$74((LuaValue) obj);
+                return utf8Len((Varargs) obj);
             }
         }));
         utf8.set("charpattern", LuaString.valueOf(new byte[]{
@@ -577,37 +582,13 @@ public final class RobloxGlobals {
         utf8.set("codepoint", LuaTypesKt.fnv(new Function1() {
             @Override
             public final Object invoke(Object obj) {
-                Varargs a = (Varargs) obj;
-                String s = a.arg(1).checkjstring();
-                int len = s.length();
-                int i = a.arg(2).optint(1);
-                int j = a.arg(3).optint(i);
-                if (i < 0) i = len + i + 1;
-                if (j < 0) j = len + j + 1;
-                if (i < 1) i = 1;
-                if (j > len) j = len;
-                if (i > j) return LuaValue.NONE;
-                ArrayList<LuaValue> cps = new ArrayList<>();
-                int idx = i - 1;
-                while (idx < j) {
-                    int cp = s.codePointAt(idx);
-                    cps.add(LuaValue.valueOf(cp));
-                    idx += Character.charCount(cp);
-                }
-                return LuaValue.varargsOf(cps.toArray(new LuaValue[0]));
+                return utf8Codepoint((Varargs) obj);
             }
         }));
         utf8.set("offset", LuaTypesKt.fnv(new Function1() {
             @Override
             public final Object invoke(Object obj) {
-                Varargs a = (Varargs) obj;
-                String s = a.arg(1).checkjstring();
-                int n = a.arg(2).checkint();
-                int pos = a.arg(3).optint(n >= 0 ? 1 : s.length() + 1);
-                if (pos < 0) pos = s.length() + pos + 1;
-                int target = pos + (n > 0 ? n - 1 : n);
-                if (target < 1 || target > s.length() + 1) return LuaValue.NIL;
-                return LuaValue.valueOf(target);
+                return utf8Offset((Varargs) obj);
             }
         }));
         utf8.set("codes", LuaTypesKt.fnv(new Function1() {
@@ -779,30 +760,471 @@ public final class RobloxGlobals {
                 }
             }
         }));
-        LuaValue coroVal = g.get("coroutine");
-        if (coroVal.istable()) {
-            coroVal.set("isyieldable", LuaTypesKt.fnv(new Function1() {
+        installCoroutineExtras(g, rt);
+        installBuffer(g);
+        installDateTime(g);
+        installDebugAndOs(g, rt, table, string);
+    }
+
+    private final void installBit32(Globals g) {
+        LuaTable b = new LuaTable();
+        b.set("band", LuaTypesKt.fnv(new Function1() {
+            @Override
+            public final Object invoke(Object obj) {
+                Varargs a = (Varargs) obj;
+                int acc = -1;
+                int n = a.narg();
+                for (int i = 1; i <= n; i++) {
+                    acc &= toU32(a.arg(i));
+                }
+                return fromU32(acc);
+            }
+        }));
+        b.set("bor", LuaTypesKt.fnv(new Function1() {
+            @Override
+            public final Object invoke(Object obj) {
+                Varargs a = (Varargs) obj;
+                int acc = 0;
+                int n = a.narg();
+                for (int i = 1; i <= n; i++) {
+                    acc |= toU32(a.arg(i));
+                }
+                return fromU32(acc);
+            }
+        }));
+        b.set("bxor", LuaTypesKt.fnv(new Function1() {
+            @Override
+            public final Object invoke(Object obj) {
+                Varargs a = (Varargs) obj;
+                int acc = 0;
+                int n = a.narg();
+                for (int i = 1; i <= n; i++) {
+                    acc ^= toU32(a.arg(i));
+                }
+                return fromU32(acc);
+            }
+        }));
+        b.set("bnot", LuaTypesKt.fnv(new Function1() {
+            @Override
+            public final Object invoke(Object obj) {
+                Varargs a = (Varargs) obj;
+                return fromU32(~toU32(a.arg(1)));
+            }
+        }));
+        b.set("btest", LuaTypesKt.fnv(new Function1() {
+            @Override
+            public final Object invoke(Object obj) {
+                Varargs a = (Varargs) obj;
+                int acc = -1;
+                int n = a.narg();
+                for (int i = 1; i <= n; i++) {
+                    acc &= toU32(a.arg(i));
+                }
+                return LuaValue.valueOf(acc != 0);
+            }
+        }));
+        b.set("lshift", LuaTypesKt.fnv(new Function1() {
+            @Override
+            public final Object invoke(Object obj) {
+                Varargs a = (Varargs) obj;
+                int x = toU32(a.arg(1));
+                int disp = a.arg(2).checkint();
+                if (disp >= 32 || disp <= -32) return LuaValue.ZERO;
+                return fromU32(disp >= 0 ? (x << disp) : (x >>> (-disp)));
+            }
+        }));
+        b.set("rshift", LuaTypesKt.fnv(new Function1() {
+            @Override
+            public final Object invoke(Object obj) {
+                Varargs a = (Varargs) obj;
+                int x = toU32(a.arg(1));
+                int disp = a.arg(2).checkint();
+                if (disp >= 32 || disp <= -32) return LuaValue.ZERO;
+                return fromU32(disp >= 0 ? (x >>> disp) : (x << (-disp)));
+            }
+        }));
+        b.set("arshift", LuaTypesKt.fnv(new Function1() {
+            @Override
+            public final Object invoke(Object obj) {
+                Varargs a = (Varargs) obj;
+                int x = toU32(a.arg(1));
+                int disp = a.arg(2).checkint();
+                if (disp >= 32) return fromU32(x < 0 ? -1 : 0);
+                if (disp <= -32) return LuaValue.ZERO;
+                return fromU32(disp >= 0 ? (x >> disp) : (x << (-disp)));
+            }
+        }));
+        b.set("lrotate", LuaTypesKt.fnv(new Function1() {
+            @Override
+            public final Object invoke(Object obj) {
+                Varargs a = (Varargs) obj;
+                int x = toU32(a.arg(1));
+                int disp = a.arg(2).checkint() & 31;
+                return fromU32(Integer.rotateLeft(x, disp));
+            }
+        }));
+        b.set("rrotate", LuaTypesKt.fnv(new Function1() {
+            @Override
+            public final Object invoke(Object obj) {
+                Varargs a = (Varargs) obj;
+                int x = toU32(a.arg(1));
+                int disp = a.arg(2).checkint() & 31;
+                return fromU32(Integer.rotateRight(x, disp));
+            }
+        }));
+        b.set("extract", LuaTypesKt.fnv(new Function1() {
+            @Override
+            public final Object invoke(Object obj) {
+                Varargs a = (Varargs) obj;
+                int x = toU32(a.arg(1));
+                int field = a.arg(2).checkint();
+                int width = a.arg(3).optint(1);
+                if (field < 0) throw new LuaError("field cannot be negative");
+                if (width <= 0) throw new LuaError("width must be positive");
+                if (field + width > 32) throw new LuaError("trying to access non-existent bits");
+                int mask = (width == 32) ? -1 : ((1 << width) - 1);
+                return fromU32((x >>> field) & mask);
+            }
+        }));
+        b.set("replace", LuaTypesKt.fnv(new Function1() {
+            @Override
+            public final Object invoke(Object obj) {
+                Varargs a = (Varargs) obj;
+                int x = toU32(a.arg(1));
+                int v = toU32(a.arg(2));
+                int field = a.arg(3).checkint();
+                int width = a.arg(4).optint(1);
+                if (field < 0) throw new LuaError("field cannot be negative");
+                if (width <= 0) throw new LuaError("width must be positive");
+                if (field + width > 32) throw new LuaError("trying to access non-existent bits");
+                int mask = (width == 32) ? -1 : ((1 << width) - 1);
+                return fromU32((x & ~(mask << field)) | ((v & mask) << field));
+            }
+        }));
+        b.set("countlz", LuaTypesKt.fnv(new Function1() {
+            @Override
+            public final Object invoke(Object obj) {
+                return LuaValue.valueOf(Integer.numberOfLeadingZeros(toU32(((Varargs) obj).arg(1))));
+            }
+        }));
+        b.set("countrz", LuaTypesKt.fnv(new Function1() {
+            @Override
+            public final Object invoke(Object obj) {
+                return LuaValue.valueOf(Integer.numberOfTrailingZeros(toU32(((Varargs) obj).arg(1))));
+            }
+        }));
+        b.set("byteswap", LuaTypesKt.fnv(new Function1() {
+            @Override
+            public final Object invoke(Object obj) {
+                return fromU32(Integer.reverseBytes(toU32(((Varargs) obj).arg(1))));
+            }
+        }));
+        g.set("bit32", b);
+    }
+
+    private final void installSafePcall(Globals g) {
+        final LuaValue origPcall = g.get("pcall");
+        if (origPcall.isfunction()) {
+            LuaValue safePcall = LuaTypesKt.fnv(new Function1() {
                 @Override
                 public final Object invoke(Object obj) {
-                    LuaThread running = g.running;
-                    return LuaValue.valueOf(running != null && !running.isMainThread());
+                    Varargs a = (Varargs) obj;
+                    try {
+                        return origPcall.invoke(a);
+                    } catch (org.luaj.vm2.OrphanedThread ot) {
+                        throw ot;
+                    } catch (StackOverflowError soe) {
+                        return LuaValue.varargsOf(LuaValue.FALSE, LuaValue.valueOf("stack overflow"));
+                    } catch (Throwable t) {
+                        String msg = t.getMessage();
+                        return LuaValue.varargsOf(LuaValue.FALSE, LuaValue.valueOf(msg != null && !msg.isEmpty() ? msg : t.toString()));
+                    }
+                }
+            });
+            g.set("pcall", safePcall);
+            g.set("ypcall", safePcall);
+        } else {
+            g.set("ypcall", origPcall);
+        }
+        final LuaValue origXpcall = g.get("xpcall");
+        if (origXpcall.isfunction()) {
+            g.set("xpcall", LuaTypesKt.fnv(new Function1() {
+                @Override
+                public final Object invoke(Object obj) {
+                    Varargs a = (Varargs) obj;
+                    try {
+                        return origXpcall.invoke(a);
+                    } catch (org.luaj.vm2.OrphanedThread ot) {
+                        throw ot;
+                    } catch (StackOverflowError soe) {
+                        LuaValue errObj = LuaValue.valueOf("stack overflow");
+                        LuaValue errh = a.arg(2);
+                        if (errh.isfunction()) {
+                            try {
+                                errObj = errh.call(errObj);
+                            } catch (Throwable ignored) {
+                                errObj = LuaValue.valueOf("error in error handling");
+                            }
+                        }
+                        return LuaValue.varargsOf(LuaValue.FALSE, errObj);
+                    } catch (Throwable t) {
+                        String msg = t.getMessage();
+                        LuaValue errObj = LuaValue.valueOf(msg != null && !msg.isEmpty() ? msg : t.toString());
+                        LuaValue errh = a.arg(2);
+                        if (errh.isfunction()) {
+                            try {
+                                errObj = errh.call(errObj);
+                            } catch (Throwable ignored) {
+                                errObj = LuaValue.valueOf("error in error handling");
+                            }
+                        }
+                        return LuaValue.varargsOf(LuaValue.FALSE, errObj);
+                    }
                 }
             }));
-            coroVal.set("close", LuaTypesKt.fnv(new Function1() {
+        }
+    }
+
+    private final void installCoroutineExtras(final Globals g, final LuaRuntime rt) {
+        LuaValue coroVal = g.get("coroutine");
+        if (!coroVal.istable()) {
+            return;
+        }
+        final LuaValue origCreate = coroVal.get("create");
+        if (origCreate.isfunction()) {
+            coroVal.set("create", LuaTypesKt.fnv(new Function1() {
+                @Override
+                public final Object invoke(Object obj) {
+                    Varargs res = origCreate.invoke((Varargs) obj);
+                    LuaValue th = res.arg1();
+                    if (th instanceof LuaThread) {
+                        rt.setHook((LuaThread) th);
+                    }
+                    return res;
+                }
+            }));
+        }
+        final LuaValue origWrap = coroVal.get("wrap");
+        if (origWrap.isfunction()) {
+            coroVal.set("wrap", LuaTypesKt.fnv(new Function1() {
+                @Override
+                public final Object invoke(Object obj) {
+                    LuaFunction fn = ((Varargs) obj).arg(1).checkfunction();
+                    final LuaThread co = rt.newThread(fn);
+                    return LuaTypesKt.fnv(new Function1() {
+                        @Override
+                        public final Object invoke(Object callArgs) {
+                            if (rt.isCancelled(co)) {
+                                throw new LuaError("cannot resume dead coroutine");
+                            }
+                            try {
+                                Varargs r = co.resume((Varargs) callArgs);
+                                if (r.arg1().toboolean()) {
+                                    return r.subargs(2);
+                                }
+                                LuaValue err = r.arg(2);
+                                throw new LuaError(err.isnil() ? "error in coroutine" : err.tojstring());
+                            } catch (LuaError le) {
+                                throw le;
+                            } catch (org.luaj.vm2.OrphanedThread ot) {
+                                throw ot;
+                            } catch (StackOverflowError soe) {
+                                throw new LuaError("stack overflow");
+                            } catch (Throwable t) {
+                                String msg = t.getMessage();
+                                throw new LuaError(msg != null && !msg.isEmpty() ? msg : t.toString());
+                            }
+                        }
+                    });
+                }
+            }));
+        }
+        final LuaValue origStatus = coroVal.get("status");
+        if (origStatus.isfunction()) {
+            coroVal.set("status", LuaTypesKt.fnv(new Function1() {
                 @Override
                 public final Object invoke(Object obj) {
                     Varargs a = (Varargs) obj;
                     LuaValue th = a.arg(1);
-                    if (th instanceof LuaThread) {
-                        rt.cancel((LuaThread) th);
+                    if (th instanceof LuaThread && rt.isCancelled((LuaThread) th)) {
+                        return LuaValue.valueOf("dead");
                     }
-                    return LuaValue.TRUE;
+                    return origStatus.invoke(a);
                 }
             }));
         }
-        installBuffer(g);
-        installDateTime(g);
-        installDebugAndOs(g, table, string);
+        final LuaValue origResume = coroVal.get("resume");
+        if (origResume.isfunction()) {
+            coroVal.set("resume", LuaTypesKt.fnv(new Function1() {
+                @Override
+                public final Object invoke(Object obj) {
+                    Varargs a = (Varargs) obj;
+                    LuaValue th = a.arg(1);
+                    if (th instanceof LuaThread && rt.isCancelled((LuaThread) th)) {
+                        return LuaValue.varargsOf(LuaValue.FALSE, LuaValue.valueOf("cannot resume dead coroutine"));
+                    }
+                    try {
+                        return origResume.invoke(a);
+                    } catch (org.luaj.vm2.OrphanedThread ot) {
+                        throw ot;
+                    } catch (StackOverflowError soe) {
+                        return LuaValue.varargsOf(LuaValue.FALSE, LuaValue.valueOf("stack overflow"));
+                    } catch (Throwable t) {
+                        String msg = t.getMessage();
+                        return LuaValue.varargsOf(LuaValue.FALSE, LuaValue.valueOf(msg != null && !msg.isEmpty() ? msg : t.toString()));
+                    }
+                }
+            }));
+        }
+        coroVal.set("isyieldable", LuaTypesKt.fnv(new Function1() {
+            @Override
+            public final Object invoke(Object obj) {
+                LuaThread running = g.running;
+                return LuaValue.valueOf(running != null && !running.isMainThread());
+            }
+        }));
+        coroVal.set("close", LuaTypesKt.fnv(new Function1() {
+            @Override
+            public final Object invoke(Object obj) {
+                Varargs a = (Varargs) obj;
+                LuaValue th = a.arg(1);
+                if (!(th instanceof LuaThread)) {
+                    throw new LuaError("bad argument #1 to 'close' (thread expected, got " + LuaTypes.INSTANCE.typeOf(th) + ")");
+                }
+                LuaThread co = (LuaThread) th;
+                if (co == g.running) {
+                    return LuaValue.varargsOf(LuaValue.FALSE, LuaValue.valueOf("cannot close a running coroutine"));
+                }
+                rt.cancel(co);
+                return LuaValue.TRUE;
+            }
+        }));
+    }
+
+    private static int decodeUtf8(byte[] bytes, int baseOff, int byteLen, int idx, int[] outCp) {
+        int b0 = bytes[baseOff + idx] & 0xFF;
+        if (b0 < 0x80) {
+            outCp[0] = b0;
+            return 1;
+        }
+        if ((b0 & 0xE0) == 0xC0) {
+            if (idx + 1 >= byteLen) return -1;
+            int b1 = bytes[baseOff + idx + 1] & 0xFF;
+            if ((b1 & 0xC0) != 0x80) return -1;
+            int cp = ((b0 & 0x1F) << 6) | (b1 & 0x3F);
+            if (cp < 0x80) return -1;
+            outCp[0] = cp;
+            return 2;
+        }
+        if ((b0 & 0xF0) == 0xE0) {
+            if (idx + 2 >= byteLen) return -1;
+            int b1 = bytes[baseOff + idx + 1] & 0xFF;
+            int b2 = bytes[baseOff + idx + 2] & 0xFF;
+            if ((b1 & 0xC0) != 0x80 || (b2 & 0xC0) != 0x80) return -1;
+            int cp = ((b0 & 0x0F) << 12) | ((b1 & 0x3F) << 6) | (b2 & 0x3F);
+            if (cp < 0x800 || (cp >= 0xD800 && cp <= 0xDFFF)) return -1;
+            outCp[0] = cp;
+            return 3;
+        }
+        if ((b0 & 0xF8) == 0xF0) {
+            if (idx + 3 >= byteLen) return -1;
+            int b1 = bytes[baseOff + idx + 1] & 0xFF;
+            int b2 = bytes[baseOff + idx + 2] & 0xFF;
+            int b3 = bytes[baseOff + idx + 3] & 0xFF;
+            if ((b1 & 0xC0) != 0x80 || (b2 & 0xC0) != 0x80 || (b3 & 0xC0) != 0x80) return -1;
+            int cp = ((b0 & 0x07) << 18) | ((b1 & 0x3F) << 12) | ((b2 & 0x3F) << 6) | (b3 & 0x3F);
+            if (cp < 0x10000 || cp > 0x10FFFF) return -1;
+            outCp[0] = cp;
+            return 4;
+        }
+        return -1;
+    }
+
+    private static Varargs utf8Len(Varargs a) {
+        LuaString ls = a.arg(1).checkstring();
+        int byteLen = ls.m_length;
+        int i = a.arg(2).optint(1);
+        int j = a.arg(3).optint(-1);
+        if (i < 0) i = byteLen + i + 1;
+        if (j < 0) j = byteLen + j + 1;
+        if (i < 1) throw new LuaError("initial position out of string");
+        if (j > byteLen) throw new LuaError("final position out of string");
+        int count = 0;
+        int pos = i - 1;
+        int end = j;
+        int[] cp = new int[1];
+        while (pos < end) {
+            int step = decodeUtf8(ls.m_bytes, ls.m_offset, end, pos, cp);
+            if (step < 0) {
+                return LuaValue.varargsOf(LuaValue.NIL, LuaValue.valueOf(pos + 1));
+            }
+            count++;
+            pos += step;
+        }
+        return LuaValue.valueOf(count);
+    }
+
+    private static Varargs utf8Codepoint(Varargs a) {
+        LuaString ls = a.arg(1).checkstring();
+        int byteLen = ls.m_length;
+        int i = a.arg(2).optint(1);
+        int j = a.arg(3).optint(i);
+        if (i < 0) i = byteLen + i + 1;
+        if (j < 0) j = byteLen + j + 1;
+        if (i < 1) throw new LuaError("out of range");
+        if (j > byteLen) throw new LuaError("out of range");
+        if (i > j) return LuaValue.NONE;
+        ArrayList<LuaValue> cps = new ArrayList<>();
+        int pos = i - 1;
+        int[] cp = new int[1];
+        while (pos < j) {
+            int step = decodeUtf8(ls.m_bytes, ls.m_offset, byteLen, pos, cp);
+            if (step < 0) {
+                throw new LuaError("invalid UTF-8 code");
+            }
+            cps.add(LuaValue.valueOf(cp[0]));
+            pos += step;
+        }
+        return LuaValue.varargsOf(cps.toArray(new LuaValue[0]));
+    }
+
+    private static Varargs utf8Offset(Varargs a) {
+        LuaString ls = a.arg(1).checkstring();
+        int byteLen = ls.m_length;
+        int n = a.arg(2).checkint();
+        int pos = a.arg(3).optint(n >= 0 ? 1 : byteLen + 1);
+        if (pos < 0) pos = byteLen + pos + 1;
+        pos--;
+        if (pos < 0 || pos > byteLen) {
+            throw new LuaError("position out of range");
+        }
+        if (n == 0) {
+            while (pos > 0 && pos < byteLen && (ls.m_bytes[ls.m_offset + pos] & 0xC0) == 0x80) {
+                pos--;
+            }
+            return LuaValue.valueOf(pos + 1);
+        }
+        if (pos < byteLen && (ls.m_bytes[ls.m_offset + pos] & 0xC0) == 0x80) {
+            throw new LuaError("initial position is a continuation byte");
+        }
+        if (n < 0) {
+            while (n < 0 && pos > 0) {
+                do {
+                    pos--;
+                } while (pos > 0 && (ls.m_bytes[ls.m_offset + pos] & 0xC0) == 0x80);
+                n++;
+            }
+            return n == 0 ? LuaValue.valueOf(pos + 1) : LuaValue.NIL;
+        } else {
+            n--;
+            while (n > 0 && pos < byteLen) {
+                do {
+                    pos++;
+                } while (pos < byteLen && (ls.m_bytes[ls.m_offset + pos] & 0xC0) == 0x80);
+                n--;
+            }
+            return n == 0 ? LuaValue.valueOf(pos + 1) : LuaValue.NIL;
+        }
     }
 
     private static final java.nio.ByteBuffer checkBuf(LuaValue v) {
@@ -813,13 +1235,31 @@ public final class RobloxGlobals {
         throw new org.luaj.vm2.LuaError("buffer expected, got " + LuaTypes.INSTANCE.typeOf(v));
     }
 
+    private static void checkBufRange(java.nio.ByteBuffer bb, int off, int len) {
+        if (off < 0 || len < 0 || ((long) off + (long) len) > (long) bb.capacity()) {
+            throw new org.luaj.vm2.LuaError("buffer access out of bounds");
+        }
+    }
+
+    private static void checkBufBits(java.nio.ByteBuffer bb, int bitOff, int bitCnt) {
+        if (bitOff < 0 || bitCnt < 0 || bitCnt > 32) {
+            throw new org.luaj.vm2.LuaError("buffer bit access out of bounds");
+        }
+        if (bitCnt > 0) {
+            long lastByte = ((long) bitOff + (long) bitCnt - 1L) >>> 3;
+            if (lastByte >= (long) bb.capacity()) {
+                throw new org.luaj.vm2.LuaError("buffer access out of bounds");
+            }
+        }
+    }
+
     private final void installBuffer(Globals g) {
         LuaTable buf = new LuaTable();
         buf.set("create", LuaTypesKt.fn1(new Function1() {
             @Override
             public final Object invoke(Object obj) {
                 int sz = ((LuaValue) obj).checkint();
-                if (sz < 0) throw new org.luaj.vm2.LuaError("buffer size cannot be negative");
+                if (sz < 0 || sz > 268435456) throw new org.luaj.vm2.LuaError("buffer size out of range");
                 java.nio.ByteBuffer bb = java.nio.ByteBuffer.allocate(sz).order(java.nio.ByteOrder.LITTLE_ENDIAN);
                 return new org.luaj.vm2.LuaUserdata(bb);
             }
@@ -851,63 +1291,90 @@ public final class RobloxGlobals {
             @Override
             public final Object invoke(Object obj) {
                 Varargs a = (Varargs) obj;
-                return LuaValue.valueOf((int) checkBuf(a.arg(1)).get(a.arg(2).checkint()));
+                java.nio.ByteBuffer bb = checkBuf(a.arg(1));
+                int off = a.arg(2).checkint();
+                checkBufRange(bb, off, 1);
+                return LuaValue.valueOf((int) bb.get(off));
             }
         }));
         buf.set("readu8", LuaTypesKt.fnv(new Function1() {
             @Override
             public final Object invoke(Object obj) {
                 Varargs a = (Varargs) obj;
-                return LuaValue.valueOf(checkBuf(a.arg(1)).get(a.arg(2).checkint()) & 0xFF);
+                java.nio.ByteBuffer bb = checkBuf(a.arg(1));
+                int off = a.arg(2).checkint();
+                checkBufRange(bb, off, 1);
+                return LuaValue.valueOf(bb.get(off) & 0xFF);
             }
         }));
         buf.set("readi16", LuaTypesKt.fnv(new Function1() {
             @Override
             public final Object invoke(Object obj) {
                 Varargs a = (Varargs) obj;
-                return LuaValue.valueOf((int) checkBuf(a.arg(1)).getShort(a.arg(2).checkint()));
+                java.nio.ByteBuffer bb = checkBuf(a.arg(1));
+                int off = a.arg(2).checkint();
+                checkBufRange(bb, off, 2);
+                return LuaValue.valueOf((int) bb.getShort(off));
             }
         }));
         buf.set("readu16", LuaTypesKt.fnv(new Function1() {
             @Override
             public final Object invoke(Object obj) {
                 Varargs a = (Varargs) obj;
-                return LuaValue.valueOf(checkBuf(a.arg(1)).getShort(a.arg(2).checkint()) & 0xFFFF);
+                java.nio.ByteBuffer bb = checkBuf(a.arg(1));
+                int off = a.arg(2).checkint();
+                checkBufRange(bb, off, 2);
+                return LuaValue.valueOf(bb.getShort(off) & 0xFFFF);
             }
         }));
         buf.set("readi32", LuaTypesKt.fnv(new Function1() {
             @Override
             public final Object invoke(Object obj) {
                 Varargs a = (Varargs) obj;
-                return LuaValue.valueOf(checkBuf(a.arg(1)).getInt(a.arg(2).checkint()));
+                java.nio.ByteBuffer bb = checkBuf(a.arg(1));
+                int off = a.arg(2).checkint();
+                checkBufRange(bb, off, 4);
+                return LuaValue.valueOf(bb.getInt(off));
             }
         }));
         buf.set("readu32", LuaTypesKt.fnv(new Function1() {
             @Override
             public final Object invoke(Object obj) {
                 Varargs a = (Varargs) obj;
-                return LuaValue.valueOf(((long) checkBuf(a.arg(1)).getInt(a.arg(2).checkint())) & 0xFFFFFFFFL);
+                java.nio.ByteBuffer bb = checkBuf(a.arg(1));
+                int off = a.arg(2).checkint();
+                checkBufRange(bb, off, 4);
+                return LuaValue.valueOf(((long) bb.getInt(off)) & 0xFFFFFFFFL);
             }
         }));
         buf.set("readf32", LuaTypesKt.fnv(new Function1() {
             @Override
             public final Object invoke(Object obj) {
                 Varargs a = (Varargs) obj;
-                return LuaValue.valueOf((double) checkBuf(a.arg(1)).getFloat(a.arg(2).checkint()));
+                java.nio.ByteBuffer bb = checkBuf(a.arg(1));
+                int off = a.arg(2).checkint();
+                checkBufRange(bb, off, 4);
+                return LuaValue.valueOf((double) bb.getFloat(off));
             }
         }));
         buf.set("readf64", LuaTypesKt.fnv(new Function1() {
             @Override
             public final Object invoke(Object obj) {
                 Varargs a = (Varargs) obj;
-                return LuaValue.valueOf(checkBuf(a.arg(1)).getDouble(a.arg(2).checkint()));
+                java.nio.ByteBuffer bb = checkBuf(a.arg(1));
+                int off = a.arg(2).checkint();
+                checkBufRange(bb, off, 8);
+                return LuaValue.valueOf(bb.getDouble(off));
             }
         }));
         buf.set("writei8", LuaTypesKt.fnv(new Function1() {
             @Override
             public final Object invoke(Object obj) {
                 Varargs a = (Varargs) obj;
-                checkBuf(a.arg(1)).put(a.arg(2).checkint(), (byte) a.arg(3).checkint());
+                java.nio.ByteBuffer bb = checkBuf(a.arg(1));
+                int off = a.arg(2).checkint();
+                checkBufRange(bb, off, 1);
+                bb.put(off, (byte) (long) a.arg(3).checkdouble());
                 return LuaValue.NONE;
             }
         }));
@@ -915,7 +1382,10 @@ public final class RobloxGlobals {
             @Override
             public final Object invoke(Object obj) {
                 Varargs a = (Varargs) obj;
-                checkBuf(a.arg(1)).put(a.arg(2).checkint(), (byte) (a.arg(3).checkint() & 0xFF));
+                java.nio.ByteBuffer bb = checkBuf(a.arg(1));
+                int off = a.arg(2).checkint();
+                checkBufRange(bb, off, 1);
+                bb.put(off, (byte) (((long) a.arg(3).checkdouble()) & 0xFFL));
                 return LuaValue.NONE;
             }
         }));
@@ -923,7 +1393,10 @@ public final class RobloxGlobals {
             @Override
             public final Object invoke(Object obj) {
                 Varargs a = (Varargs) obj;
-                checkBuf(a.arg(1)).putShort(a.arg(2).checkint(), (short) a.arg(3).checkint());
+                java.nio.ByteBuffer bb = checkBuf(a.arg(1));
+                int off = a.arg(2).checkint();
+                checkBufRange(bb, off, 2);
+                bb.putShort(off, (short) (long) a.arg(3).checkdouble());
                 return LuaValue.NONE;
             }
         }));
@@ -931,7 +1404,10 @@ public final class RobloxGlobals {
             @Override
             public final Object invoke(Object obj) {
                 Varargs a = (Varargs) obj;
-                checkBuf(a.arg(1)).putShort(a.arg(2).checkint(), (short) (a.arg(3).checkint() & 0xFFFF));
+                java.nio.ByteBuffer bb = checkBuf(a.arg(1));
+                int off = a.arg(2).checkint();
+                checkBufRange(bb, off, 2);
+                bb.putShort(off, (short) (((long) a.arg(3).checkdouble()) & 0xFFFFL));
                 return LuaValue.NONE;
             }
         }));
@@ -939,7 +1415,10 @@ public final class RobloxGlobals {
             @Override
             public final Object invoke(Object obj) {
                 Varargs a = (Varargs) obj;
-                checkBuf(a.arg(1)).putInt(a.arg(2).checkint(), a.arg(3).checkint());
+                java.nio.ByteBuffer bb = checkBuf(a.arg(1));
+                int off = a.arg(2).checkint();
+                checkBufRange(bb, off, 4);
+                bb.putInt(off, (int) (long) a.arg(3).checkdouble());
                 return LuaValue.NONE;
             }
         }));
@@ -947,7 +1426,10 @@ public final class RobloxGlobals {
             @Override
             public final Object invoke(Object obj) {
                 Varargs a = (Varargs) obj;
-                checkBuf(a.arg(1)).putInt(a.arg(2).checkint(), (int) a.arg(3).checklong());
+                java.nio.ByteBuffer bb = checkBuf(a.arg(1));
+                int off = a.arg(2).checkint();
+                checkBufRange(bb, off, 4);
+                bb.putInt(off, (int) (long) a.arg(3).checkdouble());
                 return LuaValue.NONE;
             }
         }));
@@ -955,7 +1437,10 @@ public final class RobloxGlobals {
             @Override
             public final Object invoke(Object obj) {
                 Varargs a = (Varargs) obj;
-                checkBuf(a.arg(1)).putFloat(a.arg(2).checkint(), (float) a.arg(3).checkdouble());
+                java.nio.ByteBuffer bb = checkBuf(a.arg(1));
+                int off = a.arg(2).checkint();
+                checkBufRange(bb, off, 4);
+                bb.putFloat(off, (float) a.arg(3).checkdouble());
                 return LuaValue.NONE;
             }
         }));
@@ -963,7 +1448,10 @@ public final class RobloxGlobals {
             @Override
             public final Object invoke(Object obj) {
                 Varargs a = (Varargs) obj;
-                checkBuf(a.arg(1)).putDouble(a.arg(2).checkint(), a.arg(3).checkdouble());
+                java.nio.ByteBuffer bb = checkBuf(a.arg(1));
+                int off = a.arg(2).checkint();
+                checkBufRange(bb, off, 8);
+                bb.putDouble(off, a.arg(3).checkdouble());
                 return LuaValue.NONE;
             }
         }));
@@ -974,6 +1462,7 @@ public final class RobloxGlobals {
                 java.nio.ByteBuffer bb = checkBuf(a.arg(1));
                 int off = a.arg(2).checkint();
                 int cnt = a.arg(3).checkint();
+                checkBufRange(bb, off, cnt);
                 return org.luaj.vm2.LuaString.valueOf(bb.array(), off, cnt);
             }
         }));
@@ -984,8 +1473,12 @@ public final class RobloxGlobals {
                 java.nio.ByteBuffer bb = checkBuf(a.arg(1));
                 int off = a.arg(2).checkint();
                 org.luaj.vm2.LuaString ls = a.arg(3).checkstring();
-                int cnt = a.arg(4).optint(ls.m_length);
-                System.arraycopy(ls.m_bytes, ls.m_offset, bb.array(), off, Math.min(cnt, ls.m_length));
+                int cnt = a.arg(4).isnil() ? ls.m_length : a.arg(4).checkint();
+                if (cnt < 0 || cnt > ls.m_length) {
+                    throw new org.luaj.vm2.LuaError("buffer access out of bounds");
+                }
+                checkBufRange(bb, off, cnt);
+                System.arraycopy(ls.m_bytes, ls.m_offset, bb.array(), off, cnt);
                 return LuaValue.NONE;
             }
         }));
@@ -997,7 +1490,9 @@ public final class RobloxGlobals {
                 int dstOff = a.arg(2).checkint();
                 java.nio.ByteBuffer src = checkBuf(a.arg(3));
                 int srcOff = a.arg(4).optint(0);
-                int cnt = a.arg(5).optint(src.capacity() - srcOff);
+                int cnt = a.arg(5).isnil() ? (src.capacity() - srcOff) : a.arg(5).checkint();
+                checkBufRange(src, srcOff, cnt);
+                checkBufRange(dst, dstOff, cnt);
                 System.arraycopy(src.array(), srcOff, dst.array(), dstOff, cnt);
                 return LuaValue.NONE;
             }
@@ -1008,8 +1503,9 @@ public final class RobloxGlobals {
                 Varargs a = (Varargs) obj;
                 java.nio.ByteBuffer bb = checkBuf(a.arg(1));
                 int off = a.arg(2).checkint();
-                byte val = (byte) (a.arg(3).checkint() & 0xFF);
-                int cnt = a.arg(4).optint(bb.capacity() - off);
+                byte val = (byte) (((long) a.arg(3).checkdouble()) & 0xFFL);
+                int cnt = a.arg(4).isnil() ? (bb.capacity() - off) : a.arg(4).checkint();
+                checkBufRange(bb, off, cnt);
                 java.util.Arrays.fill(bb.array(), off, off + cnt, val);
                 return LuaValue.NONE;
             }
@@ -1018,9 +1514,11 @@ public final class RobloxGlobals {
             @Override
             public final Object invoke(Object obj) {
                 Varargs a = (Varargs) obj;
-                byte[] arr = checkBuf(a.arg(1)).array();
+                java.nio.ByteBuffer bb = checkBuf(a.arg(1));
                 int bitOff = a.arg(2).checkint();
                 int bitCnt = a.arg(3).checkint();
+                checkBufBits(bb, bitOff, bitCnt);
+                byte[] arr = bb.array();
                 long res = 0L;
                 for (int i = 0; i < bitCnt; i++) {
                     int bIdx = (bitOff + i) >>> 3;
@@ -1036,10 +1534,12 @@ public final class RobloxGlobals {
             @Override
             public final Object invoke(Object obj) {
                 Varargs a = (Varargs) obj;
-                byte[] arr = checkBuf(a.arg(1)).array();
+                java.nio.ByteBuffer bb = checkBuf(a.arg(1));
                 int bitOff = a.arg(2).checkint();
                 int bitCnt = a.arg(3).checkint();
-                long val = a.arg(4).checklong();
+                long val = (long) a.arg(4).checkdouble();
+                checkBufBits(bb, bitOff, bitCnt);
+                byte[] arr = bb.array();
                 for (int i = 0; i < bitCnt; i++) {
                     int bIdx = (bitOff + i) >>> 3;
                     int bBit = (bitOff + i) & 7;
@@ -1212,7 +1712,62 @@ public final class RobloxGlobals {
     }
 
 
-    private final void installDebugAndOs(Globals g, LuaValue table, LuaValue string) {
+    private static String formatTzOffset(java.util.TimeZone tz, long ms) {
+        int offMin = tz.getOffset(ms) / 60000;
+        char sign = offMin < 0 ? '-' : '+';
+        int absMin = Math.abs(offMin);
+        return String.format(java.util.Locale.US, "%c%02d%02d", sign, absMin / 60, absMin % 60);
+    }
+
+    private static int readPackIntWidth(String fmt, int[] idxRef, int defWidth) {
+        int i = idxRef[0];
+        if (i + 1 < fmt.length() && Character.isDigit(fmt.charAt(i + 1))) {
+            int num = 0;
+            while (i + 1 < fmt.length() && Character.isDigit(fmt.charAt(i + 1))) {
+                num = num * 10 + (fmt.charAt(++i) - '0');
+            }
+            if (num < 1 || num > 16) {
+                throw new LuaError("integral size (" + num + ") out of limits [1,16]");
+            }
+            idxRef[0] = i;
+            return num;
+        }
+        return defWidth;
+    }
+
+    private static void writeSizedInt(java.io.ByteArrayOutputStream baos, long val, int size, java.nio.ByteOrder ord) {
+        if (ord == java.nio.ByteOrder.LITTLE_ENDIAN) {
+            for (int k = 0; k < size; k++) {
+                baos.write((int) ((val >>> (k * 8)) & 0xFFL));
+            }
+        } else {
+            for (int k = size - 1; k >= 0; k--) {
+                baos.write((int) ((val >>> (k * 8)) & 0xFFL));
+            }
+        }
+    }
+
+    private static long readSizedInt(byte[] buf, int off, int size, boolean signed, java.nio.ByteOrder ord) {
+        long res = 0L;
+        if (ord == java.nio.ByteOrder.LITTLE_ENDIAN) {
+            for (int k = size - 1; k >= 0; k--) {
+                res = (res << 8) | (buf[off + k] & 0xFFL);
+            }
+        } else {
+            for (int k = 0; k < size; k++) {
+                res = (res << 8) | (buf[off + k] & 0xFFL);
+            }
+        }
+        if (signed && size < 8) {
+            long signBit = 1L << (size * 8 - 1);
+            if ((res & signBit) != 0L) {
+                res |= (~0L << (size * 8));
+            }
+        }
+        return res;
+    }
+
+    private final void installDebugAndOs(Globals g, final LuaRuntime rt, LuaValue table, LuaValue string) {
         table.set("pack", LuaTypesKt.fnv(new Function1() {
             @Override
             public final Object invoke(Object obj) {
@@ -1258,16 +1813,69 @@ public final class RobloxGlobals {
             @Override
             public final Object invoke(Object obj) {
                 Varargs a = (Varargs) obj;
-                LuaValue target = a.arg(1);
-                String opts = a.arg(2).optjstring("sln");
+                LuaValue target;
+                String opts;
+                LuaThread threadArg = null;
+                if (a.arg(1).isthread()) {
+                    threadArg = (LuaThread) a.arg(1);
+                    target = a.arg(2);
+                    opts = a.arg(3).checkjstring();
+                } else {
+                    target = a.arg(1);
+                    opts = a.arg(2).checkjstring();
+                }
+                LuaValue infoTbl = LuaValue.NIL;
+                try {
+                    LuaValue getinfo = rt.getDebugGetinfo();
+                    if (getinfo != null && getinfo.isfunction()) {
+                        LuaValue queryTarget = target;
+                        if (target.isnumber() && threadArg == null) {
+                            queryTarget = LuaValue.valueOf(target.checkint() + 1);
+                        }
+                        if (threadArg != null) {
+                            infoTbl = getinfo.invoke(LuaValue.varargsOf(new LuaValue[]{threadArg, queryTarget, LuaValue.valueOf("Slnf")})).arg1();
+                        } else {
+                            infoTbl = getinfo.call(queryTarget, LuaValue.valueOf("Slnf"));
+                        }
+                    }
+                } catch (Throwable ignored) {
+                    infoTbl = LuaValue.NIL;
+                }
+                if (infoTbl.isnil() && target.isnumber()) {
+                    return LuaValue.NIL;
+                }
+                LuaValue funcVal = infoTbl.istable() ? infoTbl.get("func") : (target.isfunction() ? target : LuaValue.NIL);
                 ArrayList<LuaValue> out = new ArrayList<>();
                 for (int i = 0; i < opts.length(); i++) {
                     char ch = opts.charAt(i);
-                    if (ch == 's') out.add(LuaValue.valueOf("[Script]"));
-                    else if (ch == 'l') out.add(LuaValue.valueOf(1));
-                    else if (ch == 'n') out.add(LuaValue.valueOf(""));
-                    else if (ch == 'a') { out.add(LuaValue.valueOf(0)); out.add(LuaValue.TRUE); }
-                    else if (ch == 'f') out.add(target.isfunction() ? target : LuaValue.NIL);
+                    if (ch == 's') {
+                        LuaValue srcV = infoTbl.istable() ? infoTbl.get("short_src") : LuaValue.NIL;
+                        if (srcV.isnil() && infoTbl.istable()) srcV = infoTbl.get("source");
+                        String s = srcV.isstring() ? rt.cleanError(srcV.tojstring()) : "[Script]";
+                        out.add(LuaValue.valueOf(s));
+                    } else if (ch == 'l') {
+                        LuaValue lV = infoTbl.istable() ? infoTbl.get("currentline") : LuaValue.NIL;
+                        if ((!lV.isnumber() || lV.toint() < 0) && infoTbl.istable()) {
+                            lV = infoTbl.get("linedefined");
+                        }
+                        out.add(lV.isnumber() ? lV : LuaValue.valueOf(-1));
+                    } else if (ch == 'n') {
+                        LuaValue nV = infoTbl.istable() ? infoTbl.get("name") : LuaValue.NIL;
+                        out.add(nV.isstring() ? nV : LuaValue.valueOf(""));
+                    } else if (ch == 'a') {
+                        if (funcVal instanceof LuaClosure) {
+                            LuaClosure lc = (LuaClosure) funcVal;
+                            out.add(LuaValue.valueOf(lc.p != null ? lc.p.numparams : 0));
+                            out.add(LuaValue.valueOf(lc.p != null && lc.p.is_vararg != 0));
+                        } else {
+                            out.add(LuaValue.valueOf(0));
+                            out.add(LuaValue.TRUE);
+                        }
+                    } else if (ch == 'f') {
+                        out.add(funcVal != null ? funcVal : LuaValue.NIL);
+                    } else {
+                        throw new LuaError("invalid option '" + ch + "'");
+                    }
                 }
                 return LuaValue.varargsOf(out.toArray(new LuaValue[0]));
             }
@@ -1319,6 +1927,7 @@ public final class RobloxGlobals {
                 java.util.TimeZone tz = utc ? java.util.TimeZone.getTimeZone("UTC") : java.util.TimeZone.getDefault();
                 java.util.Calendar cal = java.util.Calendar.getInstance(tz);
                 cal.setTimeInMillis(ms);
+                java.util.Date dateObj = new java.util.Date(ms);
                 if ("*t".equals(f)) {
                     LuaTable r = new LuaTable();
                     r.set("year", cal.get(java.util.Calendar.YEAR));
@@ -1329,7 +1938,7 @@ public final class RobloxGlobals {
                     r.set("hour", cal.get(java.util.Calendar.HOUR_OF_DAY));
                     r.set("min", cal.get(java.util.Calendar.MINUTE));
                     r.set("sec", cal.get(java.util.Calendar.SECOND));
-                    r.set("isdst", LuaValue.valueOf(tz.inDaylightTime(new java.util.Date(ms))));
+                    r.set("isdst", LuaValue.valueOf(tz.inDaylightTime(dateObj)));
                     return r;
                 }
                 StringBuilder sb = new StringBuilder();
@@ -1342,12 +1951,82 @@ public final class RobloxGlobals {
                             case 'y': sb.append(String.format(java.util.Locale.US, "%02d", cal.get(java.util.Calendar.YEAR) % 100)); break;
                             case 'm': sb.append(String.format(java.util.Locale.US, "%02d", cal.get(java.util.Calendar.MONTH) + 1)); break;
                             case 'd': sb.append(String.format(java.util.Locale.US, "%02d", cal.get(java.util.Calendar.DAY_OF_MONTH))); break;
+                            case 'e': sb.append(String.format(java.util.Locale.US, "%2d", cal.get(java.util.Calendar.DAY_OF_MONTH))); break;
                             case 'H': sb.append(String.format(java.util.Locale.US, "%02d", cal.get(java.util.Calendar.HOUR_OF_DAY))); break;
+                            case 'I': {
+                                int h12 = cal.get(java.util.Calendar.HOUR);
+                                sb.append(String.format(java.util.Locale.US, "%02d", h12 == 0 ? 12 : h12));
+                                break;
+                            }
                             case 'M': sb.append(String.format(java.util.Locale.US, "%02d", cal.get(java.util.Calendar.MINUTE))); break;
                             case 'S': sb.append(String.format(java.util.Locale.US, "%02d", cal.get(java.util.Calendar.SECOND))); break;
+                            case 'p': sb.append(cal.get(java.util.Calendar.AM_PM) == java.util.Calendar.AM ? "AM" : "PM"); break;
                             case 'j': sb.append(String.format(java.util.Locale.US, "%03d", cal.get(java.util.Calendar.DAY_OF_YEAR))); break;
+                            case 'w': sb.append(cal.get(java.util.Calendar.DAY_OF_WEEK) - 1); break;
+                            case 'a': {
+                                java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("EEE", java.util.Locale.US);
+                                sdf.setTimeZone(tz);
+                                sb.append(sdf.format(dateObj));
+                                break;
+                            }
+                            case 'A': {
+                                java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("EEEE", java.util.Locale.US);
+                                sdf.setTimeZone(tz);
+                                sb.append(sdf.format(dateObj));
+                                break;
+                            }
+                            case 'b': case 'h': {
+                                java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("MMM", java.util.Locale.US);
+                                sdf.setTimeZone(tz);
+                                sb.append(sdf.format(dateObj));
+                                break;
+                            }
+                            case 'B': {
+                                java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("MMMM", java.util.Locale.US);
+                                sdf.setTimeZone(tz);
+                                sb.append(sdf.format(dateObj));
+                                break;
+                            }
+                            case 'x': {
+                                java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("MM/dd/yy", java.util.Locale.US);
+                                sdf.setTimeZone(tz);
+                                sb.append(sdf.format(dateObj));
+                                break;
+                            }
+                            case 'X': case 'T': {
+                                sb.append(String.format(java.util.Locale.US, "%02d:%02d:%02d",
+                                        cal.get(java.util.Calendar.HOUR_OF_DAY),
+                                        cal.get(java.util.Calendar.MINUTE),
+                                        cal.get(java.util.Calendar.SECOND)));
+                                break;
+                            }
+                            case 'F': {
+                                sb.append(String.format(java.util.Locale.US, "%04d-%02d-%02d",
+                                        cal.get(java.util.Calendar.YEAR),
+                                        cal.get(java.util.Calendar.MONTH) + 1,
+                                        cal.get(java.util.Calendar.DAY_OF_MONTH)));
+                                break;
+                            }
+                            case 'R': {
+                                sb.append(String.format(java.util.Locale.US, "%02d:%02d",
+                                        cal.get(java.util.Calendar.HOUR_OF_DAY),
+                                        cal.get(java.util.Calendar.MINUTE)));
+                                break;
+                            }
+                            case 'Z': sb.append(tz.getDisplayName(tz.inDaylightTime(dateObj), java.util.TimeZone.SHORT, java.util.Locale.US)); break;
+                            case 'z': sb.append(formatTzOffset(tz, ms)); break;
+                            case 'U': case 'W': sb.append(String.format(java.util.Locale.US, "%02d", cal.get(java.util.Calendar.WEEK_OF_YEAR))); break;
+                            case 'c': {
+                                java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("EEE MMM dd HH:mm:ss yyyy", java.util.Locale.US);
+                                sdf.setTimeZone(tz);
+                                sb.append(sdf.format(dateObj));
+                                break;
+                            }
                             case '%': sb.append('%'); break;
-                            default: sb.append(new java.text.SimpleDateFormat("EEE MMM dd HH:mm:ss yyyy", java.util.Locale.US).format(new java.util.Date(ms))); break;
+                            default: {
+                                sb.append('%').append(nc);
+                                break;
+                            }
                         }
                     } else {
                         sb.append(c);
@@ -1411,14 +2090,27 @@ public final class RobloxGlobals {
             public final Object invoke(Object obj) {
                 String fmt = ((LuaValue) obj).checkjstring();
                 int sz = 0;
+                int[] idxRef = new int[1];
                 for (int i = 0; i < fmt.length(); i++) {
                     char c = fmt.charAt(i);
                     switch (c) {
                         case '<': case '>': case '=': case ' ': break;
+                        case '!': {
+                            idxRef[0] = i;
+                            readPackIntWidth(fmt, idxRef, 1);
+                            i = idxRef[0];
+                            break;
+                        }
                         case 'b': case 'B': case 'x': sz += 1; break;
                         case 'h': case 'H': sz += 2; break;
-                        case 'i': case 'I': case 'l': case 'L': case 'f': sz += 4; break;
-                        case 'd': sz += 8; break;
+                        case 'l': case 'L': case 'j': case 'J': case 'T': case 'f': sz += 4; break;
+                        case 'i': case 'I': {
+                            idxRef[0] = i;
+                            sz += readPackIntWidth(fmt, idxRef, 4);
+                            i = idxRef[0];
+                            break;
+                        }
+                        case 'd': case 'n': sz += 8; break;
                         case 'c': {
                             int num = 0;
                             while (i + 1 < fmt.length() && Character.isDigit(fmt.charAt(i + 1))) {
@@ -1427,6 +2119,8 @@ public final class RobloxGlobals {
                             sz += num;
                             break;
                         }
+                        case 's': case 'z':
+                            throw new LuaError("variable-length format");
                         default: break;
                     }
                 }
@@ -1442,22 +2136,34 @@ public final class RobloxGlobals {
                 java.nio.ByteOrder ord = java.nio.ByteOrder.LITTLE_ENDIAN;
                 int argIdx = 2;
                 byte[] tmp8 = new byte[8];
+                int[] idxRef = new int[1];
                 for (int i = 0; i < fmt.length(); i++) {
                     char c = fmt.charAt(i);
                     switch (c) {
                         case '<': ord = java.nio.ByteOrder.LITTLE_ENDIAN; break;
                         case '>': ord = java.nio.ByteOrder.BIG_ENDIAN; break;
                         case '=': case ' ': break;
-                        case 'x': baos.write(0); break;
-                        case 'b': case 'B': baos.write(a.arg(argIdx++).checkint() & 0xFF); break;
-                        case 'h': case 'H': {
-                            java.nio.ByteBuffer.wrap(tmp8).order(ord).putShort(0, (short) a.arg(argIdx++).checkint());
-                            baos.write(tmp8, 0, 2);
+                        case '!': {
+                            idxRef[0] = i;
+                            readPackIntWidth(fmt, idxRef, 1);
+                            i = idxRef[0];
                             break;
                         }
-                        case 'i': case 'I': case 'l': case 'L': {
-                            java.nio.ByteBuffer.wrap(tmp8).order(ord).putInt(0, (int) a.arg(argIdx++).checklong());
-                            baos.write(tmp8, 0, 4);
+                        case 'x': baos.write(0); break;
+                        case 'b': case 'B': baos.write((int) (((long) a.arg(argIdx++).checkdouble()) & 0xFFL)); break;
+                        case 'h': case 'H': {
+                            writeSizedInt(baos, (long) a.arg(argIdx++).checkdouble(), 2, ord);
+                            break;
+                        }
+                        case 'l': case 'L': case 'j': case 'J': case 'T': {
+                            writeSizedInt(baos, (long) a.arg(argIdx++).checkdouble(), 4, ord);
+                            break;
+                        }
+                        case 'i': case 'I': {
+                            idxRef[0] = i;
+                            int w = readPackIntWidth(fmt, idxRef, 4);
+                            i = idxRef[0];
+                            writeSizedInt(baos, (long) a.arg(argIdx++).checkdouble(), w, ord);
                             break;
                         }
                         case 'f': {
@@ -1465,7 +2171,7 @@ public final class RobloxGlobals {
                             baos.write(tmp8, 0, 4);
                             break;
                         }
-                        case 'd': {
+                        case 'd': case 'n': {
                             java.nio.ByteBuffer.wrap(tmp8).order(ord).putDouble(0, a.arg(argIdx++).checkdouble());
                             baos.write(tmp8, 0, 8);
                             break;
@@ -1482,15 +2188,19 @@ public final class RobloxGlobals {
                                 num = num * 10 + (fmt.charAt(++i) - '0');
                             }
                             org.luaj.vm2.LuaString ls = a.arg(argIdx++).checkstring();
-                            int cp = Math.min(num, ls.m_length);
-                            baos.write(ls.m_bytes, ls.m_offset, cp);
-                            for (int p = cp; p < num; p++) baos.write(0);
+                            if (ls.m_length > num) {
+                                throw new LuaError("string longer than given size");
+                            }
+                            baos.write(ls.m_bytes, ls.m_offset, ls.m_length);
+                            for (int p = ls.m_length; p < num; p++) baos.write(0);
                             break;
                         }
                         case 's': {
+                            idxRef[0] = i;
+                            int w = readPackIntWidth(fmt, idxRef, 4);
+                            i = idxRef[0];
                             org.luaj.vm2.LuaString ls = a.arg(argIdx++).checkstring();
-                            java.nio.ByteBuffer.wrap(tmp8).order(ord).putInt(0, ls.m_length);
-                            baos.write(tmp8, 0, 4);
+                            writeSizedInt(baos, ls.m_length, w, ord);
                             baos.write(ls.m_bytes, ls.m_offset, ls.m_length);
                             break;
                         }
@@ -1507,11 +2217,16 @@ public final class RobloxGlobals {
                 Varargs a = (Varargs) obj;
                 String fmt = a.arg(1).checkjstring();
                 org.luaj.vm2.LuaString data = a.arg(2).checkstring();
-                int pos = a.arg(3).optint(1) - 1;
-                if (pos < 0) pos = 0;
+                int init = a.arg(3).optint(1);
+                if (init < 0) init = data.m_length + init + 1;
+                int pos = init - 1;
+                if (pos < 0 || pos > data.m_length) {
+                    throw new LuaError("initial position out of string");
+                }
                 java.nio.ByteOrder ord = java.nio.ByteOrder.LITTLE_ENDIAN;
                 java.nio.ByteBuffer bb = java.nio.ByteBuffer.wrap(data.m_bytes, data.m_offset, data.m_length);
                 ArrayList<LuaValue> out = new ArrayList<>();
+                int[] idxRef = new int[1];
                 for (int i = 0; i < fmt.length(); i++) {
                     char c = fmt.charAt(i);
                     bb.order(ord);
@@ -1519,20 +2234,81 @@ public final class RobloxGlobals {
                         case '<': ord = java.nio.ByteOrder.LITTLE_ENDIAN; break;
                         case '>': ord = java.nio.ByteOrder.BIG_ENDIAN; break;
                         case '=': case ' ': break;
-                        case 'x': pos += 1; break;
-                        case 'b': out.add(LuaValue.valueOf((int) bb.get(data.m_offset + pos))); pos += 1; break;
-                        case 'B': out.add(LuaValue.valueOf(bb.get(data.m_offset + pos) & 0xFF)); pos += 1; break;
-                        case 'h': out.add(LuaValue.valueOf((int) bb.getShort(data.m_offset + pos))); pos += 2; break;
-                        case 'H': out.add(LuaValue.valueOf(bb.getShort(data.m_offset + pos) & 0xFFFF)); pos += 2; break;
-                        case 'i': case 'l': out.add(LuaValue.valueOf(bb.getInt(data.m_offset + pos))); pos += 4; break;
-                        case 'I': case 'L': out.add(LuaValue.valueOf(((long) bb.getInt(data.m_offset + pos)) & 0xFFFFFFFFL)); pos += 4; break;
-                        case 'f': out.add(LuaValue.valueOf((double) bb.getFloat(data.m_offset + pos))); pos += 4; break;
-                        case 'd': out.add(LuaValue.valueOf(bb.getDouble(data.m_offset + pos))); pos += 8; break;
+                        case '!': {
+                            idxRef[0] = i;
+                            readPackIntWidth(fmt, idxRef, 1);
+                            i = idxRef[0];
+                            break;
+                        }
+                        case 'x': {
+                            if (pos + 1 > data.m_length) throw new LuaError("data string too short");
+                            pos += 1;
+                            break;
+                        }
+                        case 'b': {
+                            if (pos + 1 > data.m_length) throw new LuaError("data string too short");
+                            out.add(LuaValue.valueOf((int) bb.get(data.m_offset + pos)));
+                            pos += 1;
+                            break;
+                        }
+                        case 'B': {
+                            if (pos + 1 > data.m_length) throw new LuaError("data string too short");
+                            out.add(LuaValue.valueOf(bb.get(data.m_offset + pos) & 0xFF));
+                            pos += 1;
+                            break;
+                        }
+                        case 'h': {
+                            if (pos + 2 > data.m_length) throw new LuaError("data string too short");
+                            out.add(LuaValue.valueOf((int) bb.getShort(data.m_offset + pos)));
+                            pos += 2;
+                            break;
+                        }
+                        case 'H': {
+                            if (pos + 2 > data.m_length) throw new LuaError("data string too short");
+                            out.add(LuaValue.valueOf(bb.getShort(data.m_offset + pos) & 0xFFFF));
+                            pos += 2;
+                            break;
+                        }
+                        case 'l': case 'j': {
+                            if (pos + 4 > data.m_length) throw new LuaError("data string too short");
+                            out.add(LuaValue.valueOf(bb.getInt(data.m_offset + pos)));
+                            pos += 4;
+                            break;
+                        }
+                        case 'L': case 'J': case 'T': {
+                            if (pos + 4 > data.m_length) throw new LuaError("data string too short");
+                            out.add(LuaValue.valueOf(((long) bb.getInt(data.m_offset + pos)) & 0xFFFFFFFFL));
+                            pos += 4;
+                            break;
+                        }
+                        case 'i': case 'I': {
+                            idxRef[0] = i;
+                            int w = readPackIntWidth(fmt, idxRef, 4);
+                            i = idxRef[0];
+                            if (pos + w > data.m_length) throw new LuaError("data string too short");
+                            long val = readSizedInt(data.m_bytes, data.m_offset + pos, w, c == 'i', ord);
+                            out.add(LuaValue.valueOf((double) val));
+                            pos += w;
+                            break;
+                        }
+                        case 'f': {
+                            if (pos + 4 > data.m_length) throw new LuaError("data string too short");
+                            out.add(LuaValue.valueOf((double) bb.getFloat(data.m_offset + pos)));
+                            pos += 4;
+                            break;
+                        }
+                        case 'd': case 'n': {
+                            if (pos + 8 > data.m_length) throw new LuaError("data string too short");
+                            out.add(LuaValue.valueOf(bb.getDouble(data.m_offset + pos)));
+                            pos += 8;
+                            break;
+                        }
                         case 'z': {
                             int start = pos;
                             while (pos < data.m_length && data.m_bytes[data.m_offset + pos] != 0) pos++;
+                            if (pos >= data.m_length) throw new LuaError("unfinished string for format 'z'");
                             out.add(org.luaj.vm2.LuaString.valueOf(data.m_bytes, data.m_offset + start, pos - start));
-                            if (pos < data.m_length) pos++;
+                            pos++;
                             break;
                         }
                         case 'c': {
@@ -1540,14 +2316,23 @@ public final class RobloxGlobals {
                             while (i + 1 < fmt.length() && Character.isDigit(fmt.charAt(i + 1))) {
                                 num = num * 10 + (fmt.charAt(++i) - '0');
                             }
-                            out.add(org.luaj.vm2.LuaString.valueOf(data.m_bytes, data.m_offset + pos, Math.min(num, data.m_length - pos)));
+                            if (pos + num > data.m_length) throw new LuaError("data string too short");
+                            out.add(org.luaj.vm2.LuaString.valueOf(data.m_bytes, data.m_offset + pos, num));
                             pos += num;
                             break;
                         }
                         case 's': {
-                            int slen = bb.getInt(data.m_offset + pos);
-                            pos += 4;
-                            out.add(org.luaj.vm2.LuaString.valueOf(data.m_bytes, data.m_offset + pos, Math.min(slen, data.m_length - pos)));
+                            idxRef[0] = i;
+                            int w = readPackIntWidth(fmt, idxRef, 4);
+                            i = idxRef[0];
+                            if (pos + w > data.m_length) throw new LuaError("data string too short");
+                            long slenL = readSizedInt(data.m_bytes, data.m_offset + pos, w, false, ord);
+                            pos += w;
+                            if (slenL < 0 || slenL > (long) (data.m_length - pos)) {
+                                throw new LuaError("data string too short");
+                            }
+                            int slen = (int) slenL;
+                            out.add(org.luaj.vm2.LuaString.valueOf(data.m_bytes, data.m_offset + pos, slen));
                             pos += slen;
                             break;
                         }
@@ -1862,10 +2647,19 @@ public final class RobloxGlobals {
                 return stub;
             }
             if (m.isstring()) {
-                UpValue upValueInstall$envSlot = install$envSlot(install$funcAt($rt, 1));
-                LuaValue value = upValueInstall$envSlot != null ? upValueInstall$envSlot.getValue() : null;
-                LuaTable luaTable = value instanceof LuaTable ? (LuaTable) value : null;
-                if (luaTable != null && (luaValue = luaTable.get("script")) != null) {
+                LuaTable callerEnv = null;
+                for (int lvl = 1; lvl <= 3; lvl++) {
+                    UpValue up = install$envSlot(install$funcAt($rt, lvl));
+                    LuaValue val = up != null ? up.getValue() : null;
+                    if (val instanceof LuaTable && !((LuaTable) val).get("script").isnil()) {
+                        callerEnv = (LuaTable) val;
+                        break;
+                    }
+                }
+                if (callerEnv == null) {
+                    callerEnv = $rt.loadingModuleEnv();
+                }
+                if (callerEnv != null && (luaValue = callerEnv.get("script")) != null) {
                     Object obj2 = luaValue.isuserdata() ? luaValue.touserdata() : null;
                     Instance caller = (Instance) (obj2 instanceof Instance ? obj2 : null);
                     if (caller != null) {
@@ -1878,8 +2672,9 @@ public final class RobloxGlobals {
                 if (inst == null) {
                     throw new LuaError("require(\"" + m.tojstring() + "\") needs to be called from a script");
                 }
+            } else {
+                throw new LuaError("Attempted to call require with invalid argument(s).");
             }
-            throw new LuaError("Attempted to call require with invalid argument(s).");
         }
         try { return $rt.require(inst); } catch (Throwable _ktEx) { throw com.goydevv.studrblx.util.KtCompat.sneakyThrow(_ktEx); }
     }
@@ -1967,26 +2762,29 @@ public final class RobloxGlobals {
         String src = a.arg1().checkjstring();
         String name = a.arg(2).optjstring("loadstring");
         try {
-            UpValue upValueInstall$envSlot = install$envSlot(install$funcAt($rt, 1));
-            LuaValue value = upValueInstall$envSlot != null ? upValueInstall$envSlot.getValue() : null;
-            LuaTable env = value instanceof LuaTable ? (LuaTable) value : null;
+            LuaTable env = null;
+            for (int lvl = 1; lvl <= 3; lvl++) {
+                UpValue up = install$envSlot(install$funcAt($rt, lvl));
+                LuaValue val = up != null ? up.getValue() : null;
+                if (val instanceof LuaTable) {
+                    env = (LuaTable) val;
+                    break;
+                }
+            }
+            if (env == null) {
+                env = $rt.loadingModuleEnv();
+            }
             if (env == null) {
                 env = $g;
             }
-            Globals globals = $rt.getGlobals();
             Intrinsics.checkNotNull(src);
-            LuaValue luaValueLoad = globals.load(LuaRuntime.transpileCached(src, false), "=" + name, env);
-            Intrinsics.checkNotNull(luaValueLoad);
-            return luaValueLoad;
-        } catch (LuaError e) {
-            LuaValue luaValue = LuaValue.NIL;
+            return $rt.compile(src, name, env);
+        } catch (Throwable e) {
             String message = e.getMessage();
-            if (message == null) {
+            if (message == null || message.isEmpty()) {
                 message = "syntax error";
             }
-            Varargs varargsVarargsOf2 = LuaValue.varargsOf(luaValue, LuaValue.valueOf($rt.cleanError(message)));
-            Intrinsics.checkNotNull(varargsVarargsOf2);
-            return varargsVarargsOf2;
+            return LuaValue.varargsOf(LuaValue.NIL, LuaValue.valueOf($rt.cleanError(message)));
         }
     }
 
@@ -2078,12 +2876,7 @@ public final class RobloxGlobals {
             co = $rt.newThread(luaFunctionCheckfunction);
         }
         final Varargs args = a.subargs(3);
-        $rt.after(a.arg(1).optdouble(0.0d), new Function0() { // from class: com.goydevv.studrblx.lua.RobloxGlobals$$ExternalSyntheticLambda0
-            @Override // kotlin.jvm.functions.Function0
-            public final Object invoke() {
-                return RobloxGlobals.install$lambda$35$lambda$34($rt, co, args);
-            }
-        });
+        $rt.delayWithArgs(a.arg(1).optdouble(0.0d), co, args);
         return co;
     }
 
@@ -2229,7 +3022,8 @@ public final class RobloxGlobals {
         if (mn > mx) {
             throw new LuaError("max must be greater than or equal to min");
         }
-        LuaNumber luaNumberValueOf = LuaValue.valueOf(RangesKt.coerceIn(x, mn, mx));
+        double clamped = Double.isNaN(x) ? Double.NaN : (x < mn ? mn : (x > mx ? mx : x));
+        LuaNumber luaNumberValueOf = LuaValue.valueOf(clamped);
         Intrinsics.checkNotNullExpressionValue(luaNumberValueOf, "valueOf(...)");
         return luaNumberValueOf;
     }
@@ -2266,9 +3060,10 @@ public final class RobloxGlobals {
     static final Varargs install$lambda$59(Varargs a) {
         Intrinsics.checkNotNullParameter(a, "a");
         double x = a.arg(1).checkdouble();
-        LuaNumber luaNumberValueOf = LuaValue.valueOf(((a.arg(2).checkdouble() - x) * a.arg(3).checkdouble()) + x);
-        Intrinsics.checkNotNullExpressionValue(luaNumberValueOf, "valueOf(...)");
-        return luaNumberValueOf;
+        double y = a.arg(2).checkdouble();
+        double t = a.arg(3).checkdouble();
+        double res = (t == 1.0d) ? y : (x + ((y - x) * t));
+        return LuaValue.valueOf(res);
     }
 
     static final Varargs install$lambda$60(Varargs a) {
@@ -2302,9 +3097,10 @@ public final class RobloxGlobals {
             }
             parts = (List) arrayList;
         }
+        int idx = 1;
         Iterator it = parts.iterator();
         while (it.hasNext()) {
-            t.insert(0, LuaValue.valueOf((String) it.next()));
+            t.set(idx++, LuaValue.valueOf((String) it.next()));
         }
         return t;
     }
@@ -2350,6 +3146,9 @@ public final class RobloxGlobals {
         Intrinsics.checkNotNullParameter(a, "a");
         LuaTable t = new LuaTable();
         int n = a.arg(1).checkint();
+        if (n < 0 || n > 10000000) {
+            throw new LuaError("invalid argument #1 to 'create' (size out of range)");
+        }
         LuaValue v = a.arg(2);
         if (!v.isnil()) {
             int i = 1;
@@ -2374,6 +3173,9 @@ public final class RobloxGlobals {
         }
         LuaTable newMt = new LuaTable();
         LuaValue oldMt = t.getmetatable();
+        if (oldMt != null && !oldMt.isnil()) {
+            FROZEN_ORIG_MT.put(t, oldMt);
+        }
         if (oldMt != null && oldMt.istable()) {
             LuaTable omt = (LuaTable) oldMt;
             LuaValue k = LuaValue.NIL;
@@ -2412,10 +3214,15 @@ public final class RobloxGlobals {
             Varargs n = src.next(k);
             k = n.arg1();
             if (k.isnil()) {
-                return t;
+                break;
             }
             t.set(k, n.arg(2));
         }
+        LuaValue mt = isFrozenTable(src) ? FROZEN_ORIG_MT.get(src) : src.getmetatable();
+        if (mt != null && !mt.isnil()) {
+            t.setmetatable(mt);
+        }
+        return t;
     }
 
     static final Varargs install$lambda$71(Varargs a) {
@@ -2425,13 +3232,7 @@ public final class RobloxGlobals {
         int f = a.arg(2).checkint();
         int e = a.arg(3).checkint();
         int tpos = a.arg(4).checkint();
-        if (a.arg(5).istable()) {
-            LuaValue luaValueArg = a.arg(5);
-            Intrinsics.checkNotNull(luaValueArg, "null cannot be cast to non-null type org.luaj.vm2.LuaTable");
-            dst = (LuaTable) luaValueArg;
-        } else {
-            dst = src;
-        }
+        dst = a.arg(5).isnil() ? src : a.arg(5).checktable();
         checkNotFrozen(dst);
         if (tpos <= f) {
             int i = f;
@@ -2462,9 +3263,7 @@ public final class RobloxGlobals {
 
     static final LuaValue install$lambda$72(LuaValue a) {
         Intrinsics.checkNotNullParameter(a, "a");
-        LuaInteger luaIntegerValueOf = LuaValue.valueOf(a.length());
-        Intrinsics.checkNotNullExpressionValue(luaIntegerValueOf, "valueOf(...)");
-        return luaIntegerValueOf;
+        return LuaValue.valueOf(a.checktable().length());
     }
 
     static final Varargs install$lambda$73(Varargs a) {
@@ -2474,7 +3273,11 @@ public final class RobloxGlobals {
         int iNarg = a.narg();
         if (1 <= iNarg) {
             while (true) {
-                sb.appendCodePoint(a.arg(i).checkint());
+                int cp = a.arg(i).checkint();
+                if (cp < 0 || cp > 0x10FFFF) {
+                    throw new LuaError("value out of range");
+                }
+                sb.appendCodePoint(cp);
                 if (i == iNarg) {
                     break;
                 }
