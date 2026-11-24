@@ -294,6 +294,31 @@ public final class Avatar {
         return current;
     }
 
+    private static final ConcurrentHashMap<Long, Spec> userSpecCache = new ConcurrentHashMap<>();
+
+    public final Spec resolveForUser(long userId) {
+        Spec cur = current;
+        long meId = (app != null) ? RobloxApi.INSTANCE.userId(app) : 0L;
+        if (cur != null && (userId <= 0L || (meId > 0L && meId == userId))) {
+            return cur;
+        }
+        if (userId > 0L) {
+            Spec cached = userSpecCache.get(Long.valueOf(userId));
+            if (cached != null) {
+                return cached;
+            }
+            try {
+                Spec fetched = fromUser(userId, "User_" + userId);
+                if (fetched != null) {
+                    userSpecCache.put(Long.valueOf(userId), fetched);
+                    return fetched;
+                }
+            } catch (Throwable ignored) {
+            }
+        }
+        return cur;
+    }
+
     public final int getVersion() {
         return version;
     }

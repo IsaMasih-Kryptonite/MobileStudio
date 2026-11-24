@@ -1913,7 +1913,9 @@ public final class SceneRenderer implements GLSurfaceView.Renderer {
                         try {
                             this.studio.frame(dt);
                         } catch (Exception e) {
-                            OutputLog.INSTANCE.error("Simulation error: " + e);
+                            StackTraceElement[] st = e.getStackTrace();
+                            String where = (st != null && st.length > 0) ? (" @ " + st[0]) : "";
+                            OutputLog.INSTANCE.error("Simulation error: " + e + where);
                         }
                         FlyCamera camera = this.studio.getCamera();
                         this.studio.getView().update(camera.getPos(), camera.getPos().plus(camera.getForward()), camera.getFov(), this.studio.getView().getWidth(), this.studio.getView().getHeight(), this.nearPlane);

@@ -1257,6 +1257,49 @@ public final class RobloxServices {
                     return sp;
                 }
                 return LuaValue.NIL;
+            case "Camera": {
+                com.goydevv.studrblx.core.Studio stCam = rt.getStudio();
+                if ("ViewportPointToRay".equals(name) || "ScreenPointToRay".equals(name)) {
+                    float unit = stCam.guiUnit();
+                    float sx = LuaTypesKt.num(a.arg(2)) * unit;
+                    float sy = LuaTypesKt.num(a.arg(3)) * unit;
+                    float depth = a.arg(4).isnil() ? 0.0f : LuaTypesKt.num(a.arg(4));
+                    kotlin.Pair<com.goydevv.studrblx.model.Vector3, com.goydevv.studrblx.model.Vector3> sr = stCam.getView().screenRay(sx, sy);
+                    com.goydevv.studrblx.model.Vector3 ro = sr.component1();
+                    com.goydevv.studrblx.model.Vector3 rd = sr.component2();
+                    if (depth != 0.0f) {
+                        ro = ro.plus(rd.times(depth));
+                    }
+                    return LuaTypes.INSTANCE.wrap(new com.goydevv.studrblx.model.Ray(ro, rd));
+                }
+                if ("WorldToViewportPoint".equals(name) || "WorldToScreenPoint".equals(name)) {
+                    Object ud = a.arg(2).isuserdata() ? a.arg(2).touserdata() : null;
+                    com.goydevv.studrblx.model.Vector3 wp = (ud instanceof com.goydevv.studrblx.model.Vector3) ? (com.goydevv.studrblx.model.Vector3) ud : com.goydevv.studrblx.model.Vector3.INSTANCE.getZERO();
+                    float unit = Math.max(stCam.guiUnit(), 0.001f);
+                    float[] proj = stCam.getView().project(wp);
+                    com.goydevv.studrblx.model.Vector3 rel = wp.minus(stCam.getCamera().getPos());
+                    float depth = rel.dot(stCam.getCamera().getForward());
+                    if (proj == null) {
+                        return LuaValue.varargsOf(new LuaValue[]{
+                            LuaTypes.INSTANCE.wrap(new com.goydevv.studrblx.model.Vector3(0.0f, 0.0f, depth)),
+                            LuaValue.FALSE
+                        });
+                    }
+                    float vx = proj[0] / unit;
+                    float vy = proj[1] / unit;
+                    boolean onScreen = depth > 0.0f
+                            && proj[0] >= 0.0f && proj[0] <= (float) stCam.getView().getWidth()
+                            && proj[1] >= 0.0f && proj[1] <= (float) stCam.getView().getHeight();
+                    return LuaValue.varargsOf(new LuaValue[]{
+                        LuaTypes.INSTANCE.wrap(new com.goydevv.studrblx.model.Vector3(vx, vy, depth)),
+                        LuaValue.valueOf(onScreen)
+                    });
+                }
+                if ("GetPartsObscuringTarget".equals(name)) {
+                    return new LuaTable();
+                }
+                return LuaValue.NIL;
+            }
             case "Lighting":
                 if ("GetMinutesAfterMidnight".equals(name)) {
                     float ctf = com.goydevv.studrblx.core.PlaceFactory.resolveClockTime(svc);
@@ -2574,6 +2617,26 @@ public final class RobloxServices {
         desc.set("ClimbAnimation", Long.valueOf(0L), false);
         desc.set("SwimAnimation", Long.valueOf(0L), false);
         desc.set("MoodAnimation", Long.valueOf(0L), false);
+        com.goydevv.studrblx.engine.Avatar.Spec avSpec = com.goydevv.studrblx.engine.Avatar.INSTANCE.resolveForUser(userOrOutfitId);
+        if (avSpec != null) {
+            desc.getAttributes().put("__avatarSpec", avSpec);
+            Map<String, com.goydevv.studrblx.model.Color3> cols = avSpec.getColors();
+            if (cols != null) {
+                if (cols.get("Head") != null) desc.set("HeadColor", cols.get("Head"), false);
+                if (cols.get("Torso") != null) desc.set("TorsoColor", cols.get("Torso"), false);
+                if (cols.get("Left Arm") != null) desc.set("LeftArmColor", cols.get("Left Arm"), false);
+                if (cols.get("Right Arm") != null) desc.set("RightArmColor", cols.get("Right Arm"), false);
+                if (cols.get("Left Leg") != null) desc.set("LeftLegColor", cols.get("Left Leg"), false);
+                if (cols.get("Right Leg") != null) desc.set("RightLegColor", cols.get("Right Leg"), false);
+            }
+            com.goydevv.studrblx.engine.Avatar.Scales sc = avSpec.getScales();
+            if (sc != null) {
+                desc.set("HeadScale", Float.valueOf(sc.getHead()), false);
+                desc.set("HeightScale", Float.valueOf(sc.getHeight()), false);
+                desc.set("WidthScale", Float.valueOf(sc.getWidth()), false);
+                desc.set("DepthScale", Float.valueOf(sc.getDepth()), false);
+            }
+        }
         return desc;
     }
 
@@ -2583,6 +2646,13 @@ public final class RobloxServices {
             hum.getAttributes().put("__appliedDescription", desc);
         }
         if (model == null) return;
+        Object rawSpec = desc.getAttributes().get("__avatarSpec");
+        if (rawSpec instanceof com.goydevv.studrblx.engine.Avatar.Spec) {
+            try {
+                com.goydevv.studrblx.engine.Avatar.INSTANCE.applyTo(model, (com.goydevv.studrblx.engine.Avatar.Spec) rawSpec);
+            } catch (Throwable ignored) {
+            }
+        }
         applyColorToParts(model, desc.get("HeadColor"), "Head");
         applyColorToParts(model, desc.get("TorsoColor"), "Torso", "UpperTorso", "LowerTorso");
         applyColorToParts(model, desc.get("LeftArmColor"), "Left Arm", "LeftUpperArm", "LeftLowerArm", "LeftHand");

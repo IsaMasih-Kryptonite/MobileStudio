@@ -186,19 +186,11 @@ public final class Studio {
                 if (Intrinsics.areEqual(name, "Name")) {
                     Studio.this.postTree();
                 }
-                boolean selected = false;
-                synchronized (Studio.this.lock) {
-                    ArrayList<Instance> sel = Studio.this.selection;
-                    for (int i = 0, n = sel.size(); i < n; i++) {
-                        if (sel.get(i) == inst) {
-                            selected = true;
-                            break;
-                        }
-                    }
-                }
-                if (selected) {
-                    Studio.this.postProps();
-                }
+                // Lock-free: LuaJ coroutines run on separate Java threads while GLThread holds
+                // Studio.this.lock inside LuaThread.resume(), so locking Studio.this.lock here
+                // deadlocks GLThread <-> Coroutine <-> MainActivity. postProps() is already
+                // lock-free and debounced at 150ms on the UI thread.
+                Studio.this.postProps();
             }
         };
         this.editModel.getListeners().add(this.treeListener);

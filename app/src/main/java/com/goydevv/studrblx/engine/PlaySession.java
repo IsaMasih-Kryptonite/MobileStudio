@@ -4996,6 +4996,9 @@ public final class PlaySession implements TreeListener {
                 parts = parts2;
                 z = false;
             }
+            if (parts.isEmpty()) {
+                continue;
+            }
             if (z) {
                 this.statics.addAll(parts);
             } else {

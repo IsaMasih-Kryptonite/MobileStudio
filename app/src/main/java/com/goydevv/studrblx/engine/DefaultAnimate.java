@@ -105,6 +105,7 @@ public final class DefaultAnimate {
                 return AnimLibrary.INSTANCE.get(e.getId());
             }
         }
+        if (list.isEmpty()) return null;
         return AnimLibrary.INSTANCE.get(((Entry) CollectionsKt.first((List) list)).getId());
     }
 

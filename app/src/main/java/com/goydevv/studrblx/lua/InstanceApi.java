@@ -2121,8 +2121,15 @@ public final class InstanceApi {
             case "ShadowSoftness":
             case "EnvironmentDiffuseScale":
             case "EnvironmentSpecularScale":
-            case "Density":
             case "Offset":
+                if (Intrinsics.areEqual(cn, "UIGradient")) {
+                    return null;
+                }
+                if (Intrinsics.areEqual(cn, "SpecialMesh")) {
+                    return 14;
+                }
+                return 4;
+            case "Density":
             case "Haze":
             case "Glare":
             case "FieldOfView":
